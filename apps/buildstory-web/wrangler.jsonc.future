@@ -1,9 +1,21 @@
 {
-  // NOT YET ACTIVE. Local dev and `npm run build:buildstory` still get their
-  // Worker config from `.openai/hosting.json` via the inline `config:` object
-  // in `vite.config.ts` (D1 only, database_id is a Miniflare-local placeholder).
-  // This file is a scaffold for the real Cloudflare deploy target described in
-  // the Buildstory production plan (see apps/buildstory-web/docs/production-runbook.md).
+  // NOT YET ACTIVE - and deliberately named wrangler.jsonc.future rather than
+  // wrangler.jsonc. Wrangler/Miniflare auto-discover a file literally named
+  // wrangler.jsonc/.toml/.json in this directory even though vite.config.ts
+  // never references it, and this scaffold's empty placeholder account_id
+  // crashed `vinext dev`'s Miniflare instance the moment the file existed
+  // under the auto-discovered name (Assembling the global services binding
+  // map asserts truthiness on it). Keep the ".future" suffix until every
+  // TODO below is filled in for real, then rename to wrangler.jsonc as a
+  // deliberate, tested cutover - not a side effect of the file merely
+  // existing.
+  //
+  // Local dev and `npm run build:buildstory` still get their Worker config
+  // from `.openai/hosting.json` via the inline `config:` object in
+  // `vite.config.ts` (D1 only, database_id is a Miniflare-local placeholder).
+  // This file is a scaffold for the real Cloudflare deploy target described
+  // in the Buildstory production plan (see
+  // apps/buildstory-web/docs/production-runbook.md).
   //
   // Before this can be wired in (point vite.config.ts's `cloudflare({ configPath: ... })`
   // here, or use it directly with `wrangler deploy`), fill in every TODO below:

@@ -921,3 +921,46 @@ export async function getPublishedStoryBySlug(slug: string) {
   snapshot.identity.visibility = "public";
   return publicBuildStoryFromSnapshot(snapshot, selected);
 }
+
+/**
+ * Public boundary: this query does not select the private source snapshot.
+ * Newest published stories first, capped for a single feed page.
+ */
+export async function listPublishedStories(limit = 30) {
+  const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), 100);
+  const rows = await (await database())
+    .prepare(
+      `SELECT snapshot_json, selected_public_fields_json, editorial_tagline, editorial_description, published_at
+       FROM buildstory_reports
+       WHERE publication_status = 'published'
+       ORDER BY published_at DESC LIMIT ?`,
+    )
+    .bind(boundedLimit)
+    .all<{
+      snapshot_json: string;
+      selected_public_fields_json: string;
+      editorial_tagline: string;
+      editorial_description: string;
+      published_at: string | null;
+    }>();
+
+  const stories = [];
+  for (const row of rows.results) {
+    const snapshot = parseJson<ProjectSnapshot>(row.snapshot_json, "public report");
+    const selected = parseJson<PublicFieldKey[]>(
+      row.selected_public_fields_json,
+      "public field",
+    );
+    if (!Array.isArray(selected) || selected.some((field) => !PUBLIC_FIELDS.includes(field))) {
+      continue; // skip rather than fail the whole feed on one invalid stored row
+    }
+    snapshot.identity.tagline = row.editorial_tagline;
+    snapshot.identity.description = row.editorial_description;
+    snapshot.identity.visibility = "public";
+    stories.push({
+      ...publicBuildStoryFromSnapshot(snapshot, selected),
+      publishedAt: row.published_at,
+    });
+  }
+  return stories;
+}

@@ -30,7 +30,8 @@ export type RepositoryMetadata = {
   languages: Array<{ name: string; percentage: number }>;
   framework: string | null;
   packageManager: string | null;
-  fileCount: number;
+  /** null when the source provider does not collect a file inventory. */
+  fileCount: number | null;
   initialCommitAt: string;
   currentRevision: string;
   isPrivate: boolean;
@@ -55,14 +56,26 @@ export type SessionSummary = {
   touchedAreas: string[];
 };
 
+/**
+ * Real, aggregate token accounting for the whole build window. Per-model
+ * splits are not collected yet (a session can mix models across messages),
+ * so this total is the honest figure to show rather than a fabricated
+ * per-model breakdown.
+ */
+export type AggregateTokenUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+};
+
 export type ToolModelUsage = {
   models: Array<{
     id: string;
     label: string;
     provider: string;
     requests: number;
-    inputTokens: number;
-    outputTokens: number;
   }>;
   tools: Array<{
     id: string;
@@ -70,6 +83,8 @@ export type ToolModelUsage = {
     category: "agent" | "editor" | "terminal" | "automation";
     sessions: number;
   }>;
+  /** null when no session in the window reported token usage. */
+  tokenUsage: AggregateTokenUsage | null;
 };
 
 export type GitAggregates = {

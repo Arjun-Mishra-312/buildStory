@@ -39,7 +39,7 @@ export default async function DashboardPage() {
           {ready.length ? ready.map((session) => (
             <Link
               className="dashboard-project-card"
-              href={session.reportId === "rpt_orbit_notes_ready" ? "/dashboard/projects/orbit-notes" : `/dashboard/reports/${session.reportId}`}
+              href={`/dashboard/reports/${session.reportId}`}
               key={session.id}
             >
               <div className="dashboard-project-card__cover" aria-hidden="true">
@@ -47,13 +47,11 @@ export default async function DashboardPage() {
                 <b>ON / 0.1</b>
               </div>
               <div className="dashboard-project-card__body">
-                <div><span className="status-dot status-dot--shipped" /> PUBLISHED · BUILD STORY</div>
+                <div><span className="status-dot status-dot--shipped" /> REPORT READY</div>
                 <h2>{session.projectLabel}</h2>
-                <p>A calmer way to follow a research trail.</p>
                 <dl>
                   <div><dt>Report</dt><dd>Ready</dd></div>
                   <div><dt>Snapshot</dt><dd>Validated</dd></div>
-                  <div><dt>Public URL</dt><dd>/p/orbit-notes</dd></div>
                 </dl>
               </div>
               <span className="dashboard-project-card__arrow" aria-hidden="true">↗</span>

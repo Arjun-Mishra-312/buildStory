@@ -143,7 +143,7 @@ export default function Home() {
             <Link className="button button--inverse" href="/explore">
               Start with the stories <span aria-hidden="true">↗</span>
             </Link>
-            <p>Scanner waitlist opens soon · No leaderboard, ever.</p>
+            <p>Scanner available now, local-first · No leaderboard, ever.</p>
           </div>
         </section>
       </main>

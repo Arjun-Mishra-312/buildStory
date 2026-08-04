@@ -48,9 +48,11 @@ export function buildStoryFromSnapshot(snapshot: ProjectSnapshot) {
         modelRequests > 0
           ? Math.round((model.requests / modelRequests) * 100)
           : 0,
-      totalTokens: model.inputTokens + model.outputTokens,
     })),
     tools: snapshot.usage.tools,
+    tokenUsage: snapshot.usage.tokenUsage,
+    stack: [snapshot.repository.framework, snapshot.repository.primaryLanguage, snapshot.repository.packageManager]
+      .filter((value): value is string => Boolean(value) && value !== "Not collected"),
     git: snapshot.git,
     milestones: snapshot.milestones.map((milestone, index) => ({
       ...milestone,
@@ -100,6 +102,7 @@ export function publicBuildStoryFromSnapshot(
     buildHours: selected.has("sessionSummary") ? story.buildHours : 0,
     modelRequests: selected.has("modelMix") ? story.modelRequests : 0,
     models: selected.has("modelMix") ? story.models : [],
+    tokenUsage: selected.has("modelMix") ? story.tokenUsage : null,
     tools: selected.has("toolUsage") ? story.tools : [],
     git: selected.has("gitAggregates")
       ? story.git
@@ -108,8 +111,7 @@ export function publicBuildStoryFromSnapshot(
     redaction: {
       tokensRemoved: selected.has("redactionSummary") ? story.redaction.tokensRemoved : 0,
     },
-    stack: [story.repository.framework, story.repository.primaryLanguage]
-      .filter((value): value is string => Boolean(value)),
+    stack: story.stack,
     receiptId: story.receiptId,
   };
 }

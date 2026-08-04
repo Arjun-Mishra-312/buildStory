@@ -633,6 +633,26 @@ export function getPublishedStoryBySlug(slug: string) {
   return publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields);
 }
 
+export function listPublishedStories(limit = 30) {
+  const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), 100);
+  return Array.from(store.reports.values())
+    .filter((report) => report.publication.status === "published")
+    .sort((left, right) =>
+      (right.publication.publishedAt ?? "").localeCompare(left.publication.publishedAt ?? ""),
+    )
+    .slice(0, boundedLimit)
+    .map((report) => {
+      const snapshot = structuredClone(report.snapshot);
+      snapshot.identity.tagline = report.editorial.tagline;
+      snapshot.identity.description = report.editorial.description;
+      snapshot.identity.visibility = "public";
+      return {
+        ...publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields),
+        publishedAt: report.publication.publishedAt,
+      };
+    });
+}
+
 export function statusLabel(status: UploadSessionStatus) {
   return status.replaceAll("_", " ");
 }

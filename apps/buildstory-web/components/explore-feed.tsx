@@ -2,14 +2,47 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import type { ExploreProject } from "@/lib/mock-projects";
+import type { PublicBuildStoryViewModel } from "@/lib/build-story";
 
-type Filter = "All" | ExploreProject["status"];
+export type ExploreStory = PublicBuildStoryViewModel & { publishedAt: string | null };
 
-const filters: Filter[] = ["All", "Building", "Shipped", "Experiment"];
+type StatusFilter = "All" | ExploreStory["status"];
 
-export function ExploreFeed({ projects }: { projects: ExploreProject[] }) {
-  const [filter, setFilter] = useState<Filter>("All");
+const filters: Array<{ value: StatusFilter; label: string }> = [
+  { value: "All", label: "All" },
+  { value: "building", label: "Building" },
+  { value: "shipped", label: "Shipped" },
+  { value: "prototype", label: "Prototype" },
+];
+
+const statusCssClass: Record<ExploreStory["status"], string> = {
+  shipped: "shipped",
+  building: "building",
+  prototype: "experiment",
+};
+
+const accentRotation = ["cobalt", "coral", "ink"] as const;
+
+function accentFor(slug: string) {
+  let hash = 0;
+  for (let index = 0; index < slug.length; index += 1) {
+    hash = (hash * 31 + slug.charCodeAt(index)) >>> 0;
+  }
+  return accentRotation[hash % accentRotation.length];
+}
+
+function initialsFor(name: string) {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const letters = words.slice(0, 2).map((word) => word[0]?.toUpperCase() ?? "");
+  return letters.join("") || "?";
+}
+
+function turningPoint(story: ExploreStory) {
+  return story.milestones[0]?.title ?? null;
+}
+
+export function ExploreFeed({ projects }: { projects: ExploreStory[] }) {
+  const [filter, setFilter] = useState<StatusFilter>("All");
   const [query, setQuery] = useState("");
 
   const visible = useMemo(() => {
@@ -21,9 +54,9 @@ export function ExploreFeed({ projects }: { projects: ExploreProject[] }) {
         [
           project.name,
           project.tagline,
-          project.maker,
-          project.category,
-          project.models.join(" "),
+          project.owner.name,
+          project.stack.join(" "),
+          project.models.map((model) => model.label).join(" "),
         ]
           .join(" ")
           .toLowerCase()
@@ -41,17 +74,17 @@ export function ExploreFeed({ projects }: { projects: ExploreProject[] }) {
         <div className="filter-tabs" role="group" aria-label="Filter build stories">
           {filters.map((item) => (
             <button
-              key={item}
+              key={item.value}
               type="button"
-              className={filter === item ? "is-active" : undefined}
-              onClick={() => setFilter(item)}
-              aria-pressed={filter === item}
+              className={filter === item.value ? "is-active" : undefined}
+              onClick={() => setFilter(item.value)}
+              aria-pressed={filter === item.value}
             >
-              {item}
+              {item.label}
               <span>
-                {item === "All"
+                {item.value === "All"
                   ? projects.length
-                  : projects.filter((project) => project.status === item).length}
+                  : projects.filter((project) => project.status === item.value).length}
               </span>
             </button>
           ))}
@@ -71,10 +104,18 @@ export function ExploreFeed({ projects }: { projects: ExploreProject[] }) {
       {!featured ? (
         <div className="explore-empty" role="status">
           <span>0 stories</span>
-          <h2>Nothing matches that trail yet.</h2>
-          <button type="button" onClick={() => { setFilter("All"); setQuery(""); }}>
-            Clear the filters
-          </button>
+          <h2>
+            {projects.length === 0
+              ? "No published build stories yet."
+              : "Nothing matches that trail yet."}
+          </h2>
+          {projects.length === 0 ? (
+            <p>Publish one from your dashboard and it will show up here.</p>
+          ) : (
+            <button type="button" onClick={() => { setFilter("All"); setQuery(""); }}>
+              Clear the filters
+            </button>
+          )}
         </div>
       ) : (
         <div className="explore-layout">
@@ -86,9 +127,9 @@ export function ExploreFeed({ projects }: { projects: ExploreProject[] }) {
               <div className="featured-story__receipt">
                 <div><span>BUILD /</span><strong>{featured.name.toUpperCase()}</strong></div>
                 <dl>
-                  <div><dt>WINDOW</dt><dd>{featured.days} DAYS</dd></div>
-                  <div><dt>SESSIONS</dt><dd>{String(featured.sessions).padStart(2, "0")}</dd></div>
-                  <div><dt>COMMITS</dt><dd>{featured.commits}</dd></div>
+                  <div><dt>WINDOW</dt><dd>{featured.activeDays} DAYS</dd></div>
+                  <div><dt>SESSIONS</dt><dd>{String(featured.sessionCount).padStart(2, "0")}</dd></div>
+                  <div><dt>COMMITS</dt><dd>{featured.git.commits}</dd></div>
                 </dl>
                 <div className="featured-story__receipt-rule" />
                 <small>PROCESS RECEIPT · LOCALLY REDACTED</small>
@@ -97,21 +138,24 @@ export function ExploreFeed({ projects }: { projects: ExploreProject[] }) {
             </div>
             <div className="featured-story__body">
               <div className="story-meta">
-                <span className="status-dot status-dot--shipped" />
-                {featured.status} · {featured.category}
+                <span className={`status-dot status-dot--${statusCssClass[featured.status]}`} />
+                {featured.status}
+                {featured.stack.length ? ` · ${featured.stack[0]}` : ""}
               </div>
               <h2>{featured.name}</h2>
               <p className="featured-story__tagline">{featured.tagline}</p>
-              <p>{featured.summary}</p>
-              <div className="turning-point">
-                <small>THE TURNING POINT</small>
-                <strong>“{featured.moment}”</strong>
-              </div>
+              <p>{featured.description}</p>
+              {turningPoint(featured) ? (
+                <div className="turning-point">
+                  <small>THE TURNING POINT</small>
+                  <strong>“{turningPoint(featured)}”</strong>
+                </div>
+              ) : null}
               <div className="story-byline">
-                <span className="avatar">{featured.initials}</span>
+                <span className="avatar">{initialsFor(featured.owner.name)}</span>
                 <span>
-                  <strong>{featured.maker}</strong>
-                  <small>@{featured.handle}</small>
+                  <strong>{featured.owner.name}</strong>
+                  <small>@{featured.owner.handle}</small>
                 </span>
                 <span className="story-arrow" aria-hidden="true">↗</span>
               </div>
@@ -120,30 +164,34 @@ export function ExploreFeed({ projects }: { projects: ExploreProject[] }) {
 
           <div className="story-list" aria-live="polite">
             {rest.map((project, index) => (
-              <article className="story-row" key={project.slug}>
-                <div className={`story-row__index story-row__index--${project.accent}`}>
+              <Link className="story-row" href={`/p/${project.slug}`} key={project.slug}>
+                <div className={`story-row__index story-row__index--${accentFor(project.slug)}`}>
                   {String(index + 2).padStart(2, "0")}
                 </div>
                 <div className="story-row__content">
                   <div className="story-row__topline">
-                    <span className={`status-dot status-dot--${project.status.toLowerCase()}`} />
-                    {project.status} · {project.category}
-                    <span>{project.updatedAt}</span>
+                    <span className={`status-dot status-dot--${statusCssClass[project.status]}`} />
+                    {project.status}
+                    <span>{project.dateRange}</span>
                   </div>
                   <h3>{project.name}</h3>
                   <p className="story-row__tagline">{project.tagline}</p>
-                  <p>{project.summary}</p>
-                  <blockquote>“{project.moment}”</blockquote>
+                  <p>{project.description}</p>
+                  {turningPoint(project) ? <blockquote>“{turningPoint(project)}”</blockquote> : null}
                   <div className="story-row__footer">
-                    <span className="avatar avatar--small">{project.initials}</span>
-                    <span>{project.maker}</span>
+                    <span className="avatar avatar--small">{initialsFor(project.owner.name)}</span>
+                    <span>{project.owner.name}</span>
                     <span className="story-row__stats">
-                      {project.days}d · {project.sessions} sessions · {project.commits} commits
+                      {project.activeDays}d · {project.sessionCount} sessions · {project.git.commits} commits
                     </span>
-                    <span className="story-row__models">{project.models.join(" + ")}</span>
+                    {project.models.length ? (
+                      <span className="story-row__models">
+                        {project.models.map((model) => model.label).join(" + ")}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
-              </article>
+              </Link>
             ))}
           </div>
         </div>

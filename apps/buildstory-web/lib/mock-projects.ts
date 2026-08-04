@@ -1,4 +1,4 @@
-import type { ProjectSnapshot, ProjectSnapshotSource } from "./project-snapshot";
+import type { ProjectSnapshot } from "./project-snapshot";
 
 export const orbitNotesSnapshot = {
   schemaVersion: "1.0",
@@ -128,16 +128,12 @@ export const orbitNotesSnapshot = {
         label: "GPT-5.4 Codex",
         provider: "OpenAI",
         requests: 184,
-        inputTokens: 608420,
-        outputTokens: 116884,
       },
       {
         id: "claude-sonnet-4",
         label: "Claude Sonnet 4",
         provider: "Anthropic",
         requests: 67,
-        inputTokens: 188330,
-        outputTokens: 42812,
       },
     ],
     tools: [
@@ -151,6 +147,13 @@ export const orbitNotesSnapshot = {
         sessions: 2,
       },
     ],
+    tokenUsage: {
+      inputTokens: 796750,
+      outputTokens: 159696,
+      totalTokens: 956446,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+    },
   },
   git: {
     commits: 87,
@@ -221,126 +224,3 @@ export const orbitNotesSnapshot = {
     consentVersion: "private-report-v1",
   },
 } satisfies ProjectSnapshot;
-
-export const mockSnapshotSource: ProjectSnapshotSource = {
-  async getBySlug(slug) {
-    return slug === orbitNotesSnapshot.identity.slug ? orbitNotesSnapshot : null;
-  },
-};
-
-export type ExploreProject = {
-  slug: string;
-  name: string;
-  tagline: string;
-  maker: string;
-  handle: string;
-  initials: string;
-  status: "Shipped" | "Building" | "Experiment";
-  category: string;
-  accent: "cobalt" | "coral" | "ink";
-  days: number;
-  sessions: number;
-  commits: number;
-  models: string[];
-  moment: string;
-  summary: string;
-  updatedAt: string;
-};
-
-export const exploreProjects: ExploreProject[] = [
-  {
-    slug: "orbit-notes",
-    name: "Orbit Notes",
-    tagline: "A calmer way to follow a research trail.",
-    maker: "Mina Park",
-    handle: "minabuilds",
-    initials: "MP",
-    status: "Shipped",
-    category: "Productivity",
-    accent: "cobalt",
-    days: 14,
-    sessions: 7,
-    commits: 87,
-    models: ["Codex", "Sonnet"],
-    moment: "Five testers cut the canvas in half.",
-    summary:
-      "A spatial research notebook rebuilt around return trails, offline trust, and fewer clever controls.",
-    updatedAt: "Jul 25",
-  },
-  {
-    slug: "quiet-queue",
-    name: "Quiet Queue",
-    tagline: "A tiny support inbox for one-person shops.",
-    maker: "Theo Grant",
-    handle: "theobuildsthings",
-    initials: "TG",
-    status: "Building",
-    category: "SaaS",
-    accent: "coral",
-    days: 9,
-    sessions: 12,
-    commits: 54,
-    models: ["Codex"],
-    moment: "The auto-reply became a draft, not a decision.",
-    summary:
-      "A deliberately narrow inbox that sorts the noise while keeping the human reply visibly human.",
-    updatedAt: "Today",
-  },
-  {
-    slug: "contrast-fm",
-    name: "Contrast FM",
-    tagline: "Listen to a color palette before you ship it.",
-    maker: "Anika Rao",
-    handle: "anikamakes",
-    initials: "AR",
-    status: "Experiment",
-    category: "Creative tools",
-    accent: "ink",
-    days: 3,
-    sessions: 4,
-    commits: 31,
-    models: ["Gemini", "Cursor"],
-    moment: "A failed sonification made contrast easier to hear.",
-    summary:
-      "An accessibility experiment that maps visual contrast errors to rhythm and pitch.",
-    updatedAt: "Yesterday",
-  },
-  {
-    slug: "second-sun",
-    name: "Second Sun",
-    tagline: "A field guide to the light in your apartment.",
-    maker: "Jon Bell",
-    handle: "jonb",
-    initials: "JB",
-    status: "Shipped",
-    category: "Home",
-    accent: "coral",
-    days: 21,
-    sessions: 16,
-    commits: 112,
-    models: ["Codex", "Claude"],
-    moment: "The camera model was worse than a paper compass.",
-    summary:
-      "A privacy-first daylight planner shaped by one stubborn apartment and a much simpler model.",
-    updatedAt: "Jul 29",
-  },
-  {
-    slug: "paper-trail",
-    name: "Paper Trail",
-    tagline: "Receipts that remember what the purchase was for.",
-    maker: "Luis Moreno",
-    handle: "luismakes",
-    initials: "LM",
-    status: "Building",
-    category: "Finance",
-    accent: "cobalt",
-    days: 6,
-    sessions: 8,
-    commits: 46,
-    models: ["Codex", "Gemini"],
-    moment: "OCR accuracy mattered less than a fast correction loop.",
-    summary:
-      "A lightweight expense trail that keeps the original context without becoming accounting software.",
-    updatedAt: "Jul 27",
-  },
-];

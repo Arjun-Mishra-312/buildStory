@@ -95,6 +95,10 @@ export async function getPublishedStoryBySlug(slug: string) {
   return (await backend()).getPublishedStoryBySlug(slug);
 }
 
+export async function listPublishedStories(limit?: number) {
+  return (await backend()).listPublishedStories(limit);
+}
+
 export function statusLabel(status: UploadSessionStatus) {
   return status.replaceAll("_", " ");
 }

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "buildstory-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:buildstory"],
+      "port": 3000
+    }
+  ]
+}

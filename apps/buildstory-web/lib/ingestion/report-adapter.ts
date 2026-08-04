@@ -78,7 +78,7 @@ export function reportSnapshotFromScanner(
       languages: [],
       framework: null,
       packageManager: null,
-      fileCount: 0,
+      fileCount: null,
       initialCommitAt: snapshot.timeWindow.start,
       currentRevision:
         snapshot.repository.headCommit?.slice(0, 12) ??
@@ -108,8 +108,6 @@ export function reportSnapshotFromScanner(
         label: model.name,
         provider: model.provider,
         requests: model.turnCount,
-        inputTokens: 0,
-        outputTokens: 0,
       })),
       tools: snapshot.usage.tools.map((tool) => ({
         id: tool.name,
@@ -117,6 +115,15 @@ export function reportSnapshotFromScanner(
         category: "agent" as const,
         sessions: tool.sessionCount,
       })),
+      tokenUsage: snapshot.usage.tokenUsage
+        ? {
+            inputTokens: snapshot.usage.tokenUsage.inputTokens,
+            outputTokens: snapshot.usage.tokenUsage.outputTokens,
+            totalTokens: snapshot.usage.tokenUsage.totalTokens,
+            cacheReadInputTokens: snapshot.usage.tokenUsage.cacheReadInputTokens ?? 0,
+            cacheCreationInputTokens: snapshot.usage.tokenUsage.cacheCreationInputTokens ?? 0,
+          }
+        : null,
     },
     git: {
       commits: snapshot.git.commits,

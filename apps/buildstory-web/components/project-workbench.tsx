@@ -13,6 +13,14 @@ type ProjectWorkbenchProps = {
   initialSelectedPublicFields?: PublicFieldKey[];
 };
 
+function initials(name: string) {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const letters = words.slice(0, 2).map((word) => word[0]?.toUpperCase() ?? "");
+  return letters.join("") || "?";
+}
+
+const compactNumber = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+
 const fieldOptions: Array<{ id: PublicFieldKey; label: string; detail: string }> = [
   { id: "tagline", label: "Tagline", detail: "Required for publication" },
   { id: "description", label: "Opening narrative", detail: "Your edited public summary" },
@@ -135,7 +143,7 @@ export function ProjectWorkbench({
       {access === "creator" ? (
       <div className="project-console-bar">
         <div className="project-console-bar__identity">
-          <span className="avatar">MP</span>
+          <span className="avatar">{initials(story.owner.name)}</span>
           <span>
             <strong>{story.name}</strong>
             <small>Owner workbench</small>
@@ -193,7 +201,7 @@ export function ProjectWorkbench({
       ) : (
         <div className="public-story-bar">
           <span><i /> Published Build Story · Universal public access</span>
-          <a href="/signin?callbackUrl=/dashboard/projects/orbit-notes">Creator controls →</a>
+          <a href="/signin?callbackUrl=/dashboard">Creator controls →</a>
         </div>
       )}
 
@@ -254,13 +262,13 @@ export function ProjectWorkbench({
             <header className="build-story__hero section-wrap">
               <div className="build-story__hero-copy">
                 <div className="story-kicker">
-                  <span className="status-dot status-dot--shipped" />
-                  SHIPPED · DESKTOP PRODUCT · {story.dateRange.toUpperCase()}
+                  <span className={`status-dot status-dot--${story.status === "shipped" ? "shipped" : "building"}`} />
+                  {story.status.toUpperCase()} · {story.dateRange.toUpperCase()}
                 </div>
                 <h1>{story.name}</h1>
                 <p className="build-story__tagline">{tagline}</p>
                 <div className="build-story__author">
-                  <span className="avatar avatar--large">MP</span>
+                  <span className="avatar avatar--large">{initials(story.owner.name)}</span>
                   <span>
                     <strong>{story.owner.name}</strong>
                     <small>@{story.owner.handle} · {story.owner.role}</small>
@@ -271,10 +279,10 @@ export function ProjectWorkbench({
                 <span className="orbit orbit--one" />
                 <span className="orbit orbit--two" />
                 <span className="orbit orbit--three" />
-                <span className="orbit-note orbit-note--one">a thought</span>
-                <span className="orbit-note orbit-note--two">a source</span>
-                <span className="orbit-note orbit-note--three">a return trail</span>
-                <span className="cover-caption">ORBIT / 0.1</span>
+                <span className="orbit-note orbit-note--one">{story.sessionCount} sessions</span>
+                <span className="orbit-note orbit-note--two">{story.git.commits} commits</span>
+                <span className="orbit-note orbit-note--three">{story.activeDays} days</span>
+                <span className="cover-caption">BUILD / 0.1</span>
               </div>
             </header>
 
@@ -284,7 +292,10 @@ export function ProjectWorkbench({
               <div><strong>{story.git.commits}</strong><span>commits</span></div>
               <div><strong>{story.git.additions.toLocaleString()}</strong><span>lines added</span></div>
               <div><strong>{story.models.length}</strong><span>models in the mix</span></div>
-              <div><strong>38</strong><span>first release users</span></div>
+              <div>
+                <strong>{story.tokenUsage ? compactNumber.format(story.tokenUsage.totalTokens) : "—"}</strong>
+                <span>tokens processed</span>
+              </div>
             </div>
 
             <div className="story-layout section-wrap">
@@ -293,13 +304,8 @@ export function ProjectWorkbench({
                   <span className="story-section__number">01</span>
                   <div>
                     <span className="story-section__label">THE BRIEF</span>
-                    <h2>I wanted to stop losing the reason behind a note.</h2>
+                    <h2>{tagline}</h2>
                     <p className="story-dropcap">{description}</p>
-                    <p>
-                      The first prototype assumed a better canvas would fix the problem.
-                      It did not. The useful part was the return trail: a small, visible
-                      path back through the sources and decisions that made a note matter.
-                    </p>
                   </div>
                 </section>
 
@@ -312,7 +318,10 @@ export function ProjectWorkbench({
                   <span className="story-section__number">02</span>
                   <div>
                     <span className="story-section__label">THE BUILD</span>
-                    <h2>Four moments that changed the shape of it.</h2>
+                    <h2>
+                      {story.milestones.length} moment{story.milestones.length === 1 ? "" : "s"} that changed
+                      the shape of it.
+                    </h2>
                     <div className="milestone-list">
                       {story.milestones.map((milestone) => (
                         <article className="milestone" key={milestone.id}>
@@ -334,16 +343,13 @@ export function ProjectWorkbench({
                 <section className="story-section story-section--closing">
                   <span className="story-section__number">03</span>
                   <div>
-                    <span className="story-section__label">WHAT SHIPPED</span>
-                    <h2>A smaller canvas, a stronger trail.</h2>
-                    <p>
-                      v0.1 shipped to 38 people with offline capture, source linking,
-                      relationship search, and an intentionally short list of graph controls.
-                      The next build is about shared trails — not more canvas.
-                    </p>
-                    <div className="story-tags">
-                      <span>Next.js</span><span>TypeScript</span><span>Rust</span><span>Offline-first</span>
-                    </div>
+                    <span className="story-section__label">WHERE IT STANDS</span>
+                    <h2>{story.sessionCount} sessions, {story.git.commits} commits, and counting.</h2>
+                    {story.stack.length ? (
+                      <div className="story-tags">
+                        {story.stack.map((tag) => <span key={tag}>{tag}</span>)}
+                      </div>
+                    ) : null}
                   </div>
                 </section>
               </div>
@@ -387,11 +393,14 @@ export function ProjectWorkbench({
           <div className="report-health">
             <div>
               <span className="report-health__check">✓</span>
-              <span><strong>Snapshot ready</strong><small>Contract v1.0 · repository scope only</small></span>
+              <span><strong>Snapshot ready</strong><small>Repository-scoped read only</small></span>
             </div>
             <dl>
-              <div><dt>Coverage</dt><dd>14 active days</dd></div>
-              <div><dt>Confidence</dt><dd>High</dd></div>
+              <div><dt>Coverage</dt><dd>{privateStory.activeDays} active days</dd></div>
+              <div>
+                <dt>Tokens</dt>
+                <dd>{privateStory.tokenUsage ? compactNumber.format(privateStory.tokenUsage.totalTokens) : "Not collected"}</dd>
+              </div>
               <div><dt>Redaction</dt><dd>Passed</dd></div>
               <div><dt>Revision</dt><dd>{privateStory.repository.currentRevision}</dd></div>
             </dl>
@@ -463,7 +472,7 @@ export function ProjectWorkbench({
               <dl className="report-data-list">
                 <div><dt>Repository</dt><dd>{privateStory.repository.remotePath}</dd></div>
                 <div><dt>Primary stack</dt><dd>{privateStory.repository.primaryLanguage} · {privateStory.repository.framework}</dd></div>
-                <div><dt>Tracked files</dt><dd>{privateStory.repository.fileCount}</dd></div>
+                <div><dt>Tracked files</dt><dd>{privateStory.repository.fileCount ?? "Not collected"}</dd></div>
                 <div><dt>Commits</dt><dd>{story.git.commits}</dd></div>
                 <div><dt>Diff</dt><dd><ins>+{story.git.additions.toLocaleString()}</ins> <del>−{story.git.deletions.toLocaleString()}</del></dd></div>
                 <div><dt>Branches</dt><dd>{story.git.branches}</dd></div>
@@ -475,7 +484,7 @@ export function ProjectWorkbench({
               <div className="report-models">
                 {story.models.map((model) => (
                   <div key={model.id}>
-                    <span><strong>{model.label}</strong><small>{model.requests} turns · {model.totalTokens.toLocaleString()} tokens</small></span>
+                    <span><strong>{model.label}</strong><small>{model.requests} turns</small></span>
                     <span>{model.share}%</span>
                   </div>
                 ))}
