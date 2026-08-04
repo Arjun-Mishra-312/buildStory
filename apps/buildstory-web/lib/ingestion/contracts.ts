@@ -28,6 +28,33 @@ export type PublicFieldKey =
   | "gitAggregates"
   | "redactionSummary";
 
+export type UserRecord = {
+  id: string;
+  authSubject: string;
+  handle: string;
+  displayName: string;
+  avatarUrl: string | null;
+  role: "member" | "moderator" | "admin";
+};
+
+export type ProjectRecord = {
+  id: string;
+  ownerUserId: string;
+  slug: string;
+  name: string;
+  repositoryFingerprint: string;
+};
+
+/** Facts about one scan, used to create or refresh a project's rollup fields. */
+export type ProjectScanStats = {
+  displayName: string;
+  fingerprintBasis: string;
+  scannedAt: string;
+  sessionCount: number;
+  commitCount: number;
+  activeDays: number;
+};
+
 export type DeviceAuthorization = {
   sessionId: string;
   userCode: string;

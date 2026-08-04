@@ -1,6 +1,6 @@
 import { ingestionErrorResponse, jsonError, requireApiCreator } from "@/lib/api/responses";
 import { isLocalApiEnabled, loopbackApiBaseUrl, readBoundedJson } from "@/lib/ingestion/local-api";
-import { createUploadSession, listUploadSessions } from "@/lib/ingestion/store";
+import { createUploadSession, ensureUser, listUploadSessions } from "@/lib/ingestion/store";
 import { assertSameOriginBrowserMutation } from "@/lib/security/browser-request";
 
 export async function GET() {
@@ -44,10 +44,12 @@ export async function POST(request: Request) {
     }
     const projectLabel =
       typeof body.projectLabel === "string" ? body.projectLabel : "New local project";
+    const user = await ensureUser(creator);
     const result = await createUploadSession(
       creator.creatorId,
       projectLabel,
       loopbackApiBaseUrl(request),
+      user.id,
     );
     return Response.json(result, {
       status: 201,

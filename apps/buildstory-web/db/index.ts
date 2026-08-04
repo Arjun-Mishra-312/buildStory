@@ -19,14 +19,23 @@ export async function getDb() {
   return drizzle(await getD1(), { schema });
 }
 
+const REQUIRED_TABLES = [
+  "buildstory_upload_sessions",
+  "buildstory_reports",
+  "buildstory_report_jobs",
+  "buildstory_users",
+  "buildstory_projects",
+] as const;
+
 export async function assertDatabaseReady() {
   const database = await getD1();
   const row = await database
     .prepare(
-      "SELECT COUNT(*) AS table_count FROM sqlite_schema WHERE type = 'table' AND name IN ('buildstory_upload_sessions', 'buildstory_reports', 'buildstory_report_jobs')",
+      `SELECT COUNT(*) AS table_count FROM sqlite_schema WHERE type = 'table' AND name IN (${REQUIRED_TABLES.map(() => "?").join(",")})`,
     )
+    .bind(...REQUIRED_TABLES)
     .first<{ table_count: number }>();
-  if (Number(row?.table_count ?? 0) !== 3) {
+  if (Number(row?.table_count ?? 0) !== REQUIRED_TABLES.length) {
     throw new DatabaseUnavailableError();
   }
 }

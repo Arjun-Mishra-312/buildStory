@@ -1,11 +1,14 @@
 import { getD1 } from "@/db";
 import { publicBuildStoryFromSnapshot } from "@/lib/build-story";
+import { baseHandleFrom, baseSlugFrom, candidateHandles, candidateSlugs } from "@/lib/identity/handles";
 import type { ProjectSnapshot } from "@/lib/project-snapshot";
 import { sanitizePublicText } from "@/lib/publication/sanitization";
 import type {
   DeviceAuthorization,
   GeneratedReport,
   LocalReportSummary,
+  ProjectRecord,
+  ProjectScanStats,
   PublicationStatus,
   PublicFieldKey,
   ReportStatus,
@@ -13,6 +16,7 @@ import type {
   SnapshotUploadReceipt,
   UploadSessionStatus,
   UploadSessionView,
+  UserRecord,
 } from "./contracts";
 import { reportSnapshotFromScanner } from "./report-adapter";
 import type { ScannerProjectSnapshot } from "./scanner-project-snapshot";
@@ -22,6 +26,7 @@ import { MAX_SNAPSHOT_BYTES, validateProjectSnapshot } from "./validation";
 type SessionRow = {
   id: string;
   creator_id: string;
+  owner_user_id: string | null;
   project_label: string;
   status: string;
   created_at: string;
@@ -45,6 +50,7 @@ type SessionRow = {
 type ReportRow = {
   id: string;
   creator_id: string;
+  owner_user_id: string | null;
   project_id: string;
   upload_session_id: string;
   status: string;
@@ -254,6 +260,22 @@ async function reportById(reportId: string) {
     .first<ReportRow>();
 }
 
+async function userByAuthSubject(authSubject: string) {
+  return (await database())
+    .prepare(
+      "SELECT id, handle, display_name, avatar_url, bio, role FROM buildstory_users WHERE auth_subject = ?",
+    )
+    .bind(authSubject)
+    .first<{
+      id: string;
+      handle: string;
+      display_name: string;
+      avatar_url: string | null;
+      bio: string | null;
+      role: string;
+    }>();
+}
+
 async function processReportJob(reportId: string) {
   const db = await database();
   const now = new Date();
@@ -357,10 +379,209 @@ export async function listUploadSessions(
   return rows.results.map(cleanSession);
 }
 
+/**
+ * Get-or-create the real user row for a signed-in identity. Safe to call on
+ * every creator-authenticated request: a no-op UPDATE of display
+ * name/avatar when the row already exists, or a race-safe insert with a
+ * handle allocated from the reserved-word list and per-attempt uniqueness
+ * check when it doesn't. The handle, once set, is sticky - re-running this
+ * never changes it.
+ */
+export async function ensureUser(session: {
+  creatorId: string;
+  name: string;
+  email: string;
+  image: string | null;
+}): Promise<UserRecord> {
+  const db = await database();
+  const now = new Date().toISOString();
+  const existing = await db
+    .prepare(
+      "SELECT id, handle, role FROM buildstory_users WHERE auth_subject = ?",
+    )
+    .bind(session.creatorId)
+    .first<{ id: string; handle: string; role: string }>();
+  if (existing) {
+    await db
+      .prepare(
+        "UPDATE buildstory_users SET display_name = ?, avatar_url = ?, updated_at = ? WHERE id = ?",
+      )
+      .bind(session.name, session.image, now, existing.id)
+      .run();
+    return {
+      id: existing.id,
+      authSubject: session.creatorId,
+      handle: existing.handle,
+      displayName: session.name,
+      avatarUrl: session.image,
+      role: existing.role as UserRecord["role"],
+    };
+  }
+
+  const base = baseHandleFrom(session.name, session.email);
+  for (const candidate of candidateHandles(base)) {
+    const id = makeId("usr");
+    const result = await db
+      .prepare(
+        `INSERT INTO buildstory_users (
+          id, auth_subject, email, handle, handle_lower, display_name, avatar_url,
+          role, status, created_at, updated_at
+        )
+        SELECT ?, ?, ?, ?, ?, ?, ?, 'member', 'active', ?, ?
+        WHERE NOT EXISTS (SELECT 1 FROM buildstory_users WHERE auth_subject = ?)
+          AND NOT EXISTS (SELECT 1 FROM buildstory_users WHERE handle_lower = ?)`,
+      )
+      .bind(
+        id,
+        session.creatorId,
+        session.email,
+        candidate,
+        candidate.toLocaleLowerCase("en-US"),
+        session.name,
+        session.image,
+        now,
+        now,
+        session.creatorId,
+        candidate.toLocaleLowerCase("en-US"),
+      )
+      .run();
+    if (changes(result) === 1) {
+      return {
+        id,
+        authSubject: session.creatorId,
+        handle: candidate,
+        displayName: session.name,
+        avatarUrl: session.image,
+        role: "member",
+      };
+    }
+    const raced = await db
+      .prepare("SELECT id, handle, display_name, avatar_url, role FROM buildstory_users WHERE auth_subject = ?")
+      .bind(session.creatorId)
+      .first<{ id: string; handle: string; display_name: string; avatar_url: string | null; role: string }>();
+    if (raced) {
+      return {
+        id: raced.id,
+        authSubject: session.creatorId,
+        handle: raced.handle,
+        displayName: raced.display_name,
+        avatarUrl: raced.avatar_url,
+        role: raced.role as UserRecord["role"],
+      };
+    }
+    // Otherwise the candidate handle itself collided; loop to the next one.
+  }
+  throw new D1IngestionError(
+    "handle_generation_failed",
+    "Could not allocate a handle for this account.",
+    500,
+  );
+}
+
+/**
+ * Get-or-create the project a scan belongs to, grouped by the scanner's
+ * content-derived repository fingerprint (stable across scans of the same
+ * repository; NOT the scan-specific scanId). Refreshes the rollup fields
+ * to this scan's own totals on every call rather than summing across
+ * scans, since each ProjectSnapshot already aggregates its full selected
+ * time window and scan windows can overlap.
+ */
+export async function ensureProject(
+  ownerUserId: string,
+  fingerprint: string,
+  fingerprintBasis: string,
+  stats: ProjectScanStats,
+): Promise<ProjectRecord> {
+  const db = await database();
+  const now = new Date().toISOString();
+  const existing = await db
+    .prepare(
+      "SELECT id, slug, name FROM buildstory_projects WHERE owner_user_id = ? AND repository_fingerprint = ?",
+    )
+    .bind(ownerUserId, fingerprint)
+    .first<{ id: string; slug: string; name: string }>();
+  if (existing) {
+    await db
+      .prepare(
+        `UPDATE buildstory_projects
+         SET last_scan_at = ?, story_count = story_count + 1,
+             latest_session_count = ?, latest_commit_count = ?, latest_active_days = ?,
+             updated_at = ?
+         WHERE id = ?`,
+      )
+      .bind(stats.scannedAt, stats.sessionCount, stats.commitCount, stats.activeDays, now, existing.id)
+      .run();
+    return {
+      id: existing.id,
+      ownerUserId,
+      slug: existing.slug,
+      name: existing.name,
+      repositoryFingerprint: fingerprint,
+    };
+  }
+
+  const base = baseSlugFrom(stats.displayName);
+  for (const candidate of candidateSlugs(base)) {
+    const id = makeId("prj");
+    const result = await db
+      .prepare(
+        `INSERT INTO buildstory_projects (
+          id, owner_user_id, slug, name, repository_fingerprint, fingerprint_basis,
+          first_scan_at, last_scan_at, story_count, latest_session_count,
+          latest_commit_count, latest_active_days, created_at, updated_at
+        )
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?
+        WHERE NOT EXISTS (
+          SELECT 1 FROM buildstory_projects WHERE owner_user_id = ? AND repository_fingerprint = ?
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM buildstory_projects WHERE owner_user_id = ? AND slug = ?
+        )`,
+      )
+      .bind(
+        id,
+        ownerUserId,
+        candidate,
+        stats.displayName,
+        fingerprint,
+        fingerprintBasis,
+        stats.scannedAt,
+        stats.scannedAt,
+        stats.sessionCount,
+        stats.commitCount,
+        stats.activeDays,
+        now,
+        now,
+        ownerUserId,
+        fingerprint,
+        ownerUserId,
+        candidate,
+      )
+      .run();
+    if (changes(result) === 1) {
+      return { id, ownerUserId, slug: candidate, name: stats.displayName, repositoryFingerprint: fingerprint };
+    }
+    const raced = await db
+      .prepare("SELECT id, slug, name FROM buildstory_projects WHERE owner_user_id = ? AND repository_fingerprint = ?")
+      .bind(ownerUserId, fingerprint)
+      .first<{ id: string; slug: string; name: string }>();
+    if (raced) {
+      return { id: raced.id, ownerUserId, slug: raced.slug, name: raced.name, repositoryFingerprint: fingerprint };
+    }
+    // Otherwise the candidate slug collided within this owner; loop to the next one.
+  }
+  throw new D1IngestionError(
+    "project_slug_generation_failed",
+    "Could not allocate a project slug for this repository.",
+    500,
+  );
+}
+
 export async function createUploadSession(
   creatorId: string,
   projectLabel = "New local project",
   apiBaseUrl = "http://localhost:3000/",
+  ownerUserId: string | null = null,
 ): Promise<{
   session: UploadSessionView;
   deviceAuthorization: DeviceAuthorization;
@@ -376,13 +597,14 @@ export async function createUploadSession(
   await (await database())
     .prepare(
       `INSERT INTO buildstory_upload_sessions (
-        id, creator_id, project_label, status, created_at, expires_at,
+        id, creator_id, owner_user_id, project_label, status, created_at, expires_at,
         status_detail, device_code_hash, updated_at
-      ) VALUES (?, ?, ?, 'awaiting_scanner', ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, 'awaiting_scanner', ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
       creatorId,
+      ownerUserId,
       label,
       createdAtIso,
       expiresAtIso,
@@ -549,22 +771,51 @@ export async function acceptSnapshot(
     );
   }
 
+  const user = await userByAuthSubject(row.creator_id);
+  if (!user) {
+    throw new D1IngestionError(
+      "creator_not_provisioned",
+      "This creator has no account record yet. Sign in through the dashboard once before scanning.",
+      409,
+    );
+  }
+  const snapshotSessions = validated.snapshot.sessions;
+  const activeDayCount = new Set(snapshotSessions.map((session) => session.startedAt.slice(0, 10))).size;
+  const project = await ensureProject(
+    user.id,
+    validated.snapshot.repository.fingerprint,
+    validated.snapshot.repository.fingerprintBasis,
+    {
+      displayName: validated.snapshot.repository.displayName,
+      fingerprintBasis: validated.snapshot.repository.fingerprintBasis,
+      scannedAt: validated.snapshot.generatedAt,
+      sessionCount: snapshotSessions.length,
+      commitCount: validated.snapshot.git.commits,
+      activeDays: activeDayCount,
+    },
+  );
+
   const acceptedAt = new Date().toISOString();
   const reportId = makeId("rpt");
   const receiptId = makeId("rcpt");
   const jobId = makeId("job");
-  const reportSnapshot = reportSnapshotFromScanner(validated.snapshot, row.creator_id);
+  const reportSnapshot = reportSnapshotFromScanner(validated.snapshot, project, {
+    id: user.id,
+    name: user.display_name,
+    handle: user.handle,
+    role: user.bio ?? "AI-assisted software builder",
+  });
   const db = await database();
   const results = await db.batch([
     db
       .prepare(
         `INSERT INTO buildstory_reports (
-          id, creator_id, project_id, upload_session_id, status, created_at,
+          id, creator_id, owner_user_id, project_id, upload_session_id, status, created_at,
           source_snapshot_json, snapshot_json, selected_public_fields_json,
           editorial_tagline, editorial_description, editorial_reflection,
           publication_status, publication_slug, updated_at
         )
-        SELECT ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, '', 'not_published', ?, ?
+        SELECT ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, '', 'not_published', ?, ?
         WHERE EXISTS (
           SELECT 1 FROM buildstory_upload_sessions
           WHERE id = ? AND upload_token_hash = ? AND upload_token_consumed_at IS NULL
@@ -574,6 +825,7 @@ export async function acceptSnapshot(
       .bind(
         reportId,
         row.creator_id,
+        user.id,
         reportSnapshot.identity.id,
         sessionId,
         acceptedAt,

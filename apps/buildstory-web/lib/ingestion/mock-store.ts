@@ -1,15 +1,19 @@
 import { orbitNotesSnapshot } from "@/lib/mock-projects";
 import { publicBuildStoryFromSnapshot } from "@/lib/build-story";
+import { baseHandleFrom, baseSlugFrom, candidateHandles, candidateSlugs } from "@/lib/identity/handles";
 import { sanitizePublicText } from "@/lib/publication/sanitization";
 import type {
   DeviceAuthorization,
   GeneratedReport,
   LocalReportSummary,
+  ProjectRecord,
+  ProjectScanStats,
   PublicFieldKey,
   ScannerClaimResponse,
   SnapshotUploadReceipt,
   UploadSessionStatus,
   UploadSessionView,
+  UserRecord,
 } from "./contracts";
 import { reportSnapshotFromScanner } from "./report-adapter";
 import type { ScannerProjectSnapshot } from "./scanner-project-snapshot";
@@ -20,6 +24,7 @@ import {
 } from "./validation";
 
 type StoredUploadSession = UploadSessionView & {
+  ownerUserId: string | null;
   deviceCodeHash: string;
   deviceCodeClaimedAt: string | null;
   connectionId: string | null;
@@ -32,9 +37,22 @@ type StoredUploadSession = UploadSessionView & {
   queuedAt: string | null;
 };
 
+type StoredUser = UserRecord & {
+  email: string;
+  handleLower: string;
+  bio: string | null;
+};
+
+type StoredProject = ProjectRecord & {
+  fingerprintBasis: string;
+  storyCount: number;
+};
+
 type MockStore = {
   sessions: Map<string, StoredUploadSession>;
   reports: Map<string, GeneratedReport>;
+  users: Map<string, StoredUser>;
+  projects: Map<string, StoredProject>;
 };
 
 type StoreGlobal = typeof globalThis & {
@@ -48,10 +66,32 @@ function createSeedStore(): MockStore {
   const reportId = "rpt_orbit_notes_ready";
   const sessionId = "upl_orbit_notes_seed";
   const creatorId = "dev:mina-park";
+  const userId = "usr_mina_park_seed";
+  const projectId = orbitNotesSnapshot.identity.id;
+  const user: StoredUser = {
+    id: userId,
+    authSubject: creatorId,
+    email: "dev@buildstory.local",
+    handle: "minabuilds",
+    handleLower: "minabuilds",
+    displayName: "Mina Park",
+    avatarUrl: null,
+    bio: "Independent product engineer",
+    role: "member",
+  };
+  const project: StoredProject = {
+    id: projectId,
+    ownerUserId: userId,
+    slug: orbitNotesSnapshot.identity.slug,
+    name: orbitNotesSnapshot.identity.name,
+    repositoryFingerprint: orbitNotesSnapshot.provenance.snapshotHash,
+    fingerprintBasis: "local-path",
+    storyCount: 1,
+  };
   const report: GeneratedReport = {
     id: reportId,
     creatorId,
-    projectId: orbitNotesSnapshot.identity.id,
+    projectId,
     uploadSessionId: sessionId,
     status: "ready",
     createdAt: orbitNotesSnapshot.provenance.scannedAt,
@@ -84,6 +124,7 @@ function createSeedStore(): MockStore {
   const session: StoredUploadSession = {
     id: sessionId,
     creatorId,
+    ownerUserId: userId,
     projectLabel: orbitNotesSnapshot.identity.name,
     status: "report_ready",
     createdAt: orbitNotesSnapshot.provenance.scannedAt,
@@ -106,6 +147,8 @@ function createSeedStore(): MockStore {
   return {
     sessions: new Map([[sessionId, session]]),
     reports: new Map([[reportId, report]]),
+    users: new Map([[userId, user]]),
+    projects: new Map([[projectId, project]]),
   };
 }
 
@@ -200,6 +243,75 @@ function refreshLifecycle(session: StoredUploadSession) {
   }
 }
 
+export function ensureUser(session: {
+  creatorId: string;
+  name: string;
+  email: string;
+  image: string | null;
+}): UserRecord {
+  const existing = Array.from(store.users.values()).find(
+    (candidate) => candidate.authSubject === session.creatorId,
+  );
+  if (existing) {
+    existing.displayName = session.name;
+    existing.avatarUrl = session.image;
+    return existing;
+  }
+
+  const takenHandles = new Set(Array.from(store.users.values()).map((user) => user.handleLower));
+  const base = baseHandleFrom(session.name, session.email);
+  for (const candidate of candidateHandles(base)) {
+    const handleLower = candidate.toLocaleLowerCase("en-US");
+    if (takenHandles.has(handleLower)) continue;
+    const user: StoredUser = {
+      id: makeId("usr"),
+      authSubject: session.creatorId,
+      email: session.email,
+      handle: candidate,
+      handleLower,
+      displayName: session.name,
+      avatarUrl: session.image,
+      bio: null,
+      role: "member",
+    };
+    store.users.set(user.id, user);
+    return user;
+  }
+  throw new MockIngestionError("handle_generation_failed", "Could not allocate a handle for this account.", 500);
+}
+
+function ensureProject(ownerUserId: string, fingerprint: string, fingerprintBasis: string, stats: ProjectScanStats): ProjectRecord {
+  const existing = Array.from(store.projects.values()).find(
+    (candidate) => candidate.ownerUserId === ownerUserId && candidate.repositoryFingerprint === fingerprint,
+  );
+  if (existing) {
+    existing.storyCount += 1;
+    return existing;
+  }
+
+  const takenSlugs = new Set(
+    Array.from(store.projects.values())
+      .filter((candidate) => candidate.ownerUserId === ownerUserId)
+      .map((candidate) => candidate.slug),
+  );
+  const base = baseSlugFrom(stats.displayName);
+  for (const candidate of candidateSlugs(base)) {
+    if (takenSlugs.has(candidate)) continue;
+    const project: StoredProject = {
+      id: makeId("prj"),
+      ownerUserId,
+      slug: candidate,
+      name: stats.displayName,
+      repositoryFingerprint: fingerprint,
+      fingerprintBasis,
+      storyCount: 1,
+    };
+    store.projects.set(project.id, project);
+    return project;
+  }
+  throw new MockIngestionError("project_slug_generation_failed", "Could not allocate a project slug for this repository.", 500);
+}
+
 export function listUploadSessions(creatorId: string): UploadSessionView[] {
   return Array.from(store.sessions.values())
     .filter((session) => session.creatorId === creatorId)
@@ -214,6 +326,7 @@ export async function createUploadSession(
   creatorId: string,
   projectLabel = "New local project",
   apiBaseUrl = "http://localhost:3000/",
+  ownerUserId: string | null = null,
 ): Promise<{ session: UploadSessionView; deviceAuthorization: DeviceAuthorization }> {
   const createdAt = new Date();
   const expiresAt = new Date(createdAt.getTime() + 15 * 60_000);
@@ -222,6 +335,7 @@ export async function createUploadSession(
   const session: StoredUploadSession = {
     id,
     creatorId,
+    ownerUserId,
     projectLabel: projectLabel.trim().slice(0, 120) || "New local project",
     status: "awaiting_scanner",
     createdAt: createdAt.toISOString(),
@@ -361,13 +475,41 @@ export async function acceptSnapshot(
     );
   }
 
+  const user = Array.from(store.users.values()).find(
+    (candidate) => candidate.authSubject === session.creatorId,
+  );
+  if (!user) {
+    throw new MockIngestionError(
+      "creator_not_provisioned",
+      "This creator has no account record yet. Sign in through the dashboard once before scanning.",
+      409,
+    );
+  }
+  const snapshotSessions = validated.snapshot.sessions;
+  const activeDayCount = new Set(snapshotSessions.map((item) => item.startedAt.slice(0, 10))).size;
+  const project = ensureProject(
+    user.id,
+    validated.snapshot.repository.fingerprint,
+    validated.snapshot.repository.fingerprintBasis,
+    {
+      displayName: validated.snapshot.repository.displayName,
+      fingerprintBasis: validated.snapshot.repository.fingerprintBasis,
+      scannedAt: validated.snapshot.generatedAt,
+      sessionCount: snapshotSessions.length,
+      commitCount: validated.snapshot.git.commits,
+      activeDays: activeDayCount,
+    },
+  );
+
   const acceptedAt = new Date().toISOString();
   const reportId = makeId("rpt");
   const receiptId = makeId("rcpt");
-  const reportSnapshot = reportSnapshotFromScanner(
-    validated.snapshot,
-    session.creatorId,
-  );
+  const reportSnapshot = reportSnapshotFromScanner(validated.snapshot, project, {
+    id: user.id,
+    name: user.displayName,
+    handle: user.handle,
+    role: user.bio ?? "AI-assisted software builder",
+  });
   session.uploadTokenConsumedAt = acceptedAt;
   session.uploadReceiptId = receiptId;
   session.snapshotDigest = snapshotDigest;

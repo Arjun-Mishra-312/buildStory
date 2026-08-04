@@ -4,6 +4,8 @@ import type {
   UploadSessionStatus,
 } from "./contracts";
 
+type CreatorIdentity = { creatorId: string; name: string; email: string; image: string | null };
+
 function shouldUseDurableStore() {
   return (
     process.env.NODE_ENV === "production" ||
@@ -24,12 +26,18 @@ export async function createUploadSession(
   creatorId: string,
   projectLabel = "New local project",
   apiBaseUrl = "http://localhost:3000/",
+  ownerUserId: string | null = null,
 ) {
   return (await backend()).createUploadSession(
     creatorId,
     projectLabel,
     apiBaseUrl,
+    ownerUserId,
   );
+}
+
+export async function ensureUser(session: CreatorIdentity) {
+  return (await backend()).ensureUser(session);
 }
 
 export async function getUploadSession(creatorId: string, sessionId: string) {

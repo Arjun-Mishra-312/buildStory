@@ -2,32 +2,12 @@ import type { ProjectSnapshot } from "@/lib/project-snapshot";
 import type { ScannerProjectSnapshot } from "./scanner-project-snapshot";
 import { PROJECT_SNAPSHOT_SCHEMA_VERSION } from "./scanner-project-snapshot";
 
-function slugify(value: string) {
-  const base = value
-    .normalize("NFKD")
-    .toLocaleLowerCase("en-US")
-    .replaceAll(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 72);
-  return base || "local-project";
-}
-
-function ownerForCreator(creatorId: string) {
-  if (creatorId === "dev:mina-park") {
-    return {
-      id: creatorId,
-      name: "Mina Park",
-      handle: "minabuilds",
-      role: "Independent product engineer",
-    };
-  }
-  return {
-    id: creatorId,
-    name: "Buildstory creator",
-    handle: "creator",
-    role: "AI-assisted software builder",
-  };
-}
+export type ReportOwner = {
+  id: string;
+  name: string;
+  handle: string;
+  role: string;
+};
 
 function activeDays(snapshot: ScannerProjectSnapshot) {
   const days = new Set(
@@ -48,24 +28,23 @@ function durationMinutes(startedAt: string, endedAt: string) {
  */
 export function reportSnapshotFromScanner(
   snapshot: ScannerProjectSnapshot,
-  creatorId: string,
+  project: { id: string; slug: string },
+  owner: ReportOwner,
 ): ProjectSnapshot {
   const repositoryName = snapshot.repository.displayName;
-  const suffix = snapshot.scanId.slice(-6);
-  const slug = `${slugify(repositoryName)}-${suffix}`;
 
   return {
     schemaVersion: "1.0",
     identity: {
-      id: `prj_${snapshot.scanId.slice(5)}`,
-      slug,
+      id: project.id,
+      slug: project.slug,
       name: repositoryName,
       tagline: `A private build report generated from ${snapshot.sessions.length} repository-scoped AI session${snapshot.sessions.length === 1 ? "" : "s"}.`,
       description:
         "Buildstory assembled this report from the validated, content-free metadata in the uploaded ProjectSnapshot. Review every field before publishing.",
       status: "building",
       visibility: "private",
-      owner: ownerForCreator(creatorId),
+      owner,
     },
     repository: {
       provider: "local",
