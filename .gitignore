@@ -1,0 +1,22 @@
+# Dependencies
+**/node_modules/
+
+# Generated application and package output
+**/.next/
+**/.vinext/
+**/.wrangler/
+**/dist/
+**/out/
+**/coverage/
+**/outputs/
+**/work/
+**/*.tsbuildinfo
+
+# Local environment and tool state
+**/.env*
+!**/.env.example
+!**/.env.production.example
+**/.vercel/
+*.log
+.DS_Store
+

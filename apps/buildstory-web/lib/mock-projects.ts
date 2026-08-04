@@ -1,0 +1,346 @@
+import type { ProjectSnapshot, ProjectSnapshotSource } from "./project-snapshot";
+
+export const orbitNotesSnapshot = {
+  schemaVersion: "1.0",
+  identity: {
+    id: "prj_orbit_notes",
+    slug: "orbit-notes",
+    name: "Orbit Notes",
+    tagline: "A calmer way to follow a research trail.",
+    description:
+      "Orbit Notes turns scattered tabs, highlights, and half-formed thoughts into a spatial notebook you can return to weeks later without losing the thread.",
+    status: "shipped",
+    visibility: "public",
+    owner: {
+      id: "usr_mina_park",
+      name: "Mina Park",
+      handle: "minabuilds",
+      role: "Independent product engineer",
+    },
+  },
+  repository: {
+    provider: "github",
+    repositoryName: "orbit-notes",
+    remotePath: "github.com/••••/orbit-notes",
+    defaultBranch: "main",
+    primaryLanguage: "TypeScript",
+    languages: [
+      { name: "TypeScript", percentage: 72 },
+      { name: "CSS", percentage: 19 },
+      { name: "Rust", percentage: 9 },
+    ],
+    framework: "Next.js",
+    packageManager: "pnpm",
+    fileCount: 284,
+    initialCommitAt: "2026-07-08T17:42:00.000Z",
+    currentRevision: "4d2b8e7",
+    isPrivate: true,
+  },
+  timeWindow: {
+    startedAt: "2026-07-08T17:42:00.000Z",
+    endedAt: "2026-07-25T22:18:00.000Z",
+    activeDays: 14,
+    timezone: "America/Vancouver",
+  },
+  sessions: [
+    {
+      id: "ses_01",
+      startedAt: "2026-07-08T17:42:00.000Z",
+      endedAt: "2026-07-08T19:58:00.000Z",
+      durationMinutes: 136,
+      intent: "Frame the research graph and data model",
+      outcome: "Working node schema, import flow, and first canvas prototype",
+      modelIds: ["gpt-5.4-codex"],
+      toolIds: ["codex", "terminal"],
+      touchedAreas: ["graph", "import", "schema"],
+    },
+    {
+      id: "ses_02",
+      startedAt: "2026-07-10T18:10:00.000Z",
+      endedAt: "2026-07-10T20:04:00.000Z",
+      durationMinutes: 114,
+      intent: "Make search useful before the graph is tidy",
+      outcome: "Hybrid text and relationship ranking with highlighted paths",
+      modelIds: ["gpt-5.4-codex", "claude-sonnet-4"],
+      toolIds: ["codex", "cursor", "terminal"],
+      touchedAreas: ["search", "ranking", "ui"],
+    },
+    {
+      id: "ses_03",
+      startedAt: "2026-07-13T16:20:00.000Z",
+      endedAt: "2026-07-13T19:31:00.000Z",
+      durationMinutes: 191,
+      intent: "Move the notebook offline-first",
+      outcome: "Local persistence landed; sync conflict handling remained fragile",
+      modelIds: ["gpt-5.4-codex"],
+      toolIds: ["codex", "terminal"],
+      touchedAreas: ["storage", "sync", "tests"],
+    },
+    {
+      id: "ses_04",
+      startedAt: "2026-07-15T17:02:00.000Z",
+      endedAt: "2026-07-15T21:14:00.000Z",
+      durationMinutes: 252,
+      intent: "Repair duplicated notes after reconnect",
+      outcome: "Deterministic merge strategy plus a replayable conflict fixture",
+      modelIds: ["gpt-5.4-codex", "claude-sonnet-4"],
+      toolIds: ["codex", "cursor", "terminal"],
+      touchedAreas: ["sync", "fixtures", "telemetry"],
+    },
+    {
+      id: "ses_05",
+      startedAt: "2026-07-18T18:44:00.000Z",
+      endedAt: "2026-07-18T20:26:00.000Z",
+      durationMinutes: 102,
+      intent: "Turn five tester recordings into a tighter flow",
+      outcome: "Removed graph controls, simplified capture, added a return trail",
+      modelIds: ["claude-sonnet-4"],
+      toolIds: ["cursor", "terminal"],
+      touchedAreas: ["navigation", "capture", "onboarding"],
+    },
+    {
+      id: "ses_06",
+      startedAt: "2026-07-22T16:51:00.000Z",
+      endedAt: "2026-07-22T20:36:00.000Z",
+      durationMinutes: 225,
+      intent: "Prepare a stable desktop build",
+      outcome: "Packaging, migration guardrails, and smoke tests passed",
+      modelIds: ["gpt-5.4-codex"],
+      toolIds: ["codex", "terminal", "github-actions"],
+      touchedAreas: ["desktop", "migrations", "ci"],
+    },
+    {
+      id: "ses_07",
+      startedAt: "2026-07-25T18:05:00.000Z",
+      endedAt: "2026-07-25T22:18:00.000Z",
+      durationMinutes: 253,
+      intent: "Ship v0.1 without sanding away the rough edges",
+      outcome: "Signed release shipped to the first 38 people",
+      modelIds: ["gpt-5.4-codex", "claude-sonnet-4"],
+      toolIds: ["codex", "terminal", "github-actions"],
+      touchedAreas: ["release", "docs", "analytics"],
+    },
+  ],
+  usage: {
+    models: [
+      {
+        id: "gpt-5.4-codex",
+        label: "GPT-5.4 Codex",
+        provider: "OpenAI",
+        requests: 184,
+        inputTokens: 608420,
+        outputTokens: 116884,
+      },
+      {
+        id: "claude-sonnet-4",
+        label: "Claude Sonnet 4",
+        provider: "Anthropic",
+        requests: 67,
+        inputTokens: 188330,
+        outputTokens: 42812,
+      },
+    ],
+    tools: [
+      { id: "codex", label: "Codex", category: "agent", sessions: 6 },
+      { id: "cursor", label: "Cursor", category: "editor", sessions: 3 },
+      { id: "terminal", label: "Terminal", category: "terminal", sessions: 7 },
+      {
+        id: "github-actions",
+        label: "GitHub Actions",
+        category: "automation",
+        sessions: 2,
+      },
+    ],
+  },
+  git: {
+    commits: 87,
+    additions: 18420,
+    deletions: 6291,
+    filesTouched: 163,
+    branches: 9,
+    contributors: 1,
+    firstCommitSha: "a17cf09",
+    lastCommitSha: "4d2b8e7",
+  },
+  milestones: [
+    {
+      id: "ms_01",
+      occurredAt: "2026-07-08T19:45:00.000Z",
+      title: "The graph answered its first real question",
+      description:
+        "A rough import connected six sources well enough to reconstruct why a product decision had changed.",
+      kind: "breakthrough",
+      evidenceRefs: ["ses_01", "commit:a17cf09"],
+    },
+    {
+      id: "ms_02",
+      occurredAt: "2026-07-15T20:48:00.000Z",
+      title: "Offline stopped meaning fragile",
+      description:
+        "A replayable merge fixture exposed the duplicate-note bug and made the final conflict strategy obvious.",
+      kind: "decision",
+      evidenceRefs: ["ses_04", "commit:b63e401"],
+    },
+    {
+      id: "ms_03",
+      occurredAt: "2026-07-18T20:02:00.000Z",
+      title: "Five testers cut the canvas in half",
+      description:
+        "The clever controls were getting in the way, so the capture surface became deliberately smaller and calmer.",
+      kind: "feedback",
+      evidenceRefs: ["ses_05", "note:test-round-01"],
+    },
+    {
+      id: "ms_04",
+      occurredAt: "2026-07-25T22:18:00.000Z",
+      title: "v0.1 went to 38 curious people",
+      description:
+        "The first signed build shipped with a short known-issues list and one clear promise: the trail will still be there tomorrow.",
+      kind: "ship",
+      evidenceRefs: ["ses_07", "release:v0.1.0"],
+    },
+  ],
+  redaction: {
+    policyVersion: "redact-2026-06",
+    redactedFiles: 18,
+    generalizedPaths: 6,
+    secretMatchesRemoved: 3,
+    tokensRemoved: 9420,
+    notes: [
+      "Environment files excluded before analysis",
+      "Remote owner and machine paths generalized",
+      "Conversation excerpts summarized, never copied verbatim",
+    ],
+  },
+  provenance: {
+    scannerVersion: "0.3.0-dev",
+    scannedAt: "2026-07-25T22:26:44.000Z",
+    source: "local-cli",
+    machineScope: "repository-only",
+    snapshotHash: "sha256:15b9a8c0d17f…91c2",
+    consentVersion: "private-report-v1",
+  },
+} satisfies ProjectSnapshot;
+
+export const mockSnapshotSource: ProjectSnapshotSource = {
+  async getBySlug(slug) {
+    return slug === orbitNotesSnapshot.identity.slug ? orbitNotesSnapshot : null;
+  },
+};
+
+export type ExploreProject = {
+  slug: string;
+  name: string;
+  tagline: string;
+  maker: string;
+  handle: string;
+  initials: string;
+  status: "Shipped" | "Building" | "Experiment";
+  category: string;
+  accent: "cobalt" | "coral" | "ink";
+  days: number;
+  sessions: number;
+  commits: number;
+  models: string[];
+  moment: string;
+  summary: string;
+  updatedAt: string;
+};
+
+export const exploreProjects: ExploreProject[] = [
+  {
+    slug: "orbit-notes",
+    name: "Orbit Notes",
+    tagline: "A calmer way to follow a research trail.",
+    maker: "Mina Park",
+    handle: "minabuilds",
+    initials: "MP",
+    status: "Shipped",
+    category: "Productivity",
+    accent: "cobalt",
+    days: 14,
+    sessions: 7,
+    commits: 87,
+    models: ["Codex", "Sonnet"],
+    moment: "Five testers cut the canvas in half.",
+    summary:
+      "A spatial research notebook rebuilt around return trails, offline trust, and fewer clever controls.",
+    updatedAt: "Jul 25",
+  },
+  {
+    slug: "quiet-queue",
+    name: "Quiet Queue",
+    tagline: "A tiny support inbox for one-person shops.",
+    maker: "Theo Grant",
+    handle: "theobuildsthings",
+    initials: "TG",
+    status: "Building",
+    category: "SaaS",
+    accent: "coral",
+    days: 9,
+    sessions: 12,
+    commits: 54,
+    models: ["Codex"],
+    moment: "The auto-reply became a draft, not a decision.",
+    summary:
+      "A deliberately narrow inbox that sorts the noise while keeping the human reply visibly human.",
+    updatedAt: "Today",
+  },
+  {
+    slug: "contrast-fm",
+    name: "Contrast FM",
+    tagline: "Listen to a color palette before you ship it.",
+    maker: "Anika Rao",
+    handle: "anikamakes",
+    initials: "AR",
+    status: "Experiment",
+    category: "Creative tools",
+    accent: "ink",
+    days: 3,
+    sessions: 4,
+    commits: 31,
+    models: ["Gemini", "Cursor"],
+    moment: "A failed sonification made contrast easier to hear.",
+    summary:
+      "An accessibility experiment that maps visual contrast errors to rhythm and pitch.",
+    updatedAt: "Yesterday",
+  },
+  {
+    slug: "second-sun",
+    name: "Second Sun",
+    tagline: "A field guide to the light in your apartment.",
+    maker: "Jon Bell",
+    handle: "jonb",
+    initials: "JB",
+    status: "Shipped",
+    category: "Home",
+    accent: "coral",
+    days: 21,
+    sessions: 16,
+    commits: 112,
+    models: ["Codex", "Claude"],
+    moment: "The camera model was worse than a paper compass.",
+    summary:
+      "A privacy-first daylight planner shaped by one stubborn apartment and a much simpler model.",
+    updatedAt: "Jul 29",
+  },
+  {
+    slug: "paper-trail",
+    name: "Paper Trail",
+    tagline: "Receipts that remember what the purchase was for.",
+    maker: "Luis Moreno",
+    handle: "luismakes",
+    initials: "LM",
+    status: "Building",
+    category: "Finance",
+    accent: "cobalt",
+    days: 6,
+    sessions: 8,
+    commits: 46,
+    models: ["Codex", "Gemini"],
+    moment: "OCR accuracy mattered less than a fast correction loop.",
+    summary:
+      "A lightweight expense trail that keeps the original context without becoming accounting software.",
+    updatedAt: "Jul 27",
+  },
+];

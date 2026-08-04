@@ -1,0 +1,37 @@
+# Buildstory
+
+Buildstory is a standalone product for publishing sanitized stories about AI-assisted software work. This repository contains both the desktop-first web application and the privacy-preserving local scanner; it has no runtime, build, or source dependency on the portfolio project.
+
+## Repository layout
+
+- `apps/buildstory-web` — Next.js 16/Vinext web app, Auth.js integration, strict local scanner API, D1 schema and migration, Cloudflare Sites configuration, tests, and operations documentation.
+- `packages/buildstory-scanner` — read-only local CLI package exposing both `buildstory` and the compatible `story-scanner` alias.
+- `artifacts/buildstory-scanner-0.3.0.tgz` — unpublished, locally installable scanner archive.
+
+Each project keeps its own lockfile and dependencies. Use Node.js 22.13 or newer for the complete product workspace.
+
+## Local setup
+
+```powershell
+npm --prefix apps/buildstory-web ci
+npm --prefix packages/buildstory-scanner ci
+Copy-Item apps/buildstory-web/.env.example apps/buildstory-web/.env.local
+npm run dev:buildstory
+```
+
+The development-only authentication fallback and loopback scanner API must be explicitly enabled in `.env.local`; see [`apps/buildstory-web/README.md`](apps/buildstory-web/README.md) for the required values and local scanner flow.
+
+## Useful commands
+
+```powershell
+npm run verify:product
+npm run build:buildstory
+npm run package:scanner
+```
+
+`verify:product` runs the web lint, typecheck, build, rendered-route/security tests, and the scanner build/privacy/package/CLI tests. `package:scanner` writes the unpublished archive to `artifacts`; it does not publish a package.
+
+## Production configuration
+
+Buildstory deploys from `apps/buildstory-web`, not the repository root. Production configuration, the D1 migration, readiness checks, security constraints, staging/release procedures, and rollback guidance are documented in [`apps/buildstory-web/docs/production-runbook.md`](apps/buildstory-web/docs/production-runbook.md). No repository command deploys or publishes the product.
+

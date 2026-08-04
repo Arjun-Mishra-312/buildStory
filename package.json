@@ -1,0 +1,19 @@
+{
+  "name": "buildstory",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone workspace for the Buildstory web app and local scanner.",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev:buildstory": "npm --prefix apps/buildstory-web run dev",
+    "build:buildstory": "npm --prefix apps/buildstory-web run build",
+    "test:buildstory": "npm --prefix apps/buildstory-web test",
+    "verify:buildstory": "npm --prefix apps/buildstory-web run verify",
+    "build:scanner": "npm --prefix packages/buildstory-scanner run build",
+    "test:scanner": "npm --prefix packages/buildstory-scanner test",
+    "verify:product": "npm run verify:buildstory && npm run test:scanner",
+    "package:scanner": "npm pack ./packages/buildstory-scanner --pack-destination ./artifacts"
+  }
+}
