@@ -10,11 +10,10 @@ The scanner is not a hosted ingestion client. It refuses every non-loopback dest
 
 ## Local
 
-1. Install each independent project:
+1. Install the workspace from the repository root (one lockfile covers both projects):
 
    ```powershell
-   npm --prefix apps/buildstory-web ci
-   npm --prefix packages/buildstory-scanner ci
+   npm ci
    ```
 
 2. Copy `apps/buildstory-web/.env.example` to `.env.local`. For the documented fallback, set `BUILDSTORY_DEV_AUTH_BYPASS=true`, `BUILDSTORY_LOCAL_API_ENABLED=true`, and `BUILDSTORY_STORE=memory`.

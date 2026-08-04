@@ -6,6 +6,10 @@
   "engines": {
     "node": ">=22.13.0"
   },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev:buildstory": "npm --prefix apps/buildstory-web run dev",
     "build:buildstory": "npm --prefix apps/buildstory-web run build",

@@ -8,13 +8,12 @@ Buildstory is a standalone product for publishing sanitized stories about AI-ass
 - `packages/buildstory-scanner` — read-only local CLI package exposing both `buildstory` and the compatible `story-scanner` alias.
 - `artifacts/buildstory-scanner-0.3.0.tgz` — unpublished, locally installable scanner archive.
 
-Each project keeps its own lockfile and dependencies. Use Node.js 22.13 or newer for the complete product workspace.
+This is an npm workspace: one root lockfile covers both `apps/buildstory-web` and `packages/buildstory-scanner`, installed together from the repository root. Use Node.js 22.13 or newer for the complete product workspace.
 
 ## Local setup
 
 ```powershell
-npm --prefix apps/buildstory-web ci
-npm --prefix packages/buildstory-scanner ci
+npm ci
 Copy-Item apps/buildstory-web/.env.example apps/buildstory-web/.env.local
 npm run dev:buildstory
 ```
