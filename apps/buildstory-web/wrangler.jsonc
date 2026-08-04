@@ -1,0 +1,78 @@
+{
+  // NOT YET ACTIVE. Local dev and `npm run build:buildstory` still get their
+  // Worker config from `.openai/hosting.json` via the inline `config:` object
+  // in `vite.config.ts` (D1 only, database_id is a Miniflare-local placeholder).
+  // This file is a scaffold for the real Cloudflare deploy target described in
+  // the Buildstory production plan (see apps/buildstory-web/docs/production-runbook.md).
+  //
+  // Before this can be wired in (point vite.config.ts's `cloudflare({ configPath: ... })`
+  // here, or use it directly with `wrangler deploy`), fill in every TODO below:
+  //   1. account_id            — `wrangler whoami` or the Cloudflare dashboard.
+  //   2. d1_databases[0].database_id — `wrangler d1 create buildstory-d1` (or the
+  //      existing prod DB id, if one already exists) — do NOT reuse the local
+  //      placeholder id from .openai/hosting.json.
+  //   3. r2_buckets            — only if/when Phase 1's "move snapshot blobs out
+  //      of D1" work lands; leave absent until then (today: `r2: null` by design).
+  //   4. queues                — only needed once Phase 2's narrative pipeline
+  //      lands; create with `wrangler queues create buildstory-narrative-jobs`
+  //      and `...-dlq`, then uncomment.
+  //   5. triggers.crons        — only needed once Phase 1/5's lease-reclaim and
+  //      leaderboard sweeper land; uncomment with a real schedule.
+  //   6. ratelimits             — only needed once Phase 4's mutation rate
+  //      limiting lands; `namespace_id` is an arbitrary string you choose.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "buildstory-web",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // TODO: Cloudflare account id (`wrangler whoami`). Required before `wrangler
+  // deploy` will work against a real account.
+  "account_id": "",
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "buildstory-d1",
+      // TODO: replace with the real database id from `wrangler d1 create` /
+      // the Cloudflare dashboard. This is intentionally not the Miniflare
+      // local placeholder used in .openai/hosting.json.
+      "database_id": ""
+    }
+  ]
+
+  // --- Phase 1: snapshot blobs out of D1 -----------------------------------
+  // "r2_buckets": [
+  //   { "binding": "SNAPSHOTS", "bucket_name": "buildstory-snapshots" }
+  // ],
+
+  // --- Phase 2: narrative generation queue ---------------------------------
+  // "queues": {
+  //   "producers": [
+  //     { "queue": "buildstory-narrative-jobs", "binding": "NARRATIVE_QUEUE" }
+  //   ],
+  //   "consumers": [
+  //     {
+  //       "queue": "buildstory-narrative-jobs",
+  //       "max_batch_size": 5,
+  //       "max_batch_timeout": 30,
+  //       "max_retries": 3,
+  //       "dead_letter_queue": "buildstory-narrative-jobs-dlq"
+  //     }
+  //   ]
+  // },
+
+  // --- Phase 1/5: lease reclaim + explore/leaderboard scoring sweep --------
+  // "triggers": {
+  //   "crons": ["*/5 * * * *"]
+  // },
+
+  // --- Phase 4: per-endpoint mutation rate limiting ------------------------
+  // "ratelimits": [
+  //   {
+  //     "name": "MUTATION_RATE_LIMITER",
+  //     "namespace_id": "1001",
+  //     "simple": { "limit": 30, "period": 60 }
+  //   }
+  // ]
+}
