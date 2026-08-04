@@ -16,6 +16,7 @@ import type {
 } from "./contracts";
 import { reportSnapshotFromScanner } from "./report-adapter";
 import type { ScannerProjectSnapshot } from "./scanner-project-snapshot";
+import { PROJECT_SNAPSHOT_SCHEMA_VERSION } from "./scanner-project-snapshot";
 import { MAX_SNAPSHOT_BYTES, validateProjectSnapshot } from "./validation";
 
 type SessionRow = {
@@ -494,7 +495,7 @@ export async function claimUploadSession(
       bearerToken: token,
       snapshotEndpoint: `/api/v1/cli/upload-sessions/${sessionId}/snapshot`,
       expiresAt: tokenExpiresAt,
-      schemaVersion: "1.0.0",
+      schemaVersion: PROJECT_SNAPSHOT_SCHEMA_VERSION,
       maxBytes: MAX_SNAPSHOT_BYTES,
     },
   };

@@ -7,6 +7,7 @@ import {
   readBoundedJson,
 } from "@/lib/ingestion/local-api";
 import { sha256Digest } from "@/lib/ingestion/local-contract";
+import { PROJECT_SNAPSHOT_SCHEMA_VERSION } from "@/lib/ingestion/scanner-project-snapshot";
 import { acceptSnapshot } from "@/lib/ingestion/store";
 import { MAX_SNAPSHOT_BYTES } from "@/lib/ingestion/validation";
 
@@ -24,10 +25,10 @@ export async function PUT(request: Request, context: RouteContext) {
         401,
       );
     }
-    if (request.headers.get("x-buildstory-schema-version") !== "1.0.0") {
+    if (request.headers.get("x-buildstory-schema-version") !== PROJECT_SNAPSHOT_SCHEMA_VERSION) {
       return jsonError(
         "unsupported_schema_version",
-        "Send X-BuildStory-Schema-Version: 1.0.0 and a matching ProjectSnapshot body.",
+        `Send X-BuildStory-Schema-Version: ${PROJECT_SNAPSHOT_SCHEMA_VERSION} and a matching ProjectSnapshot body.`,
         400,
       );
     }

@@ -1,5 +1,5 @@
 import type { ProjectSnapshot } from "@/lib/project-snapshot";
-import type { ScannerProjectSnapshot } from "./scanner-project-snapshot";
+import type { PROJECT_SNAPSHOT_SCHEMA_VERSION, ScannerProjectSnapshot } from "./scanner-project-snapshot";
 
 export type UploadSessionStatus =
   | "awaiting_scanner"
@@ -87,7 +87,7 @@ export type LocalUploadGrant = {
   bearerToken: string;
   snapshotEndpoint: string;
   expiresAt: string;
-  schemaVersion: "1.0.0";
+  schemaVersion: typeof PROJECT_SNAPSHOT_SCHEMA_VERSION;
   maxBytes: number;
 };
 

@@ -1,16 +1,19 @@
 /**
- * Portable mirror of @buildstory/scanner's ProjectSnapshot 1.0.0 contract.
+ * Portable mirror of @buildstory/scanner's ProjectSnapshot 1.1.0 contract.
  *
  * This is the only snapshot shape accepted at the scanner HTTP boundary. The
  * product-facing report model in lib/project-snapshot.ts is derived from this
  * transport object after validation; it is never accepted as upload input.
  */
 
-export const PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.0.0" as const;
+export const PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.1.0" as const;
 export const CONNECT_PROTOCOL_VERSION = "1.0" as const;
 
 export type IsoDateTime = string;
 export type Sha256Digest = `sha256:${string}`;
+
+/** Every AI coding-session source the scanner can read. */
+export type ProviderId = "codex" | "claude-code";
 
 export interface ScannerProjectSnapshot {
   schemaVersion: typeof PROJECT_SNAPSHOT_SCHEMA_VERSION;
@@ -44,7 +47,7 @@ export interface SourceSelection {
 }
 
 export interface ProviderSelection {
-  provider: "codex";
+  provider: ProviderId;
   selected: true;
   repositoryScoped: true;
   rootsConsidered: number;
@@ -80,7 +83,7 @@ export type SessionStatus = "completed" | "aborted" | "incomplete" | "unknown";
 
 export interface SessionSummary {
   sessionRef: string;
-  provider: "codex";
+  provider: ProviderId;
   sourceKind: "active" | "archived" | "custom";
   startedAt: IsoDateTime;
   endedAt: IsoDateTime;
@@ -93,6 +96,8 @@ export interface SessionSummary {
   modelRefs: string[];
   toolRefs: string[];
   tokenUsage: TokenUsage | null;
+  planModeTurns?: number;
+  subagentInvocations?: number;
 }
 
 export interface TokenUsage {
@@ -101,6 +106,10 @@ export interface TokenUsage {
   outputTokens: number;
   reasoningOutputTokens: number;
   totalTokens: number;
+  cacheCreationInputTokens?: number;
+  cacheCreation1hInputTokens?: number;
+  cacheCreation5mInputTokens?: number;
+  cacheReadInputTokens?: number;
 }
 
 export interface UsageSummary {
@@ -147,7 +156,7 @@ export interface Milestone {
 
 export interface EvidenceReference {
   evidenceId: string;
-  source: "codex" | "git";
+  source: ProviderId | "git";
   kind: "session-boundary" | "tool-activity" | "git-aggregate";
   observedAt: IsoDateTime;
   digest: Sha256Digest;
@@ -197,7 +206,7 @@ export interface Provenance {
     version: string;
   };
   collectionMode: "local-read-only";
-  sessionFormat: "codex-jsonl";
+  sessionFormats: Array<"codex-jsonl" | "claude-code-jsonl">;
   deterministicSerialization: "lexicographic-json";
   repositoryCommands: Array<
     | "git-config"
@@ -214,6 +223,7 @@ export interface Provenance {
 
 export type QualityWarningCode =
   | "CODEX_ROOT_UNAVAILABLE"
+  | "CLAUDE_CODE_ROOT_UNAVAILABLE"
   | "SESSION_FILE_LIMIT_REACHED"
   | "SESSION_FILE_TOO_LARGE"
   | "SESSION_LINE_TOO_LARGE"

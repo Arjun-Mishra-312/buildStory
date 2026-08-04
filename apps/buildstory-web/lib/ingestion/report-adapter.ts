@@ -1,5 +1,6 @@
 import type { ProjectSnapshot } from "@/lib/project-snapshot";
 import type { ScannerProjectSnapshot } from "./scanner-project-snapshot";
+import { PROJECT_SNAPSHOT_SCHEMA_VERSION } from "./scanner-project-snapshot";
 
 function slugify(value: string) {
   const base = value
@@ -141,7 +142,7 @@ export function reportSnapshotFromScanner(
       evidenceRefs: milestone.evidenceRefs,
     })),
     redaction: {
-      policyVersion: "scanner-project-snapshot-1.0.0",
+      policyVersion: `scanner-project-snapshot-${PROJECT_SNAPSHOT_SCHEMA_VERSION}`,
       redactedFiles: snapshot.provenance.sourceFilesSkipped,
       generalizedPaths: snapshot.repository.rootPathIncluded ? 0 : 1,
       secretMatchesRemoved: snapshot.redaction.findings,

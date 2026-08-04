@@ -8,6 +8,7 @@ const fixture = await readFile(
   "utf8",
 );
 const digest = `sha256:${createHash("sha256").update(fixture).digest("hex")}`;
+const schemaVersion = JSON.parse(fixture).schemaVersion;
 
 async function assertStatus(response, expected) {
   if (response.status !== expected) {
@@ -40,7 +41,7 @@ const connectResponse = await fetch(new URL("api/v1/cli/connect", base), {
     deviceCode: created.deviceAuthorization.userCode,
     client: { command: "buildstory", version: "0.3.0" },
     capabilities: {
-      projectSnapshotSchemaVersions: ["1.0.0"],
+      projectSnapshotSchemaVersions: [schemaVersion],
       snapshotUpload: false,
     },
   }),
@@ -56,7 +57,7 @@ const uploadResponse = await fetch(uploadUrl, {
   headers: {
     authorization: `Bearer ${token}`,
     "content-type": "application/json",
-    "x-buildstory-schema-version": "1.0.0",
+    "x-buildstory-schema-version": schemaVersion,
     "x-buildstory-snapshot-digest": digest,
   },
   body: fixture,
@@ -71,7 +72,7 @@ const replayResponse = await fetch(uploadUrl, {
   headers: {
     authorization: `Bearer ${token}`,
     "content-type": "application/json",
-    "x-buildstory-schema-version": "1.0.0",
+    "x-buildstory-schema-version": schemaVersion,
     "x-buildstory-snapshot-digest": digest,
   },
   body: fixture,

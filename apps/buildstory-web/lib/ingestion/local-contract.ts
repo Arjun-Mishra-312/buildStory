@@ -1,5 +1,6 @@
 import type { LocalConnectRequest } from "./contracts";
 import { LocalApiRequestError } from "./local-api";
+import { PROJECT_SNAPSHOT_SCHEMA_VERSION } from "./scanner-project-snapshot";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -83,9 +84,9 @@ export function parseLocalConnectRequest(value: unknown): LocalConnectRequest {
     if (
       !Array.isArray(value.capabilities.projectSnapshotSchemaVersions) ||
       value.capabilities.projectSnapshotSchemaVersions.length !== 1 ||
-      value.capabilities.projectSnapshotSchemaVersions[0] !== "1.0.0"
+      value.capabilities.projectSnapshotSchemaVersions[0] !== PROJECT_SNAPSHOT_SCHEMA_VERSION
     ) {
-      details.push("The scanner must support ProjectSnapshot 1.0.0.");
+      details.push(`The scanner must support ProjectSnapshot ${PROJECT_SNAPSHOT_SCHEMA_VERSION}.`);
     }
     if (value.capabilities.snapshotUpload !== false) {
       details.push(

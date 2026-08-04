@@ -14,6 +14,7 @@ import {
   publishReport,
   updateReport,
 } from "../lib/ingestion/mock-store";
+import { PROJECT_SNAPSHOT_SCHEMA_VERSION } from "../lib/ingestion/scanner-project-snapshot";
 import { validateProjectSnapshot } from "../lib/ingestion/validation";
 import scannerFixture from "./fixtures/scanner-project-snapshot.json";
 
@@ -29,7 +30,7 @@ function connectBody(sessionId: string, deviceCode: string) {
     deviceCode,
     client: { command: "buildstory", version: "0.3.0" },
     capabilities: {
-      projectSnapshotSchemaVersions: ["1.0.0"],
+      projectSnapshotSchemaVersions: [PROJECT_SNAPSHOT_SCHEMA_VERSION],
       snapshotUpload: false,
     },
   };
@@ -160,7 +161,7 @@ test("local scanner lifecycle enforces owner, digest, size, and one-use grant bo
   assert.equal(connectionJson.protocolVersion, "1.0");
   assert.equal(connectionJson.status, "connected");
   assert.equal(connectionJson.uploadSessionId, sessionId);
-  assert.equal(connectionJson.uploadGrant.schemaVersion, "1.0.0");
+  assert.equal(connectionJson.uploadGrant.schemaVersion, PROJECT_SNAPSHOT_SCHEMA_VERSION);
   assert.equal(connectionJson.uploadGrant.maxBytes, 1_000_000);
   assert.doesNotMatch(JSON.stringify(connectionJson), /deviceCode|userCode|cookie/i);
 
@@ -205,7 +206,7 @@ test("local scanner lifecycle enforces owner, digest, size, and one-use grant bo
         authorization: `Bearer ${connectionJson.uploadGrant.bearerToken}`,
         "content-type": "application/json",
         "content-length": "1000001",
-        "x-buildstory-schema-version": "1.0.0",
+        "x-buildstory-schema-version": PROJECT_SNAPSHOT_SCHEMA_VERSION,
         "x-buildstory-snapshot-digest": `sha256:${"0".repeat(64)}`,
       },
       body: "{}",
@@ -225,7 +226,7 @@ test("local scanner lifecycle enforces owner, digest, size, and one-use grant bo
       headers: {
         authorization: `Bearer ${connectionJson.uploadGrant.bearerToken}`,
         "content-type": "application/json",
-        "x-buildstory-schema-version": "1.0.0",
+        "x-buildstory-schema-version": PROJECT_SNAPSHOT_SCHEMA_VERSION,
         "x-buildstory-snapshot-digest": await sha256Digest(forbiddenRaw),
       },
       body: forbiddenRaw,
@@ -243,7 +244,7 @@ test("local scanner lifecycle enforces owner, digest, size, and one-use grant bo
       headers: {
         authorization: `Bearer ${connectionJson.uploadGrant.bearerToken}`,
         "content-type": "application/json",
-        "x-buildstory-schema-version": "1.0.0",
+        "x-buildstory-schema-version": PROJECT_SNAPSHOT_SCHEMA_VERSION,
         "x-buildstory-snapshot-digest": snapshotDigest,
       },
       body: snapshotRaw,
@@ -275,7 +276,7 @@ test("local scanner lifecycle enforces owner, digest, size, and one-use grant bo
       headers: {
         authorization: "Bearer bsu_wrong",
         "content-type": "application/json",
-        "x-buildstory-schema-version": "1.0.0",
+        "x-buildstory-schema-version": PROJECT_SNAPSHOT_SCHEMA_VERSION,
         "x-buildstory-snapshot-digest": snapshotDigest,
       },
       body: snapshotRaw,
@@ -291,7 +292,7 @@ test("local scanner lifecycle enforces owner, digest, size, and one-use grant bo
       headers: {
         authorization: `Bearer ${connectionJson.uploadGrant.bearerToken}`,
         "content-type": "application/json",
-        "x-buildstory-schema-version": "1.0.0",
+        "x-buildstory-schema-version": PROJECT_SNAPSHOT_SCHEMA_VERSION,
         "x-buildstory-snapshot-digest": snapshotDigest,
       },
       body: snapshotRaw,
