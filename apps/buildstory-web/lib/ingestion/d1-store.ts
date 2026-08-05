@@ -1485,3 +1485,54 @@ export async function listPublishedStories(limit = 30) {
   }
   return stories;
 }
+
+function escapeLikePattern(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
+}
+
+/** Public boundary: matches only against already-public editorial text and the owner's handle/display name, never source snapshot content. */
+export async function searchPublishedStories(query: string, limit = 20) {
+  const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), 50);
+  const trimmed = query.trim().slice(0, 200);
+  if (!trimmed) return [];
+  const pattern = `%${escapeLikePattern(trimmed)}%`;
+  const rows = await (await database())
+    .prepare(
+      `SELECT r.snapshot_json, r.selected_public_fields_json, r.editorial_tagline, r.editorial_description, r.published_at
+       FROM buildstory_reports r
+       LEFT JOIN buildstory_users u ON u.id = r.owner_user_id
+       WHERE r.publication_status = 'published'
+         AND (
+           r.editorial_tagline LIKE ? ESCAPE '\\'
+           OR r.editorial_description LIKE ? ESCAPE '\\'
+           OR u.handle LIKE ? ESCAPE '\\'
+           OR u.display_name LIKE ? ESCAPE '\\'
+         )
+       ORDER BY r.published_at DESC LIMIT ?`,
+    )
+    .bind(pattern, pattern, pattern, pattern, boundedLimit)
+    .all<{
+      snapshot_json: string;
+      selected_public_fields_json: string;
+      editorial_tagline: string;
+      editorial_description: string;
+      published_at: string | null;
+    }>();
+
+  const stories = [];
+  for (const row of rows.results) {
+    const snapshot = parseJson<ProjectSnapshot>(row.snapshot_json, "public report");
+    const selected = parseJson<PublicFieldKey[]>(row.selected_public_fields_json, "public field");
+    if (!Array.isArray(selected) || selected.some((field) => !PUBLIC_FIELDS.includes(field))) {
+      continue;
+    }
+    snapshot.identity.tagline = row.editorial_tagline;
+    snapshot.identity.description = row.editorial_description;
+    snapshot.identity.visibility = "public";
+    stories.push({
+      ...publicBuildStoryFromSnapshot(snapshot, selected),
+      publishedAt: row.published_at,
+    });
+  }
+  return stories;
+}

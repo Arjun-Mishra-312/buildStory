@@ -53,6 +53,9 @@ type StoredUser = UserRecord & {
 type StoredProject = ProjectRecord & {
   fingerprintBasis: string;
   storyCount: number;
+  latestSessionCount: number;
+  latestCommitCount: number;
+  latestActiveDays: number;
 };
 
 /** Keyed by reportId - a 1:1 relationship, same as the real store's unique index on report_id. */
@@ -117,6 +120,9 @@ function createSeedStore(): MockStore {
     repositoryFingerprint: orbitNotesSnapshot.provenance.snapshotHash,
     fingerprintBasis: "local-path",
     storyCount: 1,
+    latestSessionCount: orbitNotesSnapshot.sessions.length,
+    latestCommitCount: orbitNotesSnapshot.git.commits,
+    latestActiveDays: orbitNotesSnapshot.timeWindow.activeDays,
   };
   const report: GeneratedReport = {
     id: reportId,
@@ -357,6 +363,9 @@ function ensureProject(ownerUserId: string, fingerprint: string, fingerprintBasi
   );
   if (existing) {
     existing.storyCount += 1;
+    existing.latestSessionCount = stats.sessionCount;
+    existing.latestCommitCount = stats.commitCount;
+    existing.latestActiveDays = stats.activeDays;
     return existing;
   }
 
@@ -376,6 +385,9 @@ function ensureProject(ownerUserId: string, fingerprint: string, fingerprintBasi
       repositoryFingerprint: fingerprint,
       fingerprintBasis,
       storyCount: 1,
+      latestSessionCount: stats.sessionCount,
+      latestCommitCount: stats.commitCount,
+      latestActiveDays: stats.activeDays,
     };
     store.projects.set(project.id, project);
     return project;
@@ -1003,6 +1015,61 @@ export function listPublishedStories(limit = 30) {
         publishedAt: report.publication.publishedAt,
       };
     });
+}
+
+/** Public boundary: matches only against already-public editorial text and the owner's handle/display name, never source snapshot content. */
+export function searchPublishedStories(query: string, limit = 20) {
+  const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), 50);
+  const needle = query.trim().slice(0, 200).toLocaleLowerCase("en-US");
+  if (!needle) return [];
+  return Array.from(store.reports.values())
+    .filter((report) => {
+      if (report.publication.status !== "published") return false;
+      const owner = store.users.get(userIdForCreator(report.creatorId) ?? "");
+      const haystack = [
+        report.editorial.tagline,
+        report.editorial.description,
+        owner?.handle ?? "",
+        owner?.displayName ?? "",
+      ]
+        .join("\n")
+        .toLocaleLowerCase("en-US");
+      return haystack.includes(needle);
+    })
+    .sort((left, right) =>
+      (right.publication.publishedAt ?? "").localeCompare(left.publication.publishedAt ?? ""),
+    )
+    .slice(0, boundedLimit)
+    .map((report) => {
+      const snapshot = structuredClone(report.snapshot);
+      snapshot.identity.tagline = report.editorial.tagline;
+      snapshot.identity.description = report.editorial.description;
+      snapshot.identity.visibility = "public";
+      return {
+        ...publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields),
+        publishedAt: report.publication.publishedAt,
+      };
+    });
+}
+
+/** Verified-provenance stats per project that has at least one published report - the leaderboard's raw input. */
+export function listProjectStatsForLeaderboard(): Array<{
+  ownerUserId: string;
+  latestCommitCount: number;
+  latestActiveDays: number;
+}> {
+  const publishedProjectIds = new Set(
+    Array.from(store.reports.values())
+      .filter((report) => report.publication.status === "published")
+      .map((report) => report.projectId),
+  );
+  return Array.from(store.projects.values())
+    .filter((project) => publishedProjectIds.has(project.id))
+    .map((project) => ({
+      ownerUserId: project.ownerUserId,
+      latestCommitCount: project.latestCommitCount,
+      latestActiveDays: project.latestActiveDays,
+    }));
 }
 
 export function statusLabel(status: UploadSessionStatus) {

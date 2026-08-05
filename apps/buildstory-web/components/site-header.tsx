@@ -4,7 +4,7 @@ import Link from "next/link";
 import { NotificationBell } from "./notification-bell";
 
 type SiteHeaderProps = {
-  active?: "home" | "explore" | "project";
+  active?: "home" | "explore" | "leaderboard" | "project";
   compact?: boolean;
 };
 
@@ -34,6 +34,12 @@ export function SiteHeader({ active, compact = false }: SiteHeaderProps) {
             className={active === "explore" ? "is-active" : undefined}
           >
             Explore
+          </Link>
+          <Link
+            href="/leaderboard"
+            className={active === "leaderboard" ? "is-active" : undefined}
+          >
+            Leaderboard
           </Link>
           <Link href="/#how-it-works">How it works</Link>
           <Link href="/#manifesto">Manifesto</Link>

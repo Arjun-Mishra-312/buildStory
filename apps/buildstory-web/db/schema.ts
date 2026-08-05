@@ -395,3 +395,37 @@ export const contentReports = sqliteTable(
     index("idx_buildstory_content_reports_target").on(table.targetType, table.targetId),
   ],
 );
+
+/**
+ * Cron/manually computed, never live-aggregated on a page read (beyond a
+ * bounded staleness fallback when nothing has ever run). One row per
+ * (period, user). "score" is verified-provenance commits, capped per
+ * project at activeDays * ANTI_GAMING_MAX_COMMITS_PER_DAY so a single
+ * overnight run can't dominate a ranking meant to reward sustained
+ * building - see lib/leaderboard/compute.ts.
+ */
+export const leaderboardEntries = sqliteTable(
+  "buildstory_leaderboard_entries",
+  {
+    id: text("id").primaryKey(),
+    period: text("period").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    rank: integer("rank").notNull(),
+    score: integer("score").notNull(),
+    activeDays: integer("active_days").notNull(),
+    storyCount: integer("story_count").notNull(),
+    computedAt: text("computed_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_buildstory_leaderboard_period_user").on(table.period, table.userId),
+    index("idx_buildstory_leaderboard_period_rank").on(table.period, table.rank),
+  ],
+);
+
+/** Tracks the last successful recompute per period so reads know whether a bounded lazy refresh is due. */
+export const leaderboardRuns = sqliteTable("buildstory_leaderboard_runs", {
+  period: text("period").primaryKey(),
+  computedAt: text("computed_at").notNull(),
+});

@@ -34,6 +34,8 @@ const REQUIRED_TABLES = [
   "buildstory_notifications",
   "buildstory_rate_limits",
   "buildstory_content_reports",
+  "buildstory_leaderboard_entries",
+  "buildstory_leaderboard_runs",
 ] as const;
 
 export async function assertDatabaseReady() {

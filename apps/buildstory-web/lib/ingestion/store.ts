@@ -111,6 +111,10 @@ export async function listPublishedStories(limit?: number) {
   return (await backend()).listPublishedStories(limit);
 }
 
+export async function searchPublishedStories(query: string, limit?: number) {
+  return (await backend()).searchPublishedStories(query, limit);
+}
+
 export function statusLabel(status: UploadSessionStatus) {
   return status.replaceAll("_", " ");
 }
