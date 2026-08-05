@@ -34,18 +34,23 @@ export function SocialActions({ slug, ownerHandle }: SocialActionsProps) {
   const [follow, setFollow] = useState<FollowState | null>(null);
   const [isSelf, setIsSelf] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
-      const [reactionResponse, profileResponse] = await Promise.all([
+      try {
+        const [reactionResponse, profileResponse] = await Promise.all([
         fetch(`/api/stories/${encodeURIComponent(slug)}/reactions`, { cache: "no-store" }),
         fetch(`/api/users/${encodeURIComponent(ownerHandle)}`, { cache: "no-store" }),
-      ]);
-      if (reactionResponse.ok) setReactions((await reactionResponse.json()) as ReactionSummary);
-      if (profileResponse.ok) {
-        const data = (await profileResponse.json()) as { follow: FollowState; isSelf: boolean };
-        setFollow(data.follow);
-        setIsSelf(data.isSelf);
+        ]);
+        if (reactionResponse.ok) setReactions((await reactionResponse.json()) as ReactionSummary);
+        if (profileResponse.ok) {
+          const data = (await profileResponse.json()) as { follow: FollowState; isSelf: boolean };
+          setFollow(data.follow);
+          setIsSelf(data.isSelf);
+        }
+      } catch {
+        setError("Social activity is temporarily unavailable.");
       }
     })();
   }, [slug, ownerHandle]);
@@ -65,6 +70,9 @@ export function SocialActions({ slug, ownerHandle }: SocialActionsProps) {
       });
       if (response.status === 401) return goToSignIn();
       if (response.ok) setReactions((await response.json()) as ReactionSummary);
+      else setError("That reaction could not be saved.");
+    } catch {
+      setError("That reaction could not be saved.");
     } finally {
       setBusy(false);
     }
@@ -77,7 +85,10 @@ export function SocialActions({ slug, ownerHandle }: SocialActionsProps) {
       const method = follow.isFollowedByViewer ? "DELETE" : "POST";
       const response = await fetch(`/api/users/${encodeURIComponent(ownerHandle)}/follow`, { method });
       if (response.status === 401) return goToSignIn();
-      if (!response.ok) return;
+      if (!response.ok) {
+        setError("That follow change could not be saved.");
+        return;
+      }
       setFollow((current) =>
         current
           ? {
@@ -87,6 +98,8 @@ export function SocialActions({ slug, ownerHandle }: SocialActionsProps) {
             }
           : current,
       );
+    } catch {
+      setError("That follow change could not be saved.");
     } finally {
       setBusy(false);
     }
@@ -94,6 +107,7 @@ export function SocialActions({ slug, ownerHandle }: SocialActionsProps) {
 
   return (
     <div className="social-actions">
+      {error ? <p className="comment-thread__error" role="alert">{error}</p> : null}
       <div className="social-actions__reactions" role="group" aria-label="React to this build story">
         {REACTION_ORDER.map((kind) => (
           <button

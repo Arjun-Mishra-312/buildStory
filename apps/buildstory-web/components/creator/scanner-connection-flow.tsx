@@ -6,6 +6,7 @@ import type { DeviceAuthorization, UploadSessionView } from "@/lib/ingestion/con
 const orderedStatuses = [
   "awaiting_scanner",
   "scanner_authorized",
+  "snapshot_received",
   "queued",
   "generating",
   "report_ready",
@@ -79,6 +80,7 @@ export function ScannerConnectionFlow({
   }
 
   const currentIndex = session ? orderedStatuses.indexOf(session.status as (typeof orderedStatuses)[number]) : -1;
+  const terminalError = session?.status === "failed" || session?.status === "expired";
 
   return (
     <div className="scanner-flow">
@@ -143,8 +145,13 @@ export function ScannerConnectionFlow({
             </div>
           ))}
         </div>
+        {terminalError ? (
+          <p className="scanner-flow__error" role="alert">
+            {session.status === "expired" ? "This connection expired. Start a new one to continue." : session.statusDetail}
+          </p>
+        ) : null}
         {session?.reportId && session.status === "report_ready" ? (
-          <a className="button button--primary" href={session.reportId === "rpt_orbit_notes_ready" ? "/dashboard/projects/orbit-notes" : `/dashboard/reports/${session.reportId}`}>Review private report →</a>
+          <a className="button button--primary" href={`/dashboard/reports/${session.reportId}`}>Review private report →</a>
         ) : null}
       </section>
 

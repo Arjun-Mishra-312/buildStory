@@ -1,5 +1,6 @@
 import { jsonError, requireApiCreator, socialErrorResponse } from "@/lib/api/responses";
 import { deleteAccount } from "@/lib/account/store";
+import { signOut } from "@/auth";
 import { ensureUser } from "@/lib/ingestion/store";
 import { assertSameOriginBrowserMutation } from "@/lib/security/browser-request";
 
@@ -24,6 +25,7 @@ export async function DELETE(request: Request) {
       );
     }
     await deleteAccount(user.id);
+    await signOut({ redirect: false, redirectTo: "/" });
     return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
   } catch (error) {
     return socialErrorResponse(error);

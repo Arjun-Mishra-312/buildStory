@@ -13,14 +13,14 @@ export const dynamic = "force-dynamic";
 
 async function loadEntries() {
   try {
-    return await getLeaderboard("all-time", 50);
+    return { entries: await getLeaderboard("all-time", 50), unavailable: false };
   } catch {
-    return [];
+    return { entries: [], unavailable: true };
   }
 }
 
 export default async function LeaderboardPage() {
-  const entries = await loadEntries();
+  const { entries, unavailable } = await loadEntries();
   return (
     <div className="page-shell">
       <SiteHeader active="leaderboard" />
@@ -37,7 +37,11 @@ export default async function LeaderboardPage() {
           </p>
         </header>
         {entries.length === 0 ? (
-          <p className="leaderboard-empty">No published, ranked builders yet.</p>
+          <div className={`leaderboard-empty ${unavailable ? "leaderboard-empty--error" : ""}`} role={unavailable ? "alert" : "status"}>
+            <strong>{unavailable ? "Leaderboard temporarily unavailable." : "No published, ranked builders yet."}</strong>
+            <p>{unavailable ? "The story store did not respond. Try again in a moment." : "Publish a build story and verified activity will appear here."}</p>
+            {unavailable ? <a href="/leaderboard">Try again</a> : null}
+          </div>
         ) : (
           <ol className="leaderboard-list">
             {entries.map((entry) => (

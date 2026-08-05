@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { ProjectWorkbench } from "@/components/project-workbench";
 import { requireCreator } from "@/lib/auth/runtime";
 import { buildStoryFromSnapshot } from "@/lib/build-story";
@@ -9,6 +10,16 @@ export const metadata: Metadata = { title: "Review imported report" };
 
 type PageProps = { params: Promise<{ reportId: string }> };
 
+function isMissingReport(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "isBuildstoryIngestionError" in error &&
+    "status" in error &&
+    (error as { status?: unknown }).status === 404
+  );
+}
+
 export default async function ImportedReportPage({ params }: PageProps) {
   const { reportId } = await params;
   const creator = await requireCreator(`/dashboard/reports/${reportId}`);
@@ -16,7 +27,8 @@ export default async function ImportedReportPage({ params }: PageProps) {
   let report;
   try {
     report = await getReport(creator.creatorId, reportId);
-  } catch {
+  } catch (error) {
+    if (isMissingReport(error)) notFound();
     return (
       <main className="creator-page creator-project-empty">
         <span className="section-index">( REPORT NOT FOUND )</span>
@@ -51,6 +63,7 @@ export default async function ImportedReportPage({ params }: PageProps) {
         reportId={report.id}
         initialPublicationStatus={report.publication.status}
         initialSelectedPublicFields={report.selectedPublicFields}
+        initialEditorial={report.editorial}
         narrative={report.narrative}
       />
     </div>

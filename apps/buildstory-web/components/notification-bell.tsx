@@ -86,13 +86,15 @@ export function NotificationBell() {
         type="button"
         className="notification-bell__trigger"
         onClick={() => void toggleOpen()}
+        aria-expanded={open}
+        aria-controls="notification-panel"
         aria-label={unreadCount > 0 ? `${unreadCount} unread notifications` : "Notifications"}
       >
         <span aria-hidden="true">🔔</span>
         {unreadCount > 0 ? <span className="notification-bell__badge">{unreadCount > 9 ? "9+" : unreadCount}</span> : null}
       </button>
       {open ? (
-        <div className="notification-bell__panel" role="menu">
+        <div className="notification-bell__panel" id="notification-panel" role="menu">
           {notifications.length === 0 ? (
             <p className="notification-bell__empty">No notifications yet.</p>
           ) : (

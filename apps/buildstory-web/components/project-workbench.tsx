@@ -14,6 +14,11 @@ type ProjectWorkbenchProps = {
   initialPublicationStatus?: PublicationStatus;
   initialSelectedPublicFields?: PublicFieldKey[];
   narrative?: NarrativeRecord | null;
+  initialEditorial?: Partial<{
+    tagline: string;
+    description: string;
+    reflection: string;
+  }>;
 };
 
 function initials(name: string) {
@@ -43,15 +48,22 @@ export function ProjectWorkbench({
   initialPublicationStatus = "not_published",
   initialSelectedPublicFields = fieldOptions.map((field) => field.id),
   narrative = null,
+  initialEditorial,
 }: ProjectWorkbenchProps) {
   const privateStory = access === "creator" ? (story as BuildStoryViewModel) : null;
+  const storyReflection = "reflection" in story ? story.reflection : "";
+  const initialTagline = initialEditorial?.tagline ?? story.tagline;
+  const initialDescription = initialEditorial?.description ?? story.description;
+  const defaultReflection =
+    initialEditorial?.reflection ??
+    (storyReflection || (access === "creator"
+      ? "AI made it cheap to explore three architectures. Tester feedback made it obvious which one deserved to survive."
+      : ""));
   const [view, setView] = useState<"public" | "private">("public");
   const [editing, setEditing] = useState(false);
-  const [tagline, setTagline] = useState(story.tagline);
-  const [description, setDescription] = useState(story.description);
-  const [reflection, setReflection] = useState(
-    "AI made it cheap to explore three architectures. Tester feedback made it obvious which one deserved to survive.",
-  );
+  const [tagline, setTagline] = useState(initialTagline);
+  const [description, setDescription] = useState(initialDescription);
+  const [reflection, setReflection] = useState(defaultReflection);
   const [draft, setDraft] = useState({ tagline, description, reflection });
   const [copied, setCopied] = useState(false);
   const [selectedFields, setSelectedFields] = useState<PublicFieldKey[]>(initialSelectedPublicFields);
@@ -99,15 +111,16 @@ export function ProjectWorkbench({
   async function saveFieldSelection() {
     if (!reportId) return;
     setSaveState("saving");
-    const response = await fetch(`/api/creator/reports/${reportId}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ selectedPublicFields: selectedFields }),
-    });
-    if (response.ok) {
+    try {
+      const response = await fetch(`/api/creator/reports/${reportId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ selectedPublicFields: selectedFields }),
+      });
+      if (!response.ok) throw new Error("Report selection update failed.");
       setPublicationStatus((current) => current === "published" ? "draft_changes" : current);
       setSaveState("saved");
-    } else {
+    } catch {
       setSaveState("error");
     }
   }
@@ -115,11 +128,12 @@ export function ProjectWorkbench({
   async function publishChanges() {
     if (!reportId) return;
     setSaveState("saving");
-    const response = await fetch(`/api/creator/reports/${reportId}/publish`, { method: "POST" });
-    if (response.ok) {
+    try {
+      const response = await fetch(`/api/creator/reports/${reportId}/publish`, { method: "POST" });
+      if (!response.ok) throw new Error("Report publication failed.");
       setPublicationStatus("published");
       setSaveState("saved");
-    } else {
+    } catch {
       setSaveState("error");
     }
   }
@@ -133,8 +147,9 @@ export function ProjectWorkbench({
   }
 
   async function copyLink() {
+    if (publicationStatus !== "published") return;
     try {
-      await navigator.clipboard.writeText(window.location.href);
+      await navigator.clipboard.writeText(`${window.location.origin}/p/${story.slug}`);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1600);
     } catch {
@@ -185,8 +200,14 @@ export function ProjectWorkbench({
               Edit public page
             </button>
           ) : null}
-          <button className="button button--dark button--small" type="button" onClick={copyLink}>
-            {copied ? "Link copied" : "Share preview"} <span aria-hidden="true">↗</span>
+          <button
+            className="button button--dark button--small"
+            type="button"
+            onClick={() => void copyLink()}
+            disabled={publicationStatus !== "published"}
+            title={publicationStatus === "published" ? "Copy the public story URL" : "Publish the story before sharing it"}
+          >
+            {copied ? "Public link copied" : publicationStatus === "published" ? "Copy public link" : "Publish to share"} <span aria-hidden="true">↗</span>
           </button>
           {publicationStatus !== "published" ? (
             <button
@@ -313,10 +334,12 @@ export function ProjectWorkbench({
                   </div>
                 </section>
 
-                <aside className="story-quote">
-                  <span>WHAT CHANGED MY MIND</span>
-                  <blockquote>“{reflection}”</blockquote>
-                </aside>
+                {reflection ? (
+                  <aside className="story-quote">
+                    <span>WHAT CHANGED MY MIND</span>
+                    <blockquote>“{reflection}”</blockquote>
+                  </aside>
+                ) : null}
 
                 <section className="story-section">
                   <span className="story-section__number">02</span>

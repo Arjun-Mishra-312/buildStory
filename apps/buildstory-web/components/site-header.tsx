@@ -46,6 +46,15 @@ export function SiteHeader({ active, compact = false }: SiteHeaderProps) {
         </nav>
 
         <div className="site-header__actions">
+          <details className="site-mobile-menu">
+            <summary>Menu</summary>
+            <nav aria-label="Mobile primary navigation">
+              <Link href="/explore">Explore</Link>
+              <Link href="/leaderboard">Leaderboard</Link>
+              <Link href="/#how-it-works">How it works</Link>
+              <Link href="/#manifesto">Manifesto</Link>
+            </nav>
+          </details>
           <NotificationBell />
           <button
             className="theme-toggle"

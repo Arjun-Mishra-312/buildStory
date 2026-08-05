@@ -23,10 +23,16 @@ export function CommentThread({ slug }: { slug: string }) {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    const response = await fetch(`/api/stories/${encodeURIComponent(slug)}/comments`, { cache: "no-store" });
-    if (response.ok) {
-      const data = (await response.json()) as { comments: Comment[] };
-      setComments(data.comments);
+    try {
+      const response = await fetch(`/api/stories/${encodeURIComponent(slug)}/comments`, { cache: "no-store" });
+      if (response.ok) {
+        const data = (await response.json()) as { comments: Comment[] };
+        setComments(data.comments);
+      } else {
+        setError("Comments are temporarily unavailable.");
+      }
+    } catch {
+      setError("Comments are temporarily unavailable.");
     }
   }, [slug]);
 
@@ -75,6 +81,9 @@ export function CommentThread({ slug }: { slug: string }) {
       const response = await fetch(`/api/stories/${encodeURIComponent(slug)}/comments/${commentId}`, { method: "DELETE" });
       if (response.status === 401) return goToSignIn();
       if (response.ok) await load();
+      else setError("That comment could not be removed.");
+    } catch {
+      setError("That comment could not be removed.");
     } finally {
       setBusy(false);
     }

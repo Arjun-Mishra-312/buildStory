@@ -27,7 +27,7 @@ export default async function DashboardPage() {
       </header>
 
       <section className="dashboard-metrics" aria-label="Workspace summary">
-        <article><span>PROJECTS</span><strong>{ready.length}</strong><small>{ready.length ? "1 published" : "Connect your first"}</small></article>
+        <article><span>READY REPORTS</span><strong>{ready.length}</strong><small>{ready.length ? "Ready to review" : "Connect your first"}</small></article>
         <article><span>IN THE QUEUE</span><strong>{processing.length}</strong><small>generation jobs</small></article>
         <article><span>SCANNER TRUST</span><strong>1×</strong><small>single-use upload tokens</small></article>
         <article><span>PUBLIC ACCESS</span><strong>Open</strong><small>no viewer sign-in</small></article>

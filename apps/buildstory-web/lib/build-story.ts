@@ -27,6 +27,7 @@ export function buildStoryFromSnapshot(snapshot: ProjectSnapshot) {
     (sum, model) => sum + model.requests,
     0,
   );
+  const endedAtYear = new Date(snapshot.timeWindow.endedAt).getUTCFullYear();
 
   return {
     id: snapshot.identity.id,
@@ -37,7 +38,7 @@ export function buildStoryFromSnapshot(snapshot: ProjectSnapshot) {
     status: snapshot.identity.status,
     owner: snapshot.identity.owner,
     repository: snapshot.repository,
-    dateRange: `${shortMonthDay.format(new Date(snapshot.timeWindow.startedAt))} — ${shortMonthDay.format(new Date(snapshot.timeWindow.endedAt))}, 2026`,
+    dateRange: `${shortMonthDay.format(new Date(snapshot.timeWindow.startedAt))} — ${shortMonthDay.format(new Date(snapshot.timeWindow.endedAt))}, ${endedAtYear}`,
     activeDays: snapshot.timeWindow.activeDays,
     sessionCount: snapshot.sessions.length,
     buildHours: Math.round((minutes / 60) * 10) / 10,
@@ -78,18 +79,26 @@ export function buildStoryFromSnapshot(snapshot: ProjectSnapshot) {
 export function publicBuildStoryFromSnapshot(
   snapshot: ProjectSnapshot,
   selectedPublicFields: PublicFieldKey[],
+  editorial?: { tagline?: string; description?: string; reflection?: string },
 ) {
   const story = buildStoryFromSnapshot(snapshot);
   const selected = new Set(selectedPublicFields);
   const publicName = sanitizePublicText(story.name, 160).value;
-  const publicTagline = sanitizePublicText(story.tagline, 300).value;
-  const publicDescription = sanitizePublicText(story.description, 4_000).value;
+  const publicTagline = sanitizePublicText(editorial?.tagline ?? story.tagline, 300).value;
+  const publicDescription = sanitizePublicText(
+    editorial?.description ?? story.description,
+    4_000,
+  ).value;
+  const publicReflection = editorial?.reflection
+    ? sanitizePublicText(editorial.reflection, 260).value
+    : "";
   return {
     id: story.id,
     slug: story.slug,
     name: publicName,
     tagline: selected.has("tagline") ? publicTagline : "",
     description: selected.has("description") ? publicDescription : "",
+    reflection: selected.has("description") ? publicReflection : "",
     status: story.status,
     owner: {
       name: sanitizePublicText(story.owner.name, 160).value,

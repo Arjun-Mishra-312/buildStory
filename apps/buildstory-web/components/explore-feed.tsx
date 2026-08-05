@@ -7,6 +7,7 @@ import type { PublicBuildStoryViewModel } from "@/lib/build-story";
 export type ExploreStory = PublicBuildStoryViewModel & { publishedAt: string | null };
 
 type StatusFilter = "All" | ExploreStory["status"];
+type PreviewMode = "receipt" | "images";
 
 const filters: Array<{ value: StatusFilter; label: string }> = [
   { value: "All", label: "All" },
@@ -41,9 +42,14 @@ function turningPoint(story: ExploreStory) {
   return story.milestones[0]?.title ?? null;
 }
 
-export function ExploreFeed({ projects }: { projects: ExploreStory[] }) {
+function modelNames(story: ExploreStory) {
+  return story.models.slice(0, 3).map((model) => model.label);
+}
+
+export function ExploreFeed({ projects, unavailable = false }: { projects: ExploreStory[]; unavailable?: boolean }) {
   const [filter, setFilter] = useState<StatusFilter>("All");
   const [query, setQuery] = useState("");
+  const [previewMode, setPreviewMode] = useState<PreviewMode>("receipt");
 
   const visible = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -99,9 +105,30 @@ export function ExploreFeed({ projects }: { projects: ExploreStory[] }) {
           />
           <kbd>⌘ K</kbd>
         </label>
+        <div className="explore-preview-toggle" role="group" aria-label="Featured story preview">
+          <span>Preview</span>
+          {(["receipt", "images"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              className={previewMode === mode ? "is-active" : undefined}
+              onClick={() => setPreviewMode(mode)}
+              aria-pressed={previewMode === mode}
+            >
+              {mode === "receipt" ? "Receipt" : "Images"}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {!featured ? (
+      {unavailable ? (
+        <div className="explore-empty explore-empty--error" role="alert">
+          <span>( TEMPORARILY UNAVAILABLE )</span>
+          <h2>The story trail is taking a breather.</h2>
+          <p>Published stories did not load. Try again in a moment.</p>
+          <a className="button button--secondary" href="/explore">Try again</a>
+        </div>
+      ) : !featured ? (
         <div className="explore-empty" role="status">
           <span>0 stories</span>
           <h2>
@@ -120,20 +147,40 @@ export function ExploreFeed({ projects }: { projects: ExploreStory[] }) {
       ) : (
         <div className="explore-layout">
           <Link className="featured-story" href={`/p/${featured.slug}`}>
-            <div className="featured-story__visual">
+            <div className={`featured-story__visual featured-story__visual--${previewMode}`}>
               <div className="featured-story__grid" aria-hidden="true">
                 <span /><span /><span /><span /><span /><span /><span /><span />
               </div>
-              <div className="featured-story__receipt">
-                <div><span>BUILD /</span><strong>{featured.name.toUpperCase()}</strong></div>
-                <dl>
-                  <div><dt>WINDOW</dt><dd>{featured.activeDays} DAYS</dd></div>
-                  <div><dt>SESSIONS</dt><dd>{String(featured.sessionCount).padStart(2, "0")}</dd></div>
-                  <div><dt>COMMITS</dt><dd>{featured.git.commits}</dd></div>
-                </dl>
-                <div className="featured-story__receipt-rule" />
-                <small>PROCESS RECEIPT · LOCALLY REDACTED</small>
-              </div>
+              {previewMode === "receipt" ? (
+                <div className="featured-story__receipt">
+                  <div><span>BUILD /</span><strong>{featured.name.toUpperCase()}</strong></div>
+                  <dl>
+                    <div><dt>WINDOW</dt><dd>{featured.activeDays} DAYS</dd></div>
+                    <div><dt>SESSIONS</dt><dd>{String(featured.sessionCount).padStart(2, "0")}</dd></div>
+                    <div><dt>COMMITS</dt><dd>{featured.git.commits}</dd></div>
+                  </dl>
+                  <div className="featured-story__receipt-rule" />
+                  <small>PROCESS RECEIPT · LOCALLY REDACTED</small>
+                </div>
+              ) : (
+                <div className="featured-story__image-board" aria-label={`Process preview for ${featured.name}`}>
+                  <div className="featured-story__image-card featured-story__image-card--main">
+                    <span>PROCESS / {String(featured.sessionCount).padStart(2, "0")}</span>
+                    <strong>{featured.name}</strong>
+                    <i />
+                    <small>{featured.stack.slice(0, 2).join(" · ") || "BUILD STORY"}</small>
+                  </div>
+                  <div className="featured-story__image-card featured-story__image-card--small">
+                    <span>AI MIX</span>
+                    <strong>{featured.models[0]?.label ?? "Private"}</strong>
+                    <small>{featured.models.length ? `${featured.models.length} models` : "Not shared"}</small>
+                  </div>
+                  <div className="featured-story__image-card featured-story__image-card--stamp">
+                    <strong>{featured.git.commits}</strong>
+                    <small>COMMITS</small>
+                  </div>
+                </div>
+              )}
               <span className="featured-story__flag">EDITOR’S PICK</span>
             </div>
             <div className="featured-story__body">
@@ -145,6 +192,11 @@ export function ExploreFeed({ projects }: { projects: ExploreStory[] }) {
               <h2>{featured.name}</h2>
               <p className="featured-story__tagline">{featured.tagline}</p>
               <p>{featured.description}</p>
+              {modelNames(featured).length ? (
+                <div className="story-model-chips" aria-label="Models used">
+                  {modelNames(featured).map((model) => <span key={model}>{model}</span>)}
+                </div>
+              ) : null}
               {turningPoint(featured) ? (
                 <div className="turning-point">
                   <small>THE TURNING POINT</small>
@@ -185,8 +237,8 @@ export function ExploreFeed({ projects }: { projects: ExploreStory[] }) {
                       {project.activeDays}d · {project.sessionCount} sessions · {project.git.commits} commits
                     </span>
                     {project.models.length ? (
-                      <span className="story-row__models">
-                        {project.models.map((model) => model.label).join(" + ")}
+                      <span className="story-model-chips" aria-label="Models used">
+                        {modelNames(project).map((model) => <span key={model}>{model}</span>)}
                       </span>
                     ) : null}
                   </div>

@@ -1397,7 +1397,7 @@ export async function publicationStatusForProject(
 export async function getPublishedStoryBySlug(slug: string) {
   const row = await (await database())
     .prepare(
-      `SELECT snapshot_json, selected_public_fields_json, editorial_tagline, editorial_description
+      `SELECT snapshot_json, selected_public_fields_json, editorial_tagline, editorial_description, editorial_reflection
        FROM buildstory_reports
        WHERE publication_slug = ? AND publication_status = 'published' LIMIT 1`,
     )
@@ -1407,6 +1407,7 @@ export async function getPublishedStoryBySlug(slug: string) {
       selected_public_fields_json: string;
       editorial_tagline: string;
       editorial_description: string;
+      editorial_reflection: string;
     }>();
   if (!row) return null;
   const snapshot = parseJson<ProjectSnapshot>(row.snapshot_json, "public report");
@@ -1427,7 +1428,9 @@ export async function getPublishedStoryBySlug(slug: string) {
   snapshot.identity.tagline = row.editorial_tagline;
   snapshot.identity.description = row.editorial_description;
   snapshot.identity.visibility = "public";
-  return publicBuildStoryFromSnapshot(snapshot, selected);
+  return publicBuildStoryFromSnapshot(snapshot, selected, {
+    reflection: row.editorial_reflection,
+  });
 }
 
 /** IDs only, for social features (reactions/comments) to key off of - never content. */
@@ -1451,7 +1454,7 @@ export async function listPublishedStories(limit = 30) {
   const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), 100);
   const rows = await (await database())
     .prepare(
-      `SELECT snapshot_json, selected_public_fields_json, editorial_tagline, editorial_description, published_at
+      `SELECT snapshot_json, selected_public_fields_json, editorial_tagline, editorial_description, editorial_reflection, published_at
        FROM buildstory_reports
        WHERE publication_status = 'published'
        ORDER BY published_at DESC LIMIT ?`,
@@ -1462,6 +1465,7 @@ export async function listPublishedStories(limit = 30) {
       selected_public_fields_json: string;
       editorial_tagline: string;
       editorial_description: string;
+      editorial_reflection: string;
       published_at: string | null;
     }>();
 
@@ -1479,7 +1483,9 @@ export async function listPublishedStories(limit = 30) {
     snapshot.identity.description = row.editorial_description;
     snapshot.identity.visibility = "public";
     stories.push({
-      ...publicBuildStoryFromSnapshot(snapshot, selected),
+      ...publicBuildStoryFromSnapshot(snapshot, selected, {
+        reflection: row.editorial_reflection,
+      }),
       publishedAt: row.published_at,
     });
   }
@@ -1498,7 +1504,7 @@ export async function searchPublishedStories(query: string, limit = 20) {
   const pattern = `%${escapeLikePattern(trimmed)}%`;
   const rows = await (await database())
     .prepare(
-      `SELECT r.snapshot_json, r.selected_public_fields_json, r.editorial_tagline, r.editorial_description, r.published_at
+      `SELECT r.snapshot_json, r.selected_public_fields_json, r.editorial_tagline, r.editorial_description, r.editorial_reflection, r.published_at
        FROM buildstory_reports r
        LEFT JOIN buildstory_users u ON u.id = r.owner_user_id
        WHERE r.publication_status = 'published'
@@ -1516,6 +1522,7 @@ export async function searchPublishedStories(query: string, limit = 20) {
       selected_public_fields_json: string;
       editorial_tagline: string;
       editorial_description: string;
+      editorial_reflection: string;
       published_at: string | null;
     }>();
 
@@ -1530,7 +1537,9 @@ export async function searchPublishedStories(query: string, limit = 20) {
     snapshot.identity.description = row.editorial_description;
     snapshot.identity.visibility = "public";
     stories.push({
-      ...publicBuildStoryFromSnapshot(snapshot, selected),
+      ...publicBuildStoryFromSnapshot(snapshot, selected, {
+        reflection: row.editorial_reflection,
+      }),
       publishedAt: row.published_at,
     });
   }

@@ -14,17 +14,17 @@ export const dynamic = "force-dynamic";
 
 async function loadStories() {
   try {
-    return await listPublishedStories(30);
+    return { stories: await listPublishedStories(30), unavailable: false };
   } catch {
     // A durable-store outage should degrade the feed to empty, not crash
     // the whole page; the rest of Buildstory (nav, marketing chrome) still
     // has nothing to do with story storage and should keep working.
-    return [];
+    return { stories: [], unavailable: true };
   }
 }
 
 export default async function ExplorePage() {
-  const stories = await loadStories();
+  const { stories, unavailable } = await loadStories();
   return (
     <div className="page-shell">
       <SiteHeader active="explore" />
@@ -39,7 +39,7 @@ export default async function ExplorePage() {
             enough process left in to learn from.
           </p>
         </header>
-        <ExploreFeed projects={stories} />
+        <ExploreFeed projects={stories} unavailable={unavailable} />
       </main>
       <SiteFooter />
     </div>

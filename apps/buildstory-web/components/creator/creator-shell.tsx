@@ -1,6 +1,14 @@
 import Link from "next/link";
 import type { CreatorSession } from "@/lib/auth/runtime";
 
+const creatorNavigation = [
+  ["01", "Overview", "/dashboard"],
+  ["02", "Connect scanner", "/dashboard/connect"],
+  ["03", "Feed", "/dashboard/feed"],
+  ["04", "Settings", "/dashboard/settings"],
+  ["↗", "Public stories", "/explore"],
+] as const;
+
 export function CreatorShell({
   creator,
   children,
@@ -24,12 +32,9 @@ export function CreatorShell({
         </Link>
         <div className="creator-sidebar__label">CREATOR WORKSPACE</div>
         <nav aria-label="Creator workspace">
-          <Link href="/dashboard"><span>01</span> Overview</Link>
-          <Link href="/dashboard/projects/orbit-notes"><span>02</span> Project & report</Link>
-          <Link href="/dashboard/connect"><span>03</span> Connect scanner</Link>
-          <Link href="/dashboard/feed"><span>04</span> Feed</Link>
-          <Link href="/dashboard/settings"><span>05</span> Settings</Link>
-          <Link href="/p/orbit-notes"><span>↗</span> Public page</Link>
+          {creatorNavigation.map(([index, label, href]) => (
+            <Link href={href} key={href}><span>{index}</span> {label}</Link>
+          ))}
         </nav>
         <div className="creator-sidebar__boundary">
           <span>PRIVATE SURFACE</span>
@@ -49,7 +54,14 @@ export function CreatorShell({
             <span className="wordmark__mark" aria-hidden="true"><span /><span /></span>
             <span>Buildstory</span>
           </Link>
-          <Link href="/dashboard/connect">Connect scanner</Link>
+          <details className="creator-mobile-menu">
+            <summary>Menu</summary>
+            <nav aria-label="Mobile creator workspace">
+              {creatorNavigation.map(([, label, href]) => (
+                <Link href={href} key={href}>{label}</Link>
+              ))}
+            </nav>
+          </details>
         </header>
         {children}
       </div>

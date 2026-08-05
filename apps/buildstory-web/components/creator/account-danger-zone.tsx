@@ -45,6 +45,8 @@ export function AccountDangerZone({ handle }: { handle: string }) {
         return;
       }
       router.push("/");
+    } catch {
+      setError("Could not delete your account. Try again shortly.");
     } finally {
       setDeleting(false);
     }

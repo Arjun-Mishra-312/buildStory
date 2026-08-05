@@ -986,7 +986,9 @@ export function getPublishedStoryBySlug(slug: string) {
   snapshot.identity.tagline = report.editorial.tagline;
   snapshot.identity.description = report.editorial.description;
   snapshot.identity.visibility = "public";
-  return publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields);
+  return publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields, {
+    reflection: report.editorial.reflection,
+  });
 }
 
 /** IDs only, for social features (reactions/comments) to key off of - never content. */
@@ -1011,7 +1013,9 @@ export function listPublishedStories(limit = 30) {
       snapshot.identity.description = report.editorial.description;
       snapshot.identity.visibility = "public";
       return {
-        ...publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields),
+        ...publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields, {
+          reflection: report.editorial.reflection,
+        }),
         publishedAt: report.publication.publishedAt,
       };
     });
@@ -1046,7 +1050,9 @@ export function searchPublishedStories(query: string, limit = 20) {
       snapshot.identity.description = report.editorial.description;
       snapshot.identity.visibility = "public";
       return {
-        ...publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields),
+        ...publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields, {
+          reflection: report.editorial.reflection,
+        }),
         publishedAt: report.publication.publishedAt,
       };
     });
