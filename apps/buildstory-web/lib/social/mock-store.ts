@@ -528,3 +528,63 @@ export function resolveContentReport(reportId: string, status: ContentReportStat
   report.status = status;
   report.resolvedAt = new Date().toISOString();
 }
+
+/** Account export needs: everything this user authored/gave/follows, across every table this module owns. */
+export function getAccountSocialData(userId: string): {
+  commentsAuthored: Array<{ id: string; reportId: string; parentCommentId: string | null; body: string; createdAt: string }>;
+  reactionsGiven: Array<{ reportId: string; kind: ReactionKind; createdAt: string }>;
+  following: string[];
+  followers: string[];
+} {
+  const commentsAuthored = Array.from(store.comments.values())
+    .filter((comment) => comment.authorUserId === userId && comment.status === "visible")
+    .map((comment) => ({
+      id: comment.id,
+      reportId: comment.reportId,
+      parentCommentId: comment.parentCommentId,
+      body: comment.body,
+      createdAt: comment.createdAt,
+    }));
+  // Reactions don't carry their own creation timestamp separate from the map value in this store, so a placeholder is used for the export's shape.
+  const reactionsGiven = Array.from(store.reactions.entries())
+    .filter(([key]) => key.endsWith(`:${userId}`))
+    .map(([key, kind]) => ({ reportId: key.split(":")[0]!, kind, createdAt: "" }));
+  const following = Array.from(store.follows)
+    .filter((key) => key.startsWith(`${userId}:`))
+    .map((key) => store.users.get(key.split(":")[1]!)?.handle)
+    .filter((handle): handle is string => Boolean(handle));
+  const followers = Array.from(store.follows)
+    .filter((key) => key.endsWith(`:${userId}`))
+    .map((key) => store.users.get(key.split(":")[0]!)?.handle)
+    .filter((handle): handle is string => Boolean(handle));
+  return { commentsAuthored, reactionsGiven, following, followers };
+}
+
+// ---------------------------------------------------------------------------
+// Account deletion
+// ---------------------------------------------------------------------------
+
+/** Mirrors d1-store's cascade behavior for the tables this module owns; the ingestion mock store handles its own reports/projects/sessions separately. */
+export function deleteAccountSocialData(userId: string): void {
+  for (const [reportId, report] of store.reports) {
+    if (report.ownerUserId === userId) store.reports.delete(reportId);
+  }
+  for (const key of store.follows) {
+    if (key.startsWith(`${userId}:`) || key.endsWith(`:${userId}`)) store.follows.delete(key);
+  }
+  for (const key of store.reactions.keys()) {
+    if (key.endsWith(`:${userId}`)) store.reactions.delete(key);
+  }
+  for (const [commentId, comment] of store.comments) {
+    if (comment.authorUserId === userId) store.comments.delete(commentId);
+  }
+  for (const [notificationId, notification] of store.notifications) {
+    if (notification.userId === userId || notification.actorUserId === userId) {
+      store.notifications.delete(notificationId);
+    }
+  }
+  for (const [reportId, report] of store.contentReports) {
+    if (report.reporterUserId === userId) store.contentReports.delete(reportId);
+  }
+  store.users.delete(userId);
+}

@@ -1072,6 +1072,36 @@ export function listProjectStatsForLeaderboard(): Array<{
     }));
 }
 
+/** Account export/deletion needs: everything owned by this user, keyed by the store's real user id rather than the creatorId ("google:<sub>") string used elsewhere. */
+export function getAccountProjectsAndReports(userId: string): { projects: StoredProject[]; reports: GeneratedReport[] } {
+  const user = store.users.get(userId);
+  if (!user) return { projects: [], reports: [] };
+  return {
+    projects: Array.from(store.projects.values()).filter((project) => project.ownerUserId === userId),
+    reports: Array.from(store.reports.values()).filter((report) => report.creatorId === user.authSubject),
+  };
+}
+
+/**
+ * Permanent, irreversible erasure - mirrors d1-store's deleteAccount:
+ * reports/sessions/projects owned by this user are removed outright, not
+ * merely orphaned.
+ */
+export function deleteAccountData(userId: string): void {
+  const user = store.users.get(userId);
+  if (!user) return;
+  for (const [id, report] of store.reports) {
+    if (report.creatorId === user.authSubject) store.reports.delete(id);
+  }
+  for (const [id, session] of store.sessions) {
+    if (session.ownerUserId === userId) store.sessions.delete(id);
+  }
+  for (const [id, project] of store.projects) {
+    if (project.ownerUserId === userId) store.projects.delete(id);
+  }
+  store.users.delete(userId);
+}
+
 export function statusLabel(status: UploadSessionStatus) {
   return status.replaceAll("_", " ");
 }

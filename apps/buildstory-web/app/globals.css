@@ -4999,3 +4999,50 @@ html[data-theme="dark"] .closing-cta {
     text-align: left;
   }
 }
+
+/* Account settings */
+
+.account-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 640px;
+  margin-top: 28px;
+}
+
+.account-settings .report-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.account-settings .report-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.report-card--danger {
+  border-color: var(--coral);
+}
+
+.account-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.account-settings input {
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  background: var(--surface-strong);
+  color: var(--ink);
+  font: inherit;
+}
+
+.account-settings button {
+  align-self: flex-start;
+}
