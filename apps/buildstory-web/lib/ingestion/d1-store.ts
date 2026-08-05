@@ -1430,6 +1430,19 @@ export async function getPublishedStoryBySlug(slug: string) {
   return publicBuildStoryFromSnapshot(snapshot, selected);
 }
 
+/** IDs only, for social features (reactions/comments) to key off of - never content. */
+export async function getPublicStoryIdentity(
+  slug: string,
+): Promise<{ reportId: string; ownerUserId: string | null } | null> {
+  const row = await (await database())
+    .prepare(
+      "SELECT id, owner_user_id FROM buildstory_reports WHERE publication_slug = ? AND publication_status = 'published' LIMIT 1",
+    )
+    .bind(slug)
+    .first<{ id: string; owner_user_id: string | null }>();
+  return row ? { reportId: row.id, ownerUserId: row.owner_user_id } : null;
+}
+
 /**
  * Public boundary: this query does not select the private source snapshot.
  * Newest published stories first, capped for a single feed page.

@@ -6,6 +6,7 @@ import { generateNarrative, narrativeProviderConfigured, NarrativeProviderError 
 import { estimateCostMicroUsd } from "@/lib/narrative/pricing";
 import { NARRATIVE_FIELD_LIMITS } from "@/lib/narrative/schema";
 import { sanitizePublicText } from "@/lib/publication/sanitization";
+import { registerProfile as registerSocialProfileRecord, registerReport as registerSocialReportRecord } from "@/lib/social/mock-store";
 import type {
   DeviceAuthorization,
   GeneratedReport,
@@ -184,9 +185,17 @@ function createSeedStore(): MockStore {
   };
 }
 
+const isFreshStore = !storeGlobal.__buildstoryMockIngestion;
 const store =
   storeGlobal.__buildstoryMockIngestion ??
   (storeGlobal.__buildstoryMockIngestion = createSeedStore());
+
+if (isFreshStore) {
+  for (const user of store.users.values()) registerSocialProfile(user);
+  for (const [reportId, report] of store.reports) {
+    registerSocialReport(reportId, userIdForCreator(report.creatorId), report);
+  }
+}
 
 export class MockIngestionError extends Error {
   readonly isBuildstoryIngestionError = true;
@@ -222,6 +231,34 @@ function cleanSession(session: StoredUploadSession): UploadSessionView {
 
 function makeId(prefix: string) {
   return `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
+}
+
+/** Keeps the (separately module-scoped) social mock store's shadow user record in sync. */
+function registerSocialProfile(user: StoredUser) {
+  registerSocialProfileRecord({
+    id: user.id,
+    handle: user.handle,
+    displayName: user.displayName,
+    avatarUrl: user.avatarUrl,
+    bio: user.bio,
+    role: user.role,
+  });
+}
+
+function userIdForCreator(creatorId: string): string | null {
+  return Array.from(store.users.values()).find((candidate) => candidate.authSubject === creatorId)?.id ?? null;
+}
+
+/** Keeps the (separately module-scoped) social mock store's shadow report record in sync. */
+function registerSocialReport(reportId: string, ownerUserId: string | null, report: GeneratedReport) {
+  registerSocialReportRecord({
+    id: reportId,
+    ownerUserId,
+    publicationStatus: report.publication.status,
+    publicationSlug: report.publication.slug,
+    editorialTagline: report.editorial.tagline,
+    publishedAt: report.publication.publishedAt,
+  });
 }
 
 function makeDeviceCode() {
@@ -287,6 +324,7 @@ export function ensureUser(session: {
   if (existing) {
     existing.displayName = session.name;
     existing.avatarUrl = session.image;
+    registerSocialProfile(existing);
     return existing;
   }
 
@@ -307,6 +345,7 @@ export function ensureUser(session: {
       role: "member",
     };
     store.users.set(user.id, user);
+    registerSocialProfile(user);
     return user;
   }
   throw new MockIngestionError("handle_generation_failed", "Could not allocate a handle for this account.", 500);
@@ -670,7 +709,7 @@ export async function acceptSnapshot(
   session.status = "queued";
   session.statusDetail = "Snapshot validated and queued for report generation.";
 
-  store.reports.set(reportId, {
+  const newReport: GeneratedReport = {
     id: reportId,
     creatorId: session.creatorId,
     projectId: reportSnapshot.identity.id,
@@ -702,7 +741,9 @@ export async function acceptSnapshot(
       publicUrl: null,
     },
     narrative: null,
-  });
+  };
+  store.reports.set(reportId, newReport);
+  registerSocialReport(reportId, user.id, newReport);
 
   if (validated.snapshot.narrativeEvidence && validated.snapshot.narrativeEvidence.excerpts.length > 0) {
     createNarrativeJob(reportId, user.id);
@@ -879,6 +920,7 @@ export function updateReport(
   if (report.publication.status === "published") {
     report.publication.status = "draft_changes";
   }
+  registerSocialReport(reportId, userIdForCreator(creatorId), report);
   return { ...structuredClone(report), narrative: narrativeRecordFor(reportId) };
 }
 
@@ -909,6 +951,7 @@ export function publishReport(creatorId: string, reportId: string): GeneratedRep
   report.publication.status = "published";
   report.publication.publishedAt = new Date().toISOString();
   report.publication.publicUrl = `${publicOrigin()}/p/${report.publication.slug}`;
+  registerSocialReport(reportId, userIdForCreator(creatorId), report);
   return { ...structuredClone(report), narrative: narrativeRecordFor(reportId) };
 }
 
@@ -932,6 +975,14 @@ export function getPublishedStoryBySlug(slug: string) {
   snapshot.identity.description = report.editorial.description;
   snapshot.identity.visibility = "public";
   return publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields);
+}
+
+/** IDs only, for social features (reactions/comments) to key off of - never content. */
+export function getPublicStoryIdentity(slug: string): { reportId: string; ownerUserId: string | null } | null {
+  const report = Array.from(store.reports.values()).find(
+    (candidate) => candidate.publication.slug === slug && candidate.publication.status === "published",
+  );
+  return report ? { reportId: report.id, ownerUserId: userIdForCreator(report.creatorId) } : null;
 }
 
 export function listPublishedStories(limit = 30) {

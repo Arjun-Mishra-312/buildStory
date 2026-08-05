@@ -27,6 +27,7 @@ export function CreatorShell({
           <Link href="/dashboard"><span>01</span> Overview</Link>
           <Link href="/dashboard/projects/orbit-notes"><span>02</span> Project & report</Link>
           <Link href="/dashboard/connect"><span>03</span> Connect scanner</Link>
+          <Link href="/dashboard/feed"><span>04</span> Feed</Link>
           <Link href="/p/orbit-notes"><span>↗</span> Public page</Link>
         </nav>
         <div className="creator-sidebar__boundary">

@@ -3,7 +3,9 @@
 import { FormEvent, useState } from "react";
 import type { BuildStoryViewModel, PublicBuildStoryViewModel } from "@/lib/build-story";
 import type { NarrativeRecord, PublicationStatus, PublicFieldKey } from "@/lib/ingestion/contracts";
+import { CommentThread } from "./comment-thread";
 import { ReceiptCard } from "./receipt-card";
+import { SocialActions } from "./social-actions";
 
 type ProjectWorkbenchProps = {
   story: BuildStoryViewModel | PublicBuildStoryViewModel;
@@ -370,6 +372,13 @@ export function ProjectWorkbench({
               </div>
             </div>
           </article>
+
+          {access === "public" ? (
+            <div className="section-wrap community-section">
+              <SocialActions slug={story.slug} ownerHandle={story.owner.handle} />
+              <CommentThread slug={story.slug} />
+            </div>
+          ) : null}
         </div>
       ) : privateStory ? (
         <section

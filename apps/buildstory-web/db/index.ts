@@ -28,6 +28,12 @@ const REQUIRED_TABLES = [
   "buildstory_narratives",
   "buildstory_narrative_jobs",
   "buildstory_llm_budgets",
+  "buildstory_follows",
+  "buildstory_reactions",
+  "buildstory_comments",
+  "buildstory_notifications",
+  "buildstory_rate_limits",
+  "buildstory_content_reports",
 ] as const;
 
 export async function assertDatabaseReady() {

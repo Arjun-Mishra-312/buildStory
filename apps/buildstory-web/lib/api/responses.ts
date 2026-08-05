@@ -2,6 +2,7 @@ import { getCreatorSession } from "@/lib/auth/runtime";
 import type { ApiErrorBody } from "@/lib/ingestion/contracts";
 import { LocalApiRequestError } from "@/lib/ingestion/local-api";
 import { logOperationalEvent } from "@/lib/observability/log";
+import { SocialError } from "@/lib/social/contracts";
 
 type IngestionError = Error & {
   isBuildstoryIngestionError: true;
@@ -59,4 +60,21 @@ export function ingestionErrorResponse(error: unknown) {
     status: 500,
   });
   return jsonError("internal_error", "The ingestion service failed safely.", 500);
+}
+
+export function socialErrorResponse(error: unknown) {
+  if (isIngestionError(error) || error instanceof SocialError) {
+    if (error.status >= 500) {
+      logOperationalEvent("error", "social.request_failed", {
+        code: error.code,
+        status: error.status,
+      });
+    }
+    return jsonError(error.code, error.message, error.status, error.details);
+  }
+  logOperationalEvent("error", "social.unexpected_failure", {
+    code: "internal_error",
+    status: 500,
+  });
+  return jsonError("internal_error", "The social service failed safely.", 500);
 }

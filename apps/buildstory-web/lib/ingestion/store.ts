@@ -103,6 +103,10 @@ export async function getPublishedStoryBySlug(slug: string) {
   return (await backend()).getPublishedStoryBySlug(slug);
 }
 
+export async function getPublicStoryIdentity(slug: string) {
+  return (await backend()).getPublicStoryIdentity(slug);
+}
+
 export async function listPublishedStories(limit?: number) {
   return (await backend()).listPublishedStories(limit);
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { NotificationBell } from "./notification-bell";
 
 type SiteHeaderProps = {
   active?: "home" | "explore" | "project";
@@ -39,6 +40,7 @@ export function SiteHeader({ active, compact = false }: SiteHeaderProps) {
         </nav>
 
         <div className="site-header__actions">
+          <NotificationBell />
           <button
             className="theme-toggle"
             type="button"

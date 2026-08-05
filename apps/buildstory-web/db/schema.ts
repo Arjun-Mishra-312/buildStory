@@ -251,3 +251,147 @@ export const llmBudgets = sqliteTable(
     uniqueIndex("idx_buildstory_llm_budgets_user_period").on(table.userId, table.periodKey),
   ],
 );
+
+/** No self-follow, no duplicate follow - both enforced in the store layer, not here. */
+export const follows = sqliteTable(
+  "buildstory_follows",
+  {
+    id: text("id").primaryKey(),
+    followerUserId: text("follower_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    followeeUserId: text("followee_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_buildstory_follows_pair").on(table.followerUserId, table.followeeUserId),
+    index("idx_buildstory_follows_followee_created").on(table.followeeUserId, table.createdAt),
+    index("idx_buildstory_follows_follower_created").on(table.followerUserId, table.createdAt),
+  ],
+);
+
+/** One reaction per (report, user) - unique-constrained so double-reacting is impossible at the DB level. */
+export const reactions = sqliteTable(
+  "buildstory_reactions",
+  {
+    id: text("id").primaryKey(),
+    reportId: text("report_id")
+      .notNull()
+      .references(() => reports.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_buildstory_reactions_report_user").on(table.reportId, table.userId),
+    index("idx_buildstory_reactions_report_kind").on(table.reportId, table.kind),
+  ],
+);
+
+/**
+ * One reply level: a comment's parentCommentId (if any) must point at a
+ * top-level comment on the same report - enforced in the store layer, not
+ * a DB constraint. Deletion is a status flip (soft delete), not a row
+ * delete, so a reply thread's structure survives a parent's removal.
+ */
+export const comments = sqliteTable(
+  "buildstory_comments",
+  {
+    id: text("id").primaryKey(),
+    reportId: text("report_id")
+      .notNull()
+      .references(() => reports.id, { onDelete: "cascade" }),
+    authorUserId: text("author_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    parentCommentId: text("parent_comment_id"),
+    body: text("body").notNull(),
+    status: text("status").notNull().default("visible"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_buildstory_comments_report_created").on(table.reportId, table.createdAt),
+    index("idx_buildstory_comments_parent").on(table.parentCommentId),
+  ],
+);
+
+/**
+ * Denormalized and deduplicated: repeated activity of the same kind by the
+ * same actor on the same report bumps one row (upsert) instead of piling
+ * up duplicates. reportId is null only for pure-follow notifications.
+ */
+export const notifications = sqliteTable(
+  "buildstory_notifications",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    reportId: text("report_id").references(() => reports.id, { onDelete: "cascade" }),
+    commentId: text("comment_id"),
+    readAt: text("read_at"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_buildstory_notifications_user_created").on(table.userId, table.createdAt),
+    uniqueIndex("idx_buildstory_notifications_dedup").on(
+      table.userId,
+      table.kind,
+      table.actorUserId,
+      table.reportId,
+    ),
+  ],
+);
+
+/**
+ * Fixed-window counter, one row per (scope, identity, window). A single
+ * upsert-and-return-count statement keeps the check race-safe without a
+ * separate read-then-write step. Stale windows are opportunistically
+ * deleted by every check rather than needing a separate cron sweep.
+ */
+export const rateLimits = sqliteTable(
+  "buildstory_rate_limits",
+  {
+    id: text("id").primaryKey(),
+    windowStart: text("window_start").notNull(),
+    count: integer("count").notNull().default(0),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [index("idx_buildstory_rate_limits_window").on(table.windowStart)],
+);
+
+/**
+ * User-filed reports about a comment, a story (report), or a user profile.
+ * Distinct from buildstory_reports (build reports) despite the name overlap
+ * in normal English usage - hence "content_reports".
+ */
+export const contentReports = sqliteTable(
+  "buildstory_content_reports",
+  {
+    id: text("id").primaryKey(),
+    reporterUserId: text("reporter_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    targetType: text("target_type").notNull(),
+    targetId: text("target_id").notNull(),
+    reasonCode: text("reason_code").notNull(),
+    note: text("note"),
+    status: text("status").notNull().default("open"),
+    createdAt: text("created_at").notNull(),
+    resolvedAt: text("resolved_at"),
+  },
+  (table) => [
+    index("idx_buildstory_content_reports_status_created").on(table.status, table.createdAt),
+    index("idx_buildstory_content_reports_target").on(table.targetType, table.targetId),
+  ],
+);
