@@ -173,3 +173,81 @@ export const reportJobs = sqliteTable(
     index("idx_buildstory_jobs_dispatch").on(table.status, table.availableAt),
   ],
 );
+
+/**
+ * One AI-generated narrative per report. Only ever created for a report
+ * whose source snapshot carried an opt-in narrativeEvidence bundle; a
+ * report with no narrative row simply has no AI-written story, which the
+ * UI must treat as a normal, expected state, not an error.
+ */
+export const narratives = sqliteTable(
+  "buildstory_narratives",
+  {
+    id: text("id").primaryKey(),
+    reportId: text("report_id")
+      .notNull()
+      .references(() => reports.id, { onDelete: "cascade" }),
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    mode: text("mode").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    promptVersion: text("prompt_version").notNull(),
+    status: text("status").notNull(),
+    sectionsJson: text("sections_json"),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    costMicroUsd: integer("cost_micro_usd").notNull().default(0),
+    lastErrorCode: text("last_error_code"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_buildstory_narratives_report").on(table.reportId),
+    index("idx_buildstory_narratives_owner_created").on(table.ownerUserId, table.createdAt),
+  ],
+);
+
+/** Same lease-based dispatch shape as buildstory_report_jobs; no Queue dependency. */
+export const narrativeJobs = sqliteTable(
+  "buildstory_narrative_jobs",
+  {
+    id: text("id").primaryKey(),
+    narrativeId: text("narrative_id")
+      .notNull()
+      .references(() => narratives.id, { onDelete: "cascade" }),
+    status: text("status").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    availableAt: text("available_at").notNull(),
+    leaseUntil: text("lease_until"),
+    lastErrorCode: text("last_error_code"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_buildstory_narrative_jobs_narrative").on(table.narrativeId),
+    index("idx_buildstory_narrative_jobs_dispatch").on(table.status, table.availableAt),
+  ],
+);
+
+/**
+ * Rolling per-user, per-period cloud-LLM spend cap. period_key is a plain
+ * "YYYY-MM" string (UTC) so a cap naturally resets month to month without a
+ * separate cron job to zero it out.
+ */
+export const llmBudgets = sqliteTable(
+  "buildstory_llm_budgets",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    periodKey: text("period_key").notNull(),
+    spentMicroUsd: integer("spent_micro_usd").notNull().default(0),
+    capMicroUsd: integer("cap_micro_usd").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_buildstory_llm_budgets_user_period").on(table.userId, table.periodKey),
+  ],
+);

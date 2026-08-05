@@ -5,7 +5,7 @@ export type RuntimeIssue = {
   variable: string;
 };
 
-function validHttpsOrigin(value: string | undefined) {
+export function validHttpsOrigin(value: string | undefined) {
   if (!value) return false;
   try {
     const url = new URL(value);

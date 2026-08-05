@@ -1,15 +1,19 @@
 import { ingestionErrorResponse, jsonError, requireApiCreator } from "@/lib/api/responses";
-import { isLocalApiEnabled, loopbackApiBaseUrl, readBoundedJson } from "@/lib/ingestion/local-api";
+import { cliApiBaseUrl, isHostedCliEnabled, isLocalApiEnabled, readBoundedJson } from "@/lib/ingestion/local-api";
 import { createUploadSession, ensureUser, listUploadSessions } from "@/lib/ingestion/store";
 import { assertSameOriginBrowserMutation } from "@/lib/security/browser-request";
+
+function scannerAvailable() {
+  return isLocalApiEnabled() || isHostedCliEnabled();
+}
 
 export async function GET() {
   const creator = await requireApiCreator();
   if (!creator) return jsonError("unauthorized", "Creator sign-in required.", 401);
-  if (!isLocalApiEnabled()) {
+  if (!scannerAvailable()) {
     return jsonError(
       "local_scanner_unavailable",
-      "Scanner sessions can be created only by an explicitly enabled local development app.",
+      "Scanner sessions can be created only by an explicitly enabled local development app or a fully configured hosted deployment.",
       409,
     );
   }
@@ -19,6 +23,13 @@ export async function GET() {
 export async function POST(request: Request) {
   const creator = await requireApiCreator();
   if (!creator) return jsonError("unauthorized", "Creator sign-in required.", 401);
+  if (!scannerAvailable()) {
+    return jsonError(
+      "local_scanner_unavailable",
+      "Scanner sessions can be created only by an explicitly enabled local development app or a fully configured hosted deployment.",
+      409,
+    );
+  }
 
   try {
     assertSameOriginBrowserMutation(request);
@@ -48,7 +59,7 @@ export async function POST(request: Request) {
     const result = await createUploadSession(
       creator.creatorId,
       projectLabel,
-      loopbackApiBaseUrl(request),
+      cliApiBaseUrl(request),
       user.id,
     );
     return Response.json(result, {

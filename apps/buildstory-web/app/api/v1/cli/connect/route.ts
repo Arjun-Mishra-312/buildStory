@@ -1,7 +1,7 @@
 import { ingestionErrorResponse } from "@/lib/api/responses";
 import type { LocalConnectResponse } from "@/lib/ingestion/contracts";
 import {
-  assertLoopbackApiRequest,
+  assertCliRequest,
   LOCAL_CONNECT_MAX_BYTES,
   localApiResponseHeaders,
   readBoundedJson,
@@ -10,12 +10,13 @@ import { parseLocalConnectRequest } from "@/lib/ingestion/local-contract";
 import { claimUploadSession } from "@/lib/ingestion/store";
 
 /**
- * Loopback-only device handshake. Browser cookies are ignored; the copied
+ * Device handshake: loopback-only in development, the configured public
+ * origin only in production. Browser cookies are ignored; the copied
  * one-time device code is the only credential accepted here.
  */
 export async function POST(request: Request) {
   try {
-    assertLoopbackApiRequest(request);
+    assertCliRequest(request);
     const { value } = await readBoundedJson(request, LOCAL_CONNECT_MAX_BYTES);
     const connection = parseLocalConnectRequest(value);
     const headerVersion = request.headers.get("x-buildstory-client-version");

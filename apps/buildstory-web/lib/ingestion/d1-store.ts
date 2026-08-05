@@ -1,12 +1,18 @@
 import { getD1 } from "@/db";
 import { publicBuildStoryFromSnapshot } from "@/lib/build-story";
 import { baseHandleFrom, baseSlugFrom, candidateHandles, candidateSlugs } from "@/lib/identity/handles";
+import { isLoopbackHostname } from "@/lib/ingestion/local-api";
+import { generateNarrative, narrativeProviderConfigured, NarrativeProviderError } from "@/lib/narrative/provider";
+import { estimateCostMicroUsd } from "@/lib/narrative/pricing";
+import { NARRATIVE_FIELD_LIMITS, NARRATIVE_PROMPT_VERSION } from "@/lib/narrative/schema";
 import type { ProjectSnapshot } from "@/lib/project-snapshot";
 import { sanitizePublicText } from "@/lib/publication/sanitization";
 import type {
   DeviceAuthorization,
   GeneratedReport,
   LocalReportSummary,
+  NarrativeRecord,
+  NarrativeStatus,
   ProjectRecord,
   ProjectScanStats,
   PublicationStatus,
@@ -22,6 +28,8 @@ import { reportSnapshotFromScanner } from "./report-adapter";
 import type { ScannerProjectSnapshot } from "./scanner-project-snapshot";
 import { PROJECT_SNAPSHOT_SCHEMA_VERSION } from "./scanner-project-snapshot";
 import { MAX_SNAPSHOT_BYTES, validateProjectSnapshot } from "./validation";
+
+const DEFAULT_MONTHLY_LLM_CAP_MICRO_USD = 1_000_000; // $1.00/month/user, subsidized default
 
 type SessionRow = {
   id: string;
@@ -204,7 +212,7 @@ function parseJson<T>(value: string, kind: string): T {
   }
 }
 
-function reportFromRow(row: ReportRow): GeneratedReport {
+function reportFromRow(row: ReportRow, narrative: NarrativeRecord | null = null): GeneratedReport {
   const fields = parseJson<unknown>(row.selected_public_fields_json, "public field");
   if (
     !Array.isArray(fields) ||
@@ -243,6 +251,38 @@ function reportFromRow(row: ReportRow): GeneratedReport {
       publishedAt: row.published_at,
       publicUrl: row.public_url,
     },
+    narrative,
+  };
+}
+
+type NarrativeRow = {
+  id: string;
+  report_id: string;
+  owner_user_id: string;
+  mode: string;
+  provider: string;
+  model: string;
+  prompt_version: string;
+  status: string;
+  sections_json: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  cost_micro_usd: number;
+  last_error_code: string | null;
+};
+
+function narrativeFromRow(row: NarrativeRow): NarrativeRecord {
+  return {
+    id: row.id,
+    reportId: row.report_id,
+    mode: row.mode as "cloud" | "local",
+    provider: row.provider,
+    model: row.model,
+    status: row.status as NarrativeStatus,
+    sections: row.sections_json
+      ? parseJson<NarrativeRecord["sections"]>(row.sections_json, "narrative sections")
+      : null,
+    costMicroUsd: row.cost_micro_usd,
   };
 }
 
@@ -577,6 +617,211 @@ export async function ensureProject(
   );
 }
 
+function currentBudgetPeriodKey(): string {
+  return new Date().toISOString().slice(0, 7); // "YYYY-MM", UTC - resets naturally month to month.
+}
+
+/**
+ * Soft pre-check only: true unless this user has already met or exceeded
+ * their cap for the current period. The real spend gets recorded after a
+ * call completes and its actual token cost is known (recordNarrativeSpend),
+ * so a single in-flight call can carry a user slightly over cap - that's an
+ * accepted tradeoff for not having to reserve/refund around a variable-cost
+ * external call.
+ */
+async function hasNarrativeBudget(db: D1Database, ownerUserId: string): Promise<boolean> {
+  const row = await db
+    .prepare(
+      "SELECT spent_micro_usd, cap_micro_usd FROM buildstory_llm_budgets WHERE user_id = ? AND period_key = ?",
+    )
+    .bind(ownerUserId, currentBudgetPeriodKey())
+    .first<{ spent_micro_usd: number; cap_micro_usd: number }>();
+  if (!row) return true;
+  return row.spent_micro_usd < row.cap_micro_usd;
+}
+
+/** Race-safe get-or-create-then-add, mirroring the ensureProject slug-allocation pattern. */
+async function recordNarrativeSpend(db: D1Database, ownerUserId: string, costMicroUsd: number) {
+  const periodKey = currentBudgetPeriodKey();
+  const now = new Date().toISOString();
+  const bumped = await db
+    .prepare(
+      "UPDATE buildstory_llm_budgets SET spent_micro_usd = spent_micro_usd + ?, updated_at = ? WHERE user_id = ? AND period_key = ?",
+    )
+    .bind(costMicroUsd, now, ownerUserId, periodKey)
+    .run();
+  if (changes(bumped) === 1) return;
+  const inserted = await db
+    .prepare(
+      `INSERT INTO buildstory_llm_budgets (user_id, period_key, spent_micro_usd, cap_micro_usd, updated_at)
+       SELECT ?, ?, ?, ?, ?
+       WHERE NOT EXISTS (SELECT 1 FROM buildstory_llm_budgets WHERE user_id = ? AND period_key = ?)`,
+    )
+    .bind(ownerUserId, periodKey, costMicroUsd, DEFAULT_MONTHLY_LLM_CAP_MICRO_USD, now, ownerUserId, periodKey)
+    .run();
+  if (changes(inserted) === 1) return;
+  // Someone else's insert won the race between our UPDATE and INSERT attempts; the row exists now.
+  await db
+    .prepare(
+      "UPDATE buildstory_llm_budgets SET spent_micro_usd = spent_micro_usd + ?, updated_at = ? WHERE user_id = ? AND period_key = ?",
+    )
+    .bind(costMicroUsd, now, ownerUserId, periodKey)
+    .run();
+}
+
+async function narrativeByReportId(reportId: string) {
+  return (await database())
+    .prepare("SELECT * FROM buildstory_narratives WHERE report_id = ?")
+    .bind(reportId)
+    .first<NarrativeRow>();
+}
+
+/**
+ * Creates a queued narrative + narrative_job row for a report, but only when
+ * the source snapshot actually carries an opt-in evidence bundle. A report
+ * with no narrative row is a normal state (no AI story), not an error -
+ * callers must not treat a missing row as a failure.
+ */
+async function createNarrativeJob(reportId: string, ownerUserId: string): Promise<void> {
+  const db = await database();
+  const now = new Date().toISOString();
+  const narrativeId = makeId("nar");
+  const narrativeJobId = makeId("njob");
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO buildstory_narratives (
+          id, report_id, owner_user_id, mode, provider, model, prompt_version, status,
+          input_tokens, output_tokens, cost_micro_usd, created_at, updated_at
+        )
+        SELECT ?, ?, ?, 'cloud', '', '', ?, 'queued', 0, 0, 0, ?, ?
+        WHERE EXISTS (SELECT 1 FROM buildstory_reports WHERE id = ?)`,
+      )
+      .bind(narrativeId, reportId, ownerUserId, NARRATIVE_PROMPT_VERSION, now, now, reportId),
+    db
+      .prepare(
+        `INSERT INTO buildstory_narrative_jobs (
+          id, narrative_id, status, attempts, available_at, created_at, updated_at
+        ) SELECT ?, ?, 'pending', 0, ?, ?, ?
+          WHERE EXISTS (SELECT 1 FROM buildstory_narratives WHERE id = ?)`,
+      )
+      .bind(narrativeJobId, narrativeId, now, now, now, narrativeId),
+  ]);
+}
+
+/**
+ * Lease-claim and process one narrative job, mirroring processReportJob's
+ * lease/retry shape exactly. Unlike report generation this call is billed
+ * and can be slow, so it must never be fanned out across every pending job
+ * for a creator on every dashboard read (see processCreatorJobs) - it is
+ * only ever invoked for one specific narrative the caller is actively
+ * viewing (getReport), where the same conditional-claim UPDATE already
+ * prevents a concurrent or already-completed job from making a second call.
+ */
+async function processNarrativeJob(narrativeId: string) {
+  const db = await database();
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const leaseUntil = new Date(now.getTime() + 30_000).toISOString();
+  const claimed = await db
+    .prepare(
+      `UPDATE buildstory_narrative_jobs
+       SET status = 'processing', attempts = attempts + 1, lease_until = ?, updated_at = ?
+       WHERE narrative_id = ?
+         AND available_at <= ?
+         AND (status = 'pending' OR (status = 'processing' AND lease_until <= ?))`,
+    )
+    .bind(leaseUntil, nowIso, narrativeId, nowIso, nowIso)
+    .run();
+  if (changes(claimed) !== 1) return;
+
+  try {
+    const narrative = await db
+      .prepare("SELECT * FROM buildstory_narratives WHERE id = ?")
+      .bind(narrativeId)
+      .first<NarrativeRow>();
+    if (!narrative) throw new Error(`Narrative ${narrativeId} not found for a claimed job.`);
+
+    if (!narrativeProviderConfigured()) {
+      throw new NarrativeProviderError("llm_not_configured", "No narrative provider is configured.");
+    }
+    if (!(await hasNarrativeBudget(db, narrative.owner_user_id))) {
+      throw new NarrativeProviderError("llm_budget_exceeded", "Monthly narrative budget has been reached.");
+    }
+
+    const report = await reportById(narrative.report_id);
+    if (!report) throw new Error(`Report ${narrative.report_id} not found for narrative ${narrativeId}.`);
+    const sourceSnapshot = parseJson<ScannerProjectSnapshot>(report.source_snapshot_json, "source snapshot");
+
+    const result = await generateNarrative(sourceSnapshot);
+    const sanitizedSections = {
+      headline: sanitizePublicText(result.sections.headline, NARRATIVE_FIELD_LIMITS.headline).value,
+      narrative: sanitizePublicText(result.sections.narrative, NARRATIVE_FIELD_LIMITS.narrative).value,
+      turningPoint: sanitizePublicText(result.sections.turningPoint, NARRATIVE_FIELD_LIMITS.turningPoint).value,
+      learnings: result.sections.learnings.map(
+        (line) => sanitizePublicText(line, NARRATIVE_FIELD_LIMITS.learningItem).value,
+      ),
+    };
+    const costMicroUsd = estimateCostMicroUsd(result.model, result.inputTokens, result.outputTokens);
+
+    await db.batch([
+      db
+        .prepare(
+          `UPDATE buildstory_narratives
+           SET status = 'ready', provider = ?, model = ?, sections_json = ?,
+               input_tokens = ?, output_tokens = ?, cost_micro_usd = ?, last_error_code = NULL, updated_at = ?
+           WHERE id = ? AND status != 'failed'`,
+        )
+        .bind(
+          result.provider,
+          result.model,
+          JSON.stringify(sanitizedSections),
+          result.inputTokens,
+          result.outputTokens,
+          costMicroUsd,
+          nowIso,
+          narrativeId,
+        ),
+      db
+        .prepare(
+          "UPDATE buildstory_narrative_jobs SET status = 'completed', lease_until = NULL, last_error_code = NULL, updated_at = ? WHERE narrative_id = ?",
+        )
+        .bind(nowIso, narrativeId),
+    ]);
+    await recordNarrativeSpend(db, narrative.owner_user_id, costMicroUsd);
+  } catch (error) {
+    const errorCode = error instanceof NarrativeProviderError ? error.code : "narrative_generation_failed";
+    const job = await db
+      .prepare("SELECT attempts FROM buildstory_narrative_jobs WHERE narrative_id = ?")
+      .bind(narrativeId)
+      .first<{ attempts: number }>();
+    const terminal = Number(job?.attempts ?? 1) >= 3;
+    const retryAt = new Date(Date.now() + 30_000).toISOString();
+    if (terminal) {
+      await db.batch([
+        db
+          .prepare(
+            "UPDATE buildstory_narrative_jobs SET status = 'failed', lease_until = NULL, last_error_code = ?, updated_at = ? WHERE narrative_id = ?",
+          )
+          .bind(errorCode, nowIso, narrativeId),
+        db
+          .prepare(
+            "UPDATE buildstory_narratives SET status = 'failed', last_error_code = ?, updated_at = ? WHERE id = ?",
+          )
+          .bind(errorCode, nowIso, narrativeId),
+      ]);
+    } else {
+      await db
+        .prepare(
+          "UPDATE buildstory_narrative_jobs SET status = 'pending', available_at = ?, lease_until = NULL, last_error_code = ?, updated_at = ? WHERE narrative_id = ?",
+        )
+        .bind(retryAt, errorCode, nowIso, narrativeId)
+        .run();
+    }
+    throw error;
+  }
+}
+
 export async function createUploadSession(
   creatorId: string,
   projectLabel = "New local project",
@@ -627,6 +872,8 @@ export async function createUploadSession(
     statusDetail,
   };
   const normalizedApiBaseUrl = `${apiBaseUrl.replace(/\/$/, "")}/`;
+  const apiBaseHostname = new URL(normalizedApiBaseUrl).hostname;
+  const allowHostFlag = isLoopbackHostname(apiBaseHostname) ? "" : ` --allow-host "${apiBaseHostname}"`;
   return {
     session,
     deviceAuthorization: {
@@ -636,7 +883,7 @@ export async function createUploadSession(
       connectEndpoint: `${normalizedApiBaseUrl}api/v1/cli/connect`,
       claimEndpoint: `/api/scanner/upload-sessions/${id}/claim`,
       expiresAt: expiresAtIso,
-      commandHint: `buildstory connect "${id}" --code "${deviceCode}" --api-base-url "${normalizedApiBaseUrl}"`,
+      commandHint: `buildstory connect "${id}" --code "${deviceCode}" --api-base-url "${normalizedApiBaseUrl}"${allowHostFlag}`,
       scanUploadCommandHint:
         "buildstory scan-upload --repo . --consent local-scan --upload-consent local-dashboard",
     },
@@ -879,6 +1126,9 @@ export async function acceptSnapshot(
       409,
     );
   }
+  if (validated.snapshot.narrativeEvidence && validated.snapshot.narrativeEvidence.excerpts.length > 0) {
+    await createNarrativeJob(reportId, user.id);
+  }
   return {
     sessionId,
     receiptId,
@@ -986,7 +1236,13 @@ export async function getReport(
   if (!row || row.creator_id !== creatorId) {
     throw new D1IngestionError("not_found", "Report not found.", 404);
   }
-  return reportFromRow(row);
+  let narrativeRow = await narrativeByReportId(reportId);
+  if (narrativeRow && (narrativeRow.status === "queued" || narrativeRow.status === "generating")) {
+    // Best-effort: a failed LLM call must not block the rest of the report from loading.
+    await processNarrativeJob(narrativeRow.id).catch(() => {});
+    narrativeRow = await narrativeByReportId(reportId);
+  }
+  return reportFromRow(row, narrativeRow ? narrativeFromRow(narrativeRow) : null);
 }
 
 export async function updateReport(

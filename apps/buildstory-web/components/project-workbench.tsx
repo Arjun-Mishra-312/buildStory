@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import type { BuildStoryViewModel, PublicBuildStoryViewModel } from "@/lib/build-story";
-import type { PublicationStatus, PublicFieldKey } from "@/lib/ingestion/contracts";
+import type { NarrativeRecord, PublicationStatus, PublicFieldKey } from "@/lib/ingestion/contracts";
 import { ReceiptCard } from "./receipt-card";
 
 type ProjectWorkbenchProps = {
@@ -11,6 +11,7 @@ type ProjectWorkbenchProps = {
   reportId?: string;
   initialPublicationStatus?: PublicationStatus;
   initialSelectedPublicFields?: PublicFieldKey[];
+  narrative?: NarrativeRecord | null;
 };
 
 function initials(name: string) {
@@ -39,6 +40,7 @@ export function ProjectWorkbench({
   reportId,
   initialPublicationStatus = "not_published",
   initialSelectedPublicFields = fieldOptions.map((field) => field.id),
+  narrative = null,
 }: ProjectWorkbenchProps) {
   const privateStory = access === "creator" ? (story as BuildStoryViewModel) : null;
   const [view, setView] = useState<"public" | "private">("public");
@@ -515,6 +517,28 @@ export function ProjectWorkbench({
                 <div><dt>Consent policy</dt><dd>{privateStory.provenance.consentVersion}</dd></div>
               </dl>
             </section>
+
+            {narrative ? (
+              <section className="report-card report-card--narrative">
+                <header><span>06 / AI-WRITTEN NARRATIVE</span><strong>{narrative.mode === "cloud" ? "Cloud model" : "Local model"}</strong></header>
+                {narrative.status === "ready" && narrative.sections ? (
+                  <div className="narrative-sections">
+                    <h3>{narrative.sections.headline}</h3>
+                    <p>{narrative.sections.narrative}</p>
+                    <aside className="story-quote">
+                      <span>TURNING POINT</span>
+                      <blockquote>“{narrative.sections.turningPoint}”</blockquote>
+                    </aside>
+                    <ul>{narrative.sections.learnings.map((line) => <li key={line}>{line}</li>)}</ul>
+                    <small>{narrative.model} · {(narrative.costMicroUsd / 1_000_000).toFixed(4)} USD</small>
+                  </div>
+                ) : narrative.status === "failed" ? (
+                  <p>The narrative model could not generate a story for this scan. No further attempts are made automatically.</p>
+                ) : (
+                  <p>Generating your build narrative from the reviewed evidence bundle…</p>
+                )}
+              </section>
+            ) : null}
           </div>
         </section>
       ) : null}

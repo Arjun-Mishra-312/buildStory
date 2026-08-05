@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { productionRuntimeIssues } from "../lib/config/runtime";
 import {
+  assertHostedCliRequest,
   assertLoopbackApiRequest,
   LocalApiRequestError,
 } from "../lib/ingestion/local-api";
@@ -137,6 +138,51 @@ test("the local scanner API is opt-in and rejects a different loopback origin", 
           assertLoopbackApiRequest(
             new Request("http://localhost:3000/api/v1/cli/connect", {
               headers: { origin: "http://localhost:4000" },
+            }),
+          ),
+        (error) =>
+          error instanceof LocalApiRequestError &&
+          error.code === "cross_site_request_refused",
+      );
+    },
+  );
+});
+
+test("the hosted CLI API is opt-in and accepts requests only on the configured public origin", () => {
+  withEnvironment({ NODE_ENV: "development", BUILDSTORY_PUBLIC_ORIGIN: "https://buildstory.example.com" }, () => {
+    assert.throws(
+      () => assertHostedCliRequest(new Request("https://buildstory.example.com/api/v1/cli/connect")),
+      (error) =>
+        error instanceof LocalApiRequestError && error.code === "hosted_cli_unavailable",
+    );
+  });
+  withEnvironment({ NODE_ENV: "production", BUILDSTORY_PUBLIC_ORIGIN: undefined }, () => {
+    assert.throws(
+      () => assertHostedCliRequest(new Request("https://buildstory.example.com/api/v1/cli/connect")),
+      (error) =>
+        error instanceof LocalApiRequestError && error.code === "hosted_cli_unavailable",
+    );
+  });
+  withEnvironment(
+    { NODE_ENV: "production", BUILDSTORY_PUBLIC_ORIGIN: "https://buildstory.example.com" },
+    () => {
+      assert.doesNotThrow(() =>
+        assertHostedCliRequest(
+          new Request("https://buildstory.example.com/api/v1/cli/connect", {
+            headers: { origin: "https://buildstory.example.com" },
+          }),
+        ),
+      );
+      assert.throws(
+        () => assertHostedCliRequest(new Request("https://evil.example.com/api/v1/cli/connect")),
+        (error) =>
+          error instanceof LocalApiRequestError && error.code === "cli_host_not_allowed",
+      );
+      assert.throws(
+        () =>
+          assertHostedCliRequest(
+            new Request("https://buildstory.example.com/api/v1/cli/connect", {
+              headers: { origin: "https://evil.example.com" },
             }),
           ),
         (error) =>

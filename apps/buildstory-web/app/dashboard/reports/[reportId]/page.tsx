@@ -51,6 +51,7 @@ export default async function ImportedReportPage({ params }: PageProps) {
         reportId={report.id}
         initialPublicationStatus={report.publication.status}
         initialSelectedPublicFields={report.selectedPublicFields}
+        narrative={report.narrative}
       />
     </div>
   );

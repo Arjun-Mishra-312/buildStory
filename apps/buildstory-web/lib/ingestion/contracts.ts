@@ -45,6 +45,24 @@ export type ProjectRecord = {
   repositoryFingerprint: string;
 };
 
+export type NarrativeStatus = "queued" | "generating" | "ready" | "failed";
+
+export type NarrativeRecord = {
+  id: string;
+  reportId: string;
+  mode: "cloud" | "local";
+  provider: string;
+  model: string;
+  status: NarrativeStatus;
+  sections: {
+    headline: string;
+    narrative: string;
+    turningPoint: string;
+    learnings: string[];
+  } | null;
+  costMicroUsd: number;
+};
+
 /** Facts about one scan, used to create or refresh a project's rollup fields. */
 export type ProjectScanStats = {
   displayName: string;
@@ -169,6 +187,8 @@ export type GeneratedReport = {
     publishedAt: string | null;
     publicUrl: string | null;
   };
+  /** Null when the source scan never opted into the narrative-evidence flow - a normal state, not an error. */
+  narrative: NarrativeRecord | null;
 };
 
 export type ApiErrorBody = {

@@ -1,3 +1,5 @@
+import { validHttpsOrigin } from "@/lib/config/runtime";
+
 export const LOCAL_CONNECT_PATH = "/api/v1/cli/connect";
 export const LOCAL_CONNECT_MAX_BYTES = 16 * 1024;
 
@@ -91,12 +93,94 @@ export function assertLoopbackApiRequest(request: Request) {
   }
 }
 
+/**
+ * Only true once BUILDSTORY_PUBLIC_ORIGIN is itself valid. Never trust a
+ * cached readiness check here - /api/ready reports config health for the
+ * deploy platform's own routing decision, it does not gate individual
+ * requests, so each request path re-validates independently.
+ */
+export function isHostedCliEnabled() {
+  return process.env.NODE_ENV === "production" && validHttpsOrigin(process.env.BUILDSTORY_PUBLIC_ORIGIN);
+}
+
+/**
+ * The production counterpart to assertLoopbackApiRequest: instead of
+ * requiring the request to be loopback, it requires the request to land on
+ * the single configured public origin - the same origin the CLI's --remote
+ * (or an operator's --allow-host) is pinned to. Every other guarantee
+ * (bearer-only auth, no cookies, cross-site refusal) is identical.
+ */
+export function assertHostedCliRequest(request: Request) {
+  if (!isHostedCliEnabled()) {
+    throw new LocalApiRequestError(
+      "hosted_cli_unavailable",
+      "The hosted scanner API is not configured on this deployment.",
+      503,
+    );
+  }
+  const publicOrigin = new URL(process.env.BUILDSTORY_PUBLIC_ORIGIN!).origin;
+  const requestUrl = new URL(request.url);
+  if (requestUrl.origin !== publicOrigin) {
+    throw new LocalApiRequestError(
+      "cli_host_not_allowed",
+      "This API accepts requests only on the deployment's configured public origin.",
+      403,
+    );
+  }
+
+  const originHeader = request.headers.get("origin");
+  if (originHeader) {
+    let originUrl: URL;
+    try {
+      originUrl = new URL(originHeader);
+    } catch {
+      throw new LocalApiRequestError(
+        "invalid_origin",
+        "The request Origin header is invalid.",
+        403,
+      );
+    }
+    if (originUrl.origin !== publicOrigin) {
+      throw new LocalApiRequestError(
+        "cross_site_request_refused",
+        "Cross-origin browsers cannot call the Buildstory CLI API.",
+        403,
+      );
+    }
+  }
+
+  if (request.headers.get("sec-fetch-site") === "cross-site") {
+    throw new LocalApiRequestError(
+      "cross_site_request_refused",
+      "Cross-site browser requests cannot call the Buildstory CLI API.",
+      403,
+    );
+  }
+}
+
+/** Dispatches to the hosted gate in production, the loopback gate everywhere else. Every /api/v1/cli/* route calls this, never the two gates directly. */
+export function assertCliRequest(request: Request) {
+  if (process.env.NODE_ENV === "production") {
+    assertHostedCliRequest(request);
+  } else {
+    assertLoopbackApiRequest(request);
+  }
+}
+
 export function loopbackApiBaseUrl(request: Request) {
   const url = new URL(request.url);
   if (!isLoopbackHostname(url.hostname)) {
     return "http://localhost:3000/";
   }
   return `${url.protocol}//${url.host}/`;
+}
+
+/** The base URL shown to a creator for their `buildstory connect` command hint: the public origin in production, loopback in development. */
+export function cliApiBaseUrl(request: Request) {
+  if (process.env.NODE_ENV === "production" && isHostedCliEnabled()) {
+    return `${new URL(process.env.BUILDSTORY_PUBLIC_ORIGIN!).origin}/`;
+  }
+  return loopbackApiBaseUrl(request);
 }
 
 export function absoluteLoopbackUrl(request: Request, pathname: string) {

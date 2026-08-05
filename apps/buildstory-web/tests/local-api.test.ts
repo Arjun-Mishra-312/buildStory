@@ -346,7 +346,7 @@ test("local scanner lifecycle enforces owner, digest, size, and one-use grant bo
     },
   });
 
-  const privateReport = getReport(creatorId, reportId);
+  const privateReport = await getReport(creatorId, reportId);
   const publicProjection = publicBuildStoryFromSnapshot(privateReport.snapshot, [
     "tagline",
   ]);

@@ -6,7 +6,7 @@ The repository root orchestrates the complete Buildstory product. The web applic
 
 Hosted Buildstory requires Cloudflare Sites with the committed Vinext Worker and one D1 binding named `DB`. D1 stores structured sessions, strict redacted snapshots, reports, publication state, and durable job leases. R2 is deliberately `null`: the product accepts no blobs or raw files. Google OAuth through Auth.js is the only hosted creator identity provider.
 
-The scanner is not a hosted ingestion client. It refuses every non-loopback destination, and production builds return 404 for scanner APIs. Run the complete scanner workflow only against an explicitly started local development app.
+The scanner accepts a hosted ingestion destination only when explicitly pinned per connection (`buildstory connect --remote`, or `--api-base-url <https-url> --allow-host <hostname>` for a non-default deployment); it refuses every other, unconfirmed, or non-HTTPS remote host. Production `/api/v1/cli/*` routes accept requests only on the deployment's configured `BUILDSTORY_PUBLIC_ORIGIN`: they return 503 if that origin is unset or invalid, and 403 for any other host.
 
 ## Local
 
@@ -35,8 +35,8 @@ The scanner is not a hosted ingestion client. It refuses every non-loopback dest
 3. Generate and inspect schema changes with `npm run db:generate`. Commit both SQL and Drizzle metadata. The Sites build copies migrations to `dist/.openai/drizzle`.
 4. Run `npm run build:production` in an environment containing the required names, then `npm run verify`.
 5. Save/deploy a Sites version only through the approved release process. This repository consolidation does not deploy.
-6. Confirm `GET /api/health` is 200 and `GET /api/ready` is 200 after bindings/migrations are active. Confirm an unknown host is rejected, anonymous public routes render, creator routes require Google, and scanner routes are unavailable.
-7. Exercise the CLI flow locally, not against staging. Its refusal of the staging URL is a required security result.
+6. Confirm `GET /api/health` is 200 and `GET /api/ready` is 200 after bindings/migrations are active. Confirm an unknown host is rejected, anonymous public routes render, and creator routes require Google.
+7. Exercise the full CLI flow against staging's own origin: `buildstory connect <session> --code <code> --api-base-url https://<staging-host>/ --allow-host <staging-host>`, then `scan-upload` and `status`. Confirm the same flow against a *different* host (e.g. production's origin, or an unrelated one) is refused - a required security result.
 
 ## Production release
 
@@ -44,7 +44,7 @@ The scanner is not a hosted ingestion client. It refuses every non-loopback dest
 2. Store `AUTH_SECRET` and `AUTH_GOOGLE_SECRET` as hosted secrets. Store non-secret runtime configuration as Sites values. Never place secret values in `.env.production.example`, Git, command history, or CI output.
 3. Ensure `BUILDSTORY_STORE=d1`, `BUILDSTORY_DEV_AUTH_BYPASS=false`, and `BUILDSTORY_LOCAL_API_ENABLED=false`.
 4. Apply forward-compatible migrations before routing traffic to code that needs them. Keep the previous application version available until readiness and public-route smoke tests pass.
-5. Configure edge rate limits for Auth.js and creator mutation paths. Do not add CORS allowances for CLI routes.
+5. Configure edge rate limits for Auth.js, creator mutation paths, and `/api/v1/cli/*` (now reachable in production). Do not add CORS allowances for CLI routes.
 6. Deploy only with explicit user/release approval. After deployment, verify health, readiness, Google callback, owner isolation, edit/publish, and a sanitized public projection.
 
 ## Health and readiness
@@ -68,7 +68,7 @@ During an auth or data incident:
 1. Restrict traffic at the hosting access/edge layer; do not enable a weaker fallback.
 2. Rotate Auth.js/Google secrets and revoke affected OAuth credentials.
 3. Preserve D1 backups and content-free audit evidence according to the operator's retention policy.
-4. Keep scanner routes disabled. A remote URL must never be offered as a workaround.
+4. Disable `/api/v1/cli/*` ingestion at the edge/access layer for the duration. Never point creators at an ad hoc or unvetted endpoint as a workaround - only the deployment's own configured `BUILDSTORY_PUBLIC_ORIGIN` is ever an acceptable CLI destination.
 5. Verify public pages contain only `publicBuildStoryFromSnapshot` output before restoring traffic.
 
 ## Rollback and backup

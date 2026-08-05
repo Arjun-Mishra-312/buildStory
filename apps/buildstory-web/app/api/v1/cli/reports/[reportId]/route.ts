@@ -1,6 +1,6 @@
 import { ingestionErrorResponse, jsonError } from "@/lib/api/responses";
 import {
-  assertLoopbackApiRequest,
+  assertCliRequest,
   bearerToken,
   localApiResponseHeaders,
 } from "@/lib/ingestion/local-api";
@@ -10,7 +10,7 @@ type RouteContext = { params: Promise<{ reportId: string }> };
 
 export async function GET(request: Request, context: RouteContext) {
   try {
-    assertLoopbackApiRequest(request);
+    assertCliRequest(request);
     const token = bearerToken(request);
     if (!token) {
       return jsonError(

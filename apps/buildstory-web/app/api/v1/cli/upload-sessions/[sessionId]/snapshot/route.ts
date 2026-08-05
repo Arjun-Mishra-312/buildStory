@@ -1,7 +1,7 @@
 import { ingestionErrorResponse, jsonError } from "@/lib/api/responses";
 import type { LocalSnapshotAcceptedResponse } from "@/lib/ingestion/contracts";
 import {
-  assertLoopbackApiRequest,
+  assertCliRequest,
   bearerToken,
   localApiResponseHeaders,
   readBoundedJson,
@@ -16,7 +16,7 @@ type RouteContext = { params: Promise<{ sessionId: string }> };
 /** Accepts exactly one validated ProjectSnapshot for a short-lived grant. */
 export async function PUT(request: Request, context: RouteContext) {
   try {
-    assertLoopbackApiRequest(request);
+    assertCliRequest(request);
     const token = bearerToken(request);
     if (!token) {
       return jsonError(

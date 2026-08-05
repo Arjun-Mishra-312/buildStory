@@ -25,6 +25,9 @@ const REQUIRED_TABLES = [
   "buildstory_report_jobs",
   "buildstory_users",
   "buildstory_projects",
+  "buildstory_narratives",
+  "buildstory_narrative_jobs",
+  "buildstory_llm_budgets",
 ] as const;
 
 export async function assertDatabaseReady() {

@@ -226,6 +226,18 @@ function contentTextEntries(snapshot: ScannerProjectSnapshot) {
     entries.push([`$.quality.warnings[${index}].message`, warning.message]));
   snapshot.quality.assumptions.forEach((value, index) =>
     entries.push([`$.quality.assumptions[${index}]`, value]));
+  // narrativeEvidence.excerpts[].text is the one field in ProjectSnapshot
+  // deliberately allowed to carry real (redacted) conversation text rather
+  // than scanner-generated metadata - the schema's additionalProperties
+  // guard and rawFieldViolations' forbidden-name list both intentionally
+  // permit it. This privacy-boundary scan is the server-side backstop for
+  // that exception: the scanner already redacted every excerpt before
+  // sending it, but a snapshot is rejected outright if any excerpt still
+  // fails this check on arrival rather than silently accepted.
+  if (snapshot.narrativeEvidence) {
+    snapshot.narrativeEvidence.excerpts.forEach((excerpt, index) =>
+      entries.push([`$.narrativeEvidence.excerpts[${index}].text`, excerpt.text]));
+  }
   return entries;
 }
 

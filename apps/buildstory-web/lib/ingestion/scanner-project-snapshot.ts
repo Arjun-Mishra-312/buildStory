@@ -1,13 +1,15 @@
 /**
- * Portable mirror of @buildstory/scanner's ProjectSnapshot 1.1.0 contract.
+ * Portable mirror of @buildstory/scanner's ProjectSnapshot 1.2.0 contract.
  *
  * This is the only snapshot shape accepted at the scanner HTTP boundary. The
  * product-facing report model in lib/project-snapshot.ts is derived from this
  * transport object after validation; it is never accepted as upload input.
  */
 
-export const PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.1.0" as const;
+export const PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.2.0" as const;
 export const CONNECT_PROTOCOL_VERSION = "1.0" as const;
+export const NARRATIVE_EVIDENCE_CONSENT_VERSION = "1.0" as const;
+export const NARRATIVE_EVIDENCE_BUNDLE_VERSION = "1.0.0" as const;
 
 export type IsoDateTime = string;
 export type Sha256Digest = `sha256:${string}`;
@@ -30,6 +32,45 @@ export interface ScannerProjectSnapshot {
   redaction: RedactionSummary;
   provenance: Provenance;
   quality: QualitySummary;
+  /** Opt-in only; absent from every default scan. See NarrativeEvidenceBundle. */
+  narrativeEvidence?: NarrativeEvidenceBundle;
+}
+
+export type NarrativeExcerptRole =
+  | "session-title"
+  | "user-intent"
+  | "plan-transition"
+  | "assistant-decision"
+  | "outcome";
+
+export interface NarrativeExcerpt {
+  excerptId: string;
+  sessionRef: string;
+  occurredAt: IsoDateTime;
+  role: NarrativeExcerptRole;
+  text: string;
+}
+
+export interface NarrativeEvidenceBundle {
+  bundleVersion: typeof NARRATIVE_EVIDENCE_BUNDLE_VERSION;
+  generatedAt: IsoDateTime;
+  policy: {
+    maxExcerpts: number;
+    maxCharsPerExcerpt: number;
+    maxTotalChars: number;
+    excerptSelection: "deterministic-heuristic-v1";
+  };
+  consent: {
+    mode: "explicit-cli-review";
+    statementVersion: typeof NARRATIVE_EVIDENCE_CONSENT_VERSION;
+    approvedActions: ["send-redacted-excerpts-to-configured-cloud-model"];
+  };
+  excerpts: NarrativeExcerpt[];
+  discarded: {
+    candidates: number;
+    rejectedByRedaction: number;
+    rejectedByBudget: number;
+  };
 }
 
 export interface SourceSelection {

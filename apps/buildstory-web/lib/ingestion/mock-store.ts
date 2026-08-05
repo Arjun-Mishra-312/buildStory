@@ -1,11 +1,17 @@
 import { orbitNotesSnapshot } from "@/lib/mock-projects";
 import { publicBuildStoryFromSnapshot } from "@/lib/build-story";
 import { baseHandleFrom, baseSlugFrom, candidateHandles, candidateSlugs } from "@/lib/identity/handles";
+import { isLoopbackHostname } from "@/lib/ingestion/local-api";
+import { generateNarrative, narrativeProviderConfigured, NarrativeProviderError } from "@/lib/narrative/provider";
+import { estimateCostMicroUsd } from "@/lib/narrative/pricing";
+import { NARRATIVE_FIELD_LIMITS } from "@/lib/narrative/schema";
 import { sanitizePublicText } from "@/lib/publication/sanitization";
 import type {
   DeviceAuthorization,
   GeneratedReport,
   LocalReportSummary,
+  NarrativeRecord,
+  NarrativeStatus,
   ProjectRecord,
   ProjectScanStats,
   PublicFieldKey,
@@ -48,11 +54,34 @@ type StoredProject = ProjectRecord & {
   storyCount: number;
 };
 
+/** Keyed by reportId - a 1:1 relationship, same as the real store's unique index on report_id. */
+type StoredNarrative = {
+  id: string;
+  reportId: string;
+  ownerUserId: string;
+  mode: "cloud" | "local";
+  provider: string;
+  model: string;
+  status: NarrativeStatus;
+  sections: NarrativeRecord["sections"];
+  inputTokens: number;
+  outputTokens: number;
+  costMicroUsd: number;
+  attempts: number;
+};
+
+type StoredBudget = {
+  spentMicroUsd: number;
+  capMicroUsd: number;
+};
+
 type MockStore = {
   sessions: Map<string, StoredUploadSession>;
   reports: Map<string, GeneratedReport>;
   users: Map<string, StoredUser>;
   projects: Map<string, StoredProject>;
+  narratives: Map<string, StoredNarrative>;
+  llmBudgets: Map<string, StoredBudget>;
 };
 
 type StoreGlobal = typeof globalThis & {
@@ -120,6 +149,7 @@ function createSeedStore(): MockStore {
       publishedAt: orbitNotesSnapshot.timeWindow.endedAt,
       publicUrl: `/p/${orbitNotesSnapshot.identity.slug}`,
     },
+    narrative: null,
   };
   const session: StoredUploadSession = {
     id: sessionId,
@@ -149,6 +179,8 @@ function createSeedStore(): MockStore {
     reports: new Map([[reportId, report]]),
     users: new Map([[userId, user]]),
     projects: new Map([[projectId, project]]),
+    narratives: new Map(),
+    llmBudgets: new Map(),
   };
 }
 
@@ -312,6 +344,122 @@ function ensureProject(ownerUserId: string, fingerprint: string, fingerprintBasi
   throw new MockIngestionError("project_slug_generation_failed", "Could not allocate a project slug for this repository.", 500);
 }
 
+const DEFAULT_MONTHLY_LLM_CAP_MICRO_USD = 1_000_000; // $1.00/month/user, subsidized default - mirrors d1-store.ts.
+
+function currentBudgetPeriodKey(): string {
+  return new Date().toISOString().slice(0, 7); // "YYYY-MM", UTC.
+}
+
+function hasNarrativeBudget(ownerUserId: string): boolean {
+  const budget = store.llmBudgets.get(`${ownerUserId}:${currentBudgetPeriodKey()}`);
+  if (!budget) return true;
+  return budget.spentMicroUsd < budget.capMicroUsd;
+}
+
+function recordNarrativeSpend(ownerUserId: string, costMicroUsd: number) {
+  const key = `${ownerUserId}:${currentBudgetPeriodKey()}`;
+  const existing = store.llmBudgets.get(key);
+  if (existing) {
+    existing.spentMicroUsd += costMicroUsd;
+  } else {
+    store.llmBudgets.set(key, { spentMicroUsd: costMicroUsd, capMicroUsd: DEFAULT_MONTHLY_LLM_CAP_MICRO_USD });
+  }
+}
+
+function createNarrativeJob(reportId: string, ownerUserId: string) {
+  store.narratives.set(reportId, {
+    id: makeId("nar"),
+    reportId,
+    ownerUserId,
+    mode: "cloud",
+    provider: "",
+    model: "",
+    status: "queued",
+    sections: null,
+    inputTokens: 0,
+    outputTokens: 0,
+    costMicroUsd: 0,
+    attempts: 0,
+  });
+}
+
+/** In-flight guard so two near-simultaneous getReport calls don't both dispatch a real LLM call for the same narrative. */
+const narrativeInFlight = new Map<string, Promise<void>>();
+
+/**
+ * Never rejects - every failure path is caught internally and folded into
+ * narrative.status, so processNarrativeJob's cleanup can rely on this
+ * promise always settling to a resolved value.
+ */
+async function runNarrativeJob(narrative: StoredNarrative, reportId: string): Promise<void> {
+  narrative.status = "generating";
+  narrative.attempts += 1;
+  try {
+    if (!narrativeProviderConfigured()) {
+      throw new NarrativeProviderError("llm_not_configured", "No narrative provider is configured.");
+    }
+    if (!hasNarrativeBudget(narrative.ownerUserId)) {
+      throw new NarrativeProviderError("llm_budget_exceeded", "Monthly narrative budget has been reached.");
+    }
+    const report = store.reports.get(reportId);
+    if (!report || !report.sourceSnapshot) {
+      throw new Error(`Report ${reportId} has no source snapshot for narrative generation.`);
+    }
+    const result = await generateNarrative(report.sourceSnapshot);
+    narrative.provider = result.provider;
+    narrative.model = result.model;
+    narrative.sections = {
+      headline: sanitizePublicText(result.sections.headline, NARRATIVE_FIELD_LIMITS.headline).value,
+      narrative: sanitizePublicText(result.sections.narrative, NARRATIVE_FIELD_LIMITS.narrative).value,
+      turningPoint: sanitizePublicText(result.sections.turningPoint, NARRATIVE_FIELD_LIMITS.turningPoint).value,
+      learnings: result.sections.learnings.map(
+        (line) => sanitizePublicText(line, NARRATIVE_FIELD_LIMITS.learningItem).value,
+      ),
+    };
+    narrative.inputTokens = result.inputTokens;
+    narrative.outputTokens = result.outputTokens;
+    narrative.costMicroUsd = estimateCostMicroUsd(result.model, result.inputTokens, result.outputTokens);
+    narrative.status = "ready";
+    recordNarrativeSpend(narrative.ownerUserId, narrative.costMicroUsd);
+  } catch {
+    narrative.status = narrative.attempts >= 3 ? "failed" : "queued";
+  }
+}
+
+async function processNarrativeJob(reportId: string): Promise<void> {
+  const narrative = store.narratives.get(reportId);
+  if (!narrative || narrative.status === "ready" || narrative.status === "failed") return;
+  const existingRun = narrativeInFlight.get(reportId);
+  if (existingRun) return existingRun;
+
+  // .finally's callback is always deferred to a microtask, even for an
+  // already-settled promise, so this delete is guaranteed to run after the
+  // synchronous `narrativeInFlight.set` below - not before it, which is
+  // what actually happens if runNarrativeJob's failure path never reaches
+  // an await (e.g. the not-configured/budget checks) and the cleanup were
+  // attached inside that same function instead of out here.
+  const run = runNarrativeJob(narrative, reportId).finally(() => {
+    narrativeInFlight.delete(reportId);
+  });
+  narrativeInFlight.set(reportId, run);
+  return run;
+}
+
+function narrativeRecordFor(reportId: string): NarrativeRecord | null {
+  const narrative = store.narratives.get(reportId);
+  if (!narrative) return null;
+  return {
+    id: narrative.id,
+    reportId: narrative.reportId,
+    mode: narrative.mode,
+    provider: narrative.provider,
+    model: narrative.model,
+    status: narrative.status,
+    sections: narrative.sections,
+    costMicroUsd: narrative.costMicroUsd,
+  };
+}
+
 export function listUploadSessions(creatorId: string): UploadSessionView[] {
   return Array.from(store.sessions.values())
     .filter((session) => session.creatorId === creatorId)
@@ -357,7 +505,9 @@ export async function createUploadSession(
   };
   store.sessions.set(id, session);
   const normalizedApiBaseUrl = `${apiBaseUrl.replace(/\/$/, "")}/`;
-  const commandHint = `buildstory connect "${id}" --code "${deviceCode}" --api-base-url "${normalizedApiBaseUrl}"`;
+  const apiBaseHostname = new URL(normalizedApiBaseUrl).hostname;
+  const allowHostFlag = isLoopbackHostname(apiBaseHostname) ? "" : ` --allow-host "${apiBaseHostname}"`;
+  const commandHint = `buildstory connect "${id}" --code "${deviceCode}" --api-base-url "${normalizedApiBaseUrl}"${allowHostFlag}`;
   return {
     session: cleanSession(session),
     deviceAuthorization: {
@@ -551,7 +701,12 @@ export async function acceptSnapshot(
       publishedAt: null,
       publicUrl: null,
     },
+    narrative: null,
   });
+
+  if (validated.snapshot.narrativeEvidence && validated.snapshot.narrativeEvidence.excerpts.length > 0) {
+    createNarrativeJob(reportId, user.id);
+  }
 
   return {
     sessionId,
@@ -653,14 +808,18 @@ export async function getLocalReport(
   };
 }
 
-export function getReport(creatorId: string, reportId: string): GeneratedReport {
+export async function getReport(creatorId: string, reportId: string): Promise<GeneratedReport> {
   const report = store.reports.get(reportId);
   if (!report || report.creatorId !== creatorId) {
     throw new MockIngestionError("not_found", "Report not found.", 404);
   }
   const session = store.sessions.get(report.uploadSessionId);
   if (session) refreshLifecycle(session);
-  return structuredClone(report);
+  const narrative = store.narratives.get(reportId);
+  if (narrative && (narrative.status === "queued" || narrative.status === "generating")) {
+    await processNarrativeJob(reportId);
+  }
+  return { ...structuredClone(report), narrative: narrativeRecordFor(reportId) };
 }
 
 export function updateReport(
@@ -720,7 +879,7 @@ export function updateReport(
   if (report.publication.status === "published") {
     report.publication.status = "draft_changes";
   }
-  return structuredClone(report);
+  return { ...structuredClone(report), narrative: narrativeRecordFor(reportId) };
 }
 
 export function publishReport(creatorId: string, reportId: string): GeneratedReport {
@@ -750,7 +909,7 @@ export function publishReport(creatorId: string, reportId: string): GeneratedRep
   report.publication.status = "published";
   report.publication.publishedAt = new Date().toISOString();
   report.publication.publicUrl = `${publicOrigin()}/p/${report.publication.slug}`;
-  return structuredClone(report);
+  return { ...structuredClone(report), narrative: narrativeRecordFor(reportId) };
 }
 
 export function publicationStatusForProject(creatorId: string, projectId: string) {
