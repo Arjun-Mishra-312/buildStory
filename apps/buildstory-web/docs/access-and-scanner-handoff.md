@@ -20,8 +20,9 @@ the binding or migration. The scanner remains a separate local package.
 
 ## Complete end-user flow
 
-1. A reader can browse the landing page, Explore, and any published `/p/:slug`
-   URL without an account.
+1. A reader can browse the landing page, Explore, and any published
+   `/u/<handle>/<slug>` URL without an account. Older `/p/:slug` links remain
+   valid as redirects.
 2. A creator opens `/signin` and authenticates with Google through Auth.js.
 3. The creator opens **Connect scanner**. The server creates a 15-minute upload
    session bound to that creator and returns a human-readable device code.
@@ -40,8 +41,8 @@ the binding or migration. The scanner remains a separate local package.
 8. The creator reviews the private report, rewrites editorial text, and selects
    individual public fields. The snapshot, raw sessions, private repository
    path, and scan provenance are not passed to the public page.
-9. Publish creates a public projection and a universal `/p/:slug` URL. Readers
-   do not need to sign in.
+9. Publish creates a public projection at `/u/<handle>/<slug>`. Readers do not
+   need to sign in; the legacy `/p/:slug` form remains available as a redirect.
 
 ## API lifecycle
 

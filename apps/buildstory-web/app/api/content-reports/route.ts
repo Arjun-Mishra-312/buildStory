@@ -66,8 +66,12 @@ export async function GET(request: Request) {
     const statusParam = new URL(request.url).searchParams.get("status");
     const status: ContentReportStatus | undefined =
       statusParam === "open" || statusParam === "actioned" || statusParam === "dismissed" ? statusParam : undefined;
-    const reports = await listContentReports(status);
-    return Response.json({ reports }, { headers: { "cache-control": "no-store" } });
+    const requestedLimit = Number(new URL(request.url).searchParams.get("limit") ?? 50);
+    const limit = Number.isFinite(requestedLimit) ? requestedLimit : 50;
+    const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), 200);
+    const cursor = new URL(request.url).searchParams.get("cursor") || undefined;
+    const reports = await listContentReports(status, limit, cursor);
+    return Response.json({ reports, nextCursor: reports.length === boundedLimit ? (reports.at(-1)?.createdAt ?? null) : null }, { headers: { "cache-control": "no-store" } });
   } catch (error) {
     return socialErrorResponse(error);
   }

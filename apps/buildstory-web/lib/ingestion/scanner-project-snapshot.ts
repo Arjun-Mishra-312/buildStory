@@ -6,19 +6,34 @@
  * transport object after validation; it is never accepted as upload input.
  */
 
-export const PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.2.0" as const;
+export const PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.5.0" as const;
+/** Accepted only as a transport compatibility shim; new scanners must emit 1.5.0. */
+export const PREVIOUS_PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.4.0" as const;
+/** Still accepted at the upload boundary for already-installed CLIs during rollout. See validation.ts. */
+export const LEGACY_PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.3.0" as const;
+export const OLDEST_PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.2.0" as const;
 export const CONNECT_PROTOCOL_VERSION = "1.0" as const;
 export const NARRATIVE_EVIDENCE_CONSENT_VERSION = "1.0" as const;
 export const NARRATIVE_EVIDENCE_BUNDLE_VERSION = "1.0.0" as const;
 
 export type IsoDateTime = string;
 export type Sha256Digest = `sha256:${string}`;
+export type NarrativeMode = "local" | "cloud" | "off";
 
-/** Every AI coding-session source the scanner can read. */
-export type ProviderId = "codex" | "claude-code";
+/**
+ * Every AI coding-session source the scanner can read. gemini-antigravity
+ * and cursor are best-effort adapters built from researched, unverified
+ * local formats - see ProviderSelection.diagnostic and the
+ * PROVIDER_FORMAT_UNVERIFIED quality warning.
+ */
+export type ProviderId = "codex" | "claude-code" | "gemini-antigravity" | "cursor";
 
 export interface ScannerProjectSnapshot {
-  schemaVersion: typeof PROJECT_SNAPSHOT_SCHEMA_VERSION;
+  schemaVersion:
+    | typeof PROJECT_SNAPSHOT_SCHEMA_VERSION
+    | typeof PREVIOUS_PROJECT_SNAPSHOT_SCHEMA_VERSION
+    | typeof LEGACY_PROJECT_SNAPSHOT_SCHEMA_VERSION
+    | typeof OLDEST_PROJECT_SNAPSHOT_SCHEMA_VERSION;
   scanId: `scan_${string}`;
   generatedAt: IsoDateTime;
   sourceSelection: SourceSelection;
@@ -34,7 +49,42 @@ export interface ScannerProjectSnapshot {
   quality: QualitySummary;
   /** Opt-in only; absent from every default scan. See NarrativeEvidenceBundle. */
   narrativeEvidence?: NarrativeEvidenceBundle;
+  /** Generated locally by the scanner; cloud narratives never enter the upload. */
+  generatedNarrative?: GeneratedNarrative;
 }
+
+export type StoryPackPhase = "discover" | "decide" | "deliver";
+export type StoryPackMomentKind = "discovery" | "decision" | "breakthrough" | "delivery";
+
+export type StoryPackSource = {
+  ref: string;
+  provider: ProviderId | "git";
+  sessionRef?: string;
+  occurredAt: IsoDateTime;
+  evidenceRefs: string[];
+  excerptRef?: string;
+  metrics: { turns: number; assistantMessages: number; toolCalls: number };
+};
+
+export type ReportStoryPackV2 = {
+  version: "2.0.0";
+  sources: StoryPackSource[];
+  hero: { headline: string; summary: string };
+  buildArc: Array<{ phase: StoryPackPhase; headline: string; summary: string; sourceRefs: string[] }>;
+  moments: Array<{
+    phase: StoryPackPhase;
+    kind: StoryPackMomentKind;
+    title: string;
+    whatHappened: string;
+    whyItMattered: string;
+    sourceRefs: string[];
+  }>;
+  turningPoint: { quote: string; sourceRefs: string[] };
+  decisions: Array<{ title: string; rationale: string; outcome: string; sourceRefs: string[] }>;
+  learnings: Array<{ title: string; detail: string; sourceRefs: string[] }>;
+  standoutTraits: Array<{ title: string; detail: string; sourceRefs: string[] }>;
+  growthEdge: { title: string; observation: string; nextStep: string; sourceRefs: string[] };
+};
 
 export type NarrativeExcerptRole =
   | "session-title"
@@ -50,6 +100,11 @@ export interface NarrativeExcerpt {
   role: NarrativeExcerptRole;
   text: string;
 }
+
+export type NarrativeEvidenceEmptyReason =
+  | "no-supported-provider-evidence"
+  | "no-candidates-in-window"
+  | "all-candidates-rejected";
 
 export interface NarrativeEvidenceBundle {
   bundleVersion: typeof NARRATIVE_EVIDENCE_BUNDLE_VERSION;
@@ -71,7 +126,29 @@ export interface NarrativeEvidenceBundle {
     rejectedByRedaction: number;
     rejectedByBudget: number;
   };
+  emptyReason?: NarrativeEvidenceEmptyReason;
 }
+
+export type GeneratedNarrativeSections = {
+  headline: string;
+  narrative: string;
+  turningPoint: string;
+  learnings: string[];
+  decisionPatterns: string[];
+  standoutTraits: string[];
+  growthEdge: string;
+};
+
+export type GeneratedNarrative = {
+  version: "1.0.0" | "2.0.0";
+  generatedAt: IsoDateTime;
+  mode: "local";
+  provider: string;
+  model: string;
+  sections: GeneratedNarrativeSections;
+  storyPack?: ReportStoryPackV2;
+  fallbacksUsed: string[];
+};
 
 export interface SourceSelection {
   providers: ProviderSelection[];
@@ -87,6 +164,8 @@ export interface SourceSelection {
   };
 }
 
+export type ProviderDiagnosticCode = "not-installed" | "no-project-directory" | "no-matching-sessions" | "format-unsupported" | "scope-unknown" | "scanned";
+
 export interface ProviderSelection {
   provider: ProviderId;
   selected: true;
@@ -95,6 +174,8 @@ export interface ProviderSelection {
   filesDiscovered: number;
   sessionsMatched: number;
   sessionsIncluded: number;
+  warnings?: number;
+  diagnostic?: ProviderDiagnosticCode;
 }
 
 export interface RepositoryIdentity {
@@ -118,6 +199,7 @@ export interface TimeWindow {
   timezone: "UTC";
   startBasis: "explicit" | "default-lookback" | "empty-repository";
   endBasis: "explicit" | "latest-session" | "head-commit" | "unix-epoch";
+  utcOffsetMinutes?: number;
 }
 
 export type SessionStatus = "completed" | "aborted" | "incomplete" | "unknown";
@@ -247,7 +329,7 @@ export interface Provenance {
     version: string;
   };
   collectionMode: "local-read-only";
-  sessionFormats: Array<"codex-jsonl" | "claude-code-jsonl">;
+  sessionFormats: Array<"codex-jsonl" | "claude-code-jsonl" | "gemini-antigravity-jsonl" | "cursor-sqlite">;
   deterministicSerialization: "lexicographic-json";
   repositoryCommands: Array<
     | "git-config"
@@ -265,6 +347,10 @@ export interface Provenance {
 export type QualityWarningCode =
   | "CODEX_ROOT_UNAVAILABLE"
   | "CLAUDE_CODE_ROOT_UNAVAILABLE"
+  | "GEMINI_ANTIGRAVITY_ROOT_UNAVAILABLE"
+  | "CURSOR_ROOT_UNAVAILABLE"
+  | "PROVIDER_FORMAT_UNVERIFIED"
+  | "PROVIDER_SCOPE_UNKNOWN"
   | "SESSION_FILE_LIMIT_REACHED"
   | "SESSION_FILE_TOO_LARGE"
   | "SESSION_LINE_TOO_LARGE"

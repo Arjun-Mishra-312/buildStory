@@ -1,6 +1,4 @@
 import type { Metadata } from "next";
-import { SiteFooter } from "@/components/site-footer";
-import { SiteHeader } from "@/components/site-header";
 import { ANTI_GAMING_MAX_COMMITS_PER_DAY } from "@/lib/leaderboard/contracts";
 import { getLeaderboard } from "@/lib/leaderboard/store";
 
@@ -22,9 +20,7 @@ async function loadEntries() {
 export default async function LeaderboardPage() {
   const { entries, unavailable } = await loadEntries();
   return (
-    <div className="page-shell">
-      <SiteHeader active="leaderboard" />
-      <main className="leaderboard-page section-wrap">
+    <section className="leaderboard-page section-wrap">
         <header className="explore-heading">
           <div>
             <span className="section-index">( LEADERBOARD )</span>
@@ -67,8 +63,6 @@ export default async function LeaderboardPage() {
             ))}
           </ol>
         )}
-      </main>
-      <SiteFooter />
-    </div>
+    </section>
   );
 }

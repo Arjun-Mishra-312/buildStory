@@ -4,7 +4,7 @@ Desktop-first Buildstory product for publishing sanitized stories about AI-assis
 
 ## Product surfaces
 
-Anonymous readers can use `/`, `/explore`, and published `/p/:slug` pages. `/p/orbit-notes` is the seeded public example. Creator pages under `/dashboard/**` and creator APIs require a verified Google identity through Auth.js, or the explicit development-only fallback.
+Anonymous readers can use `/`, `/about`, `/explore`, and published `/u/<handle>/<slug>` pages. `/p/orbit-notes` remains a legacy redirect to the seeded public example. Creator pages under `/studio/**` and creator APIs require a verified Google identity through Auth.js, or the explicit development-only fallback.
 
 The scanner control and data plane is local-only:
 
@@ -40,7 +40,7 @@ Build and install the co-located scanner separately:
 ```powershell
 npm --prefix packages/buildstory-scanner ci
 npm run build:scanner
-npm install --global ./artifacts/buildstory-scanner-0.3.0.tgz
+npm install --global ./artifacts/buildstory-scanner-0.4.0.tgz
 buildstory --version
 ```
 

@@ -13,7 +13,7 @@ type Comment = {
   createdAt: string;
 };
 
-export function CommentThread({ slug }: { slug: string }) {
+export function CommentThread({ storyId }: { storyId: string }) {
   const router = useRouter();
   const [comments, setComments] = useState<Comment[]>([]);
   const [draft, setDraft] = useState("");
@@ -24,7 +24,7 @@ export function CommentThread({ slug }: { slug: string }) {
 
   const load = useCallback(async () => {
     try {
-      const response = await fetch(`/api/stories/${encodeURIComponent(slug)}/comments`, { cache: "no-store" });
+      const response = await fetch(`/api/stories/${encodeURIComponent(storyId)}/comments`, { cache: "no-store" });
       if (response.ok) {
         const data = (await response.json()) as { comments: Comment[] };
         setComments(data.comments);
@@ -34,7 +34,7 @@ export function CommentThread({ slug }: { slug: string }) {
     } catch {
       setError("Comments are temporarily unavailable.");
     }
-  }, [slug]);
+  }, [storyId]);
 
   useEffect(() => {
     void (async () => {
@@ -51,7 +51,7 @@ export function CommentThread({ slug }: { slug: string }) {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(`/api/stories/${encodeURIComponent(slug)}/comments`, {
+      const response = await fetch(`/api/stories/${encodeURIComponent(storyId)}/comments`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ body, parentCommentId }),
@@ -78,7 +78,7 @@ export function CommentThread({ slug }: { slug: string }) {
     if (busy) return;
     setBusy(true);
     try {
-      const response = await fetch(`/api/stories/${encodeURIComponent(slug)}/comments/${commentId}`, { method: "DELETE" });
+      const response = await fetch(`/api/stories/${encodeURIComponent(storyId)}/comments/${commentId}`, { method: "DELETE" });
       if (response.status === 401) return goToSignIn();
       if (response.ok) await load();
       else setError("That comment could not be removed.");

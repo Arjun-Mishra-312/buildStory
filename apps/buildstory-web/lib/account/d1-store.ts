@@ -20,12 +20,12 @@ export async function exportAccountData(userId: string): Promise<AccountExport> 
 
   const [projects, reports, comments, reactions, following, followers] = await Promise.all([
     db
-      .prepare("SELECT id, slug, name, latest_commit_count, latest_active_days FROM buildstory_projects WHERE owner_user_id = ?")
+      .prepare("SELECT id, slug, name, latest_commit_count, latest_active_days FROM buildstory_projects WHERE owner_user_id = ? LIMIT 500")
       .bind(userId)
       .all<{ id: string; slug: string; name: string; latest_commit_count: number; latest_active_days: number }>(),
     db
       .prepare(
-        "SELECT id, status, publication_status, publication_slug, editorial_tagline, created_at, published_at FROM buildstory_reports WHERE owner_user_id = ?",
+        "SELECT id, status, publication_status, publication_slug, editorial_tagline, created_at, published_at FROM buildstory_reports WHERE owner_user_id = ? LIMIT 500",
       )
       .bind(userId)
       .all<{
@@ -39,23 +39,23 @@ export async function exportAccountData(userId: string): Promise<AccountExport> 
       }>(),
     db
       .prepare(
-        "SELECT id, report_id, parent_comment_id, body, created_at FROM buildstory_comments WHERE author_user_id = ? AND status = 'visible'",
+        "SELECT id, report_id, parent_comment_id, body, created_at FROM buildstory_comments WHERE author_user_id = ? AND status = 'visible' LIMIT 500",
       )
       .bind(userId)
       .all<{ id: string; report_id: string; parent_comment_id: string | null; body: string; created_at: string }>(),
     db
-      .prepare("SELECT report_id, kind, created_at FROM buildstory_reactions WHERE user_id = ?")
+      .prepare("SELECT report_id, kind, created_at FROM buildstory_reactions WHERE user_id = ? LIMIT 500")
       .bind(userId)
       .all<{ report_id: string; kind: string; created_at: string }>(),
     db
       .prepare(
-        "SELECT u.handle FROM buildstory_follows f JOIN buildstory_users u ON u.id = f.followee_user_id WHERE f.follower_user_id = ?",
+        "SELECT u.handle FROM buildstory_follows f JOIN buildstory_users u ON u.id = f.followee_user_id WHERE f.follower_user_id = ? LIMIT 500",
       )
       .bind(userId)
       .all<{ handle: string }>(),
     db
       .prepare(
-        "SELECT u.handle FROM buildstory_follows f JOIN buildstory_users u ON u.id = f.follower_user_id WHERE f.followee_user_id = ?",
+        "SELECT u.handle FROM buildstory_follows f JOIN buildstory_users u ON u.id = f.follower_user_id WHERE f.followee_user_id = ? LIMIT 500",
       )
       .bind(userId)
       .all<{ handle: string }>(),

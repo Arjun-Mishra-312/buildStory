@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
 import { ExploreFeed } from "@/components/explore-feed";
-import { SiteFooter } from "@/components/site-footer";
-import { SiteHeader } from "@/components/site-header";
 import { listPublishedStories } from "@/lib/ingestion/store";
 
 export const metadata: Metadata = {
@@ -26,9 +24,7 @@ async function loadStories() {
 export default async function ExplorePage() {
   const { stories, unavailable } = await loadStories();
   return (
-    <div className="page-shell">
-      <SiteHeader active="explore" />
-      <main className="explore-page section-wrap">
+    <section className="explore-page section-wrap">
         <header className="explore-heading">
           <div>
             <span className="section-index">( EXPLORE / {String(stories.length).padStart(2, "0")} STORIES )</span>
@@ -40,8 +36,6 @@ export default async function ExplorePage() {
           </p>
         </header>
         <ExploreFeed projects={stories} unavailable={unavailable} />
-      </main>
-      <SiteFooter />
-    </div>
+    </section>
   );
 }

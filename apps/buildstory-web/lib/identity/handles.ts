@@ -18,9 +18,11 @@ export const RESERVED_HANDLES: ReadonlySet<string> = new Set([
   // Current top-level routes (apps/buildstory-web/app/*)
   "api",
   "dashboard",
+  "studio",
   "explore",
   "p",
   "signin",
+  "search",
   // Likely near-term routes worth reserving now rather than after launch
   "signout",
   "login",

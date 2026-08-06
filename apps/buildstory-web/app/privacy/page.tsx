@@ -1,0 +1,1 @@
+export default function PrivacyPage() { return <section className="legal-page section-wrap"><span className="section-index">( PRIVACY )</span><h1>Privacy policy is being finalized.</h1><p>Buildstory’s privacy policy is being finalized. Please check back soon.</p></section>; }

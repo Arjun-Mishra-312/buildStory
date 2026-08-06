@@ -1,5 +1,7 @@
 import type { ProjectSnapshot } from "./project-snapshot";
 import type { PublicFieldKey } from "./ingestion/contracts";
+import type { ReportStoryPackV2 } from "./ingestion/scanner-project-snapshot";
+import { NARRATIVE_FIELD_LIMITS } from "./narrative/schema";
 import { sanitizePublicText } from "./publication/sanitization";
 
 export type BuildStoryViewModel = ReturnType<typeof buildStoryFromSnapshot>;
@@ -68,7 +70,54 @@ export function buildStoryFromSnapshot(snapshot: ProjectSnapshot) {
     })),
     redaction: snapshot.redaction,
     provenance: snapshot.provenance,
+    ...(snapshot.sourceSelection ? { sourceSelection: snapshot.sourceSelection } : {}),
+    profile: snapshot.builderProfile ?? null,
+    narrative: snapshot.narrative ?? null,
     receiptId: `BR-${snapshot.timeWindow.endedAt.slice(2, 10).replaceAll("-", "")}-${snapshot.repository.currentRevision.toUpperCase()}`,
+  };
+}
+
+function publicStoryPack(
+  pack: ReportStoryPackV2,
+  selected: Set<PublicFieldKey>,
+): ReportStoryPackV2 {
+  const clean = (value: string, max = 900) => sanitizePublicText(value, max).value;
+  const refs = (value: string[]) => [...new Set(value)].slice(0, 4);
+  const includeAll = selected.has("narrative");
+  return {
+    version: "2.0.0",
+    sources: pack.sources.map((source) => ({
+      ref: source.ref,
+      provider: source.provider,
+      occurredAt: source.occurredAt,
+      evidenceRefs: refs(source.evidenceRefs),
+      metrics: source.metrics,
+    })),
+    hero: {
+      headline: includeAll ? clean(pack.hero.headline, 160) : "Evidence-backed build story",
+      summary: includeAll ? clean(pack.hero.summary, 1_200) : "Selected story components from the validated build record.",
+    },
+    buildArc: selected.has("storyBuildArc") || includeAll
+      ? pack.buildArc.map((phase) => ({ ...phase, headline: clean(phase.headline, 180), summary: clean(phase.summary), sourceRefs: refs(phase.sourceRefs) }))
+      : [],
+    moments: selected.has("storyMoments") || includeAll
+      ? pack.moments.map((moment) => ({ ...moment, title: clean(moment.title, 180), whatHappened: clean(moment.whatHappened), whyItMattered: clean(moment.whyItMattered), sourceRefs: refs(moment.sourceRefs) }))
+      : [],
+    turningPoint: selected.has("storyTurningPoint") || includeAll
+      ? { quote: clean(pack.turningPoint.quote, 500), sourceRefs: refs(pack.turningPoint.sourceRefs) }
+      : { quote: "", sourceRefs: [] },
+    decisions: selected.has("storyDecisions") || includeAll
+      ? pack.decisions.map((item) => ({ ...item, title: clean(item.title, 180), rationale: clean(item.rationale), outcome: clean(item.outcome), sourceRefs: refs(item.sourceRefs) }))
+      : [],
+    learnings: selected.has("storyLearnings") || includeAll
+      ? pack.learnings.map((item) => ({ ...item, title: clean(item.title, 180), detail: clean(item.detail), sourceRefs: refs(item.sourceRefs) }))
+      : [],
+    standoutTraits: selected.has("storyTraits") || includeAll
+      ? pack.standoutTraits.map((item) => ({ ...item, title: clean(item.title, 180), detail: clean(item.detail), sourceRefs: refs(item.sourceRefs) }))
+      : [],
+    growthEdge: selected.has("storyGrowthEdge") || selected.has("growthEdge") || includeAll
+      ? { ...pack.growthEdge, title: clean(pack.growthEdge.title, 180), observation: clean(pack.growthEdge.observation), nextStep: clean(pack.growthEdge.nextStep), sourceRefs: refs(pack.growthEdge.sourceRefs) }
+      : { title: "Growth edge", observation: "Private by default.", nextStep: "Enable this field to publish an actionable next step.", sourceRefs: [] },
   };
 }
 
@@ -122,5 +171,35 @@ export function publicBuildStoryFromSnapshot(
     },
     stack: story.stack,
     receiptId: story.receiptId,
+    profile: selected.has("archetype") || selected.has("profileScores") || selected.has("workPatterns")
+      ? story.profile
+      : null,
+    narrative: selected.has("narrative") && story.narrative
+      ? {
+          headline: sanitizePublicText(story.narrative.headline, NARRATIVE_FIELD_LIMITS.headline).value,
+          narrative: sanitizePublicText(story.narrative.narrative, NARRATIVE_FIELD_LIMITS.narrative).value,
+          turningPoint: sanitizePublicText(story.narrative.turningPoint, NARRATIVE_FIELD_LIMITS.turningPoint).value,
+          learnings: story.narrative.learnings.map(
+            (line) => sanitizePublicText(line, NARRATIVE_FIELD_LIMITS.learningItem).value,
+          ),
+          ...(story.narrative.storyPack ? { storyPack: publicStoryPack(story.narrative.storyPack, selected) } : {}),
+        }
+      : null,
+    storyPack: story.narrative?.storyPack && (selected.has("narrative") || ["storyBuildArc", "storyMoments", "storyTurningPoint", "storyDecisions", "storyLearnings", "storyTraits", "storyGrowthEdge"].some((field) => selected.has(field as PublicFieldKey)))
+      ? publicStoryPack(story.narrative.storyPack, selected)
+      : null,
+    decisionPatterns: selected.has("decisionPatterns")
+      ? (story.narrative?.decisionPatterns ?? []).map(
+          (line) => sanitizePublicText(line, NARRATIVE_FIELD_LIMITS.decisionPatternItem).value,
+        )
+      : [],
+    standoutTraits: selected.has("standoutTraits")
+      ? (story.narrative?.standoutTraits ?? []).map(
+          (line) => sanitizePublicText(line, NARRATIVE_FIELD_LIMITS.standoutTraitItem).value,
+        )
+      : [],
+    growthEdge: selected.has("growthEdge") && story.narrative?.growthEdge
+      ? sanitizePublicText(story.narrative.growthEdge, NARRATIVE_FIELD_LIMITS.growthEdge).value
+      : "",
   };
 }

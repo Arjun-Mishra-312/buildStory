@@ -3,6 +3,7 @@ import { publicBuildStoryFromSnapshot } from "@/lib/build-story";
 import { baseHandleFrom, baseSlugFrom, candidateHandles, candidateSlugs } from "@/lib/identity/handles";
 import { isLoopbackHostname } from "@/lib/ingestion/local-api";
 import { generateNarrative, narrativeProviderConfigured, NarrativeProviderError } from "@/lib/narrative/provider";
+import { canUseCloudNarrative } from "@/lib/narrative/entitlement";
 import { estimateCostMicroUsd } from "@/lib/narrative/pricing";
 import { NARRATIVE_FIELD_LIMITS, NARRATIVE_PROMPT_VERSION } from "@/lib/narrative/schema";
 import type { ProjectSnapshot } from "@/lib/project-snapshot";
@@ -36,6 +37,8 @@ type SessionRow = {
   creator_id: string;
   owner_user_id: string | null;
   project_label: string;
+  narrative_model: string | null;
+  narrative_mode: string | null;
   status: string;
   created_at: string;
   expires_at: string;
@@ -53,6 +56,7 @@ type SessionRow = {
   snapshot_digest: string | null;
   snapshot_json: string | null;
   queued_at: string | null;
+  device_code_attempts: number;
 };
 
 type ReportRow = {
@@ -72,6 +76,7 @@ type ReportRow = {
   editorial_reflection: string;
   publication_status: string;
   publication_slug: string;
+  publication_path: string | null;
   published_at: string | null;
   public_url: string | null;
 };
@@ -86,6 +91,20 @@ const PUBLIC_FIELDS: PublicFieldKey[] = [
   "toolUsage",
   "gitAggregates",
   "redactionSummary",
+  "archetype",
+  "profileScores",
+  "workPatterns",
+  "narrative",
+  "storyBuildArc",
+  "storyMoments",
+  "storyTurningPoint",
+  "storyDecisions",
+  "storyLearnings",
+  "storyTraits",
+  "storyGrowthEdge",
+  "decisionPatterns",
+  "standoutTraits",
+  "growthEdge",
 ];
 
 const DEFAULT_PUBLIC_FIELDS: PublicFieldKey[] = [
@@ -97,6 +116,17 @@ const DEFAULT_PUBLIC_FIELDS: PublicFieldKey[] = [
   "modelMix",
   "gitAggregates",
   "redactionSummary",
+  "archetype",
+  "profileScores",
+  "workPatterns",
+  "narrative",
+  "storyBuildArc",
+  "storyMoments",
+  "storyTurningPoint",
+  "storyDecisions",
+  "storyLearnings",
+  "storyTraits",
+  "standoutTraits",
 ];
 
 export class D1IngestionError extends Error {
@@ -190,6 +220,8 @@ function cleanSession(row: SessionRow): UploadSessionView {
     id: row.id,
     creatorId: row.creator_id,
     projectLabel: row.project_label,
+    narrativeModel: row.narrative_model,
+    narrativeMode: row.narrative_mode === "local" || row.narrative_mode === "off" ? row.narrative_mode : "cloud",
     status: row.status as UploadSessionStatus,
     createdAt: row.created_at,
     expiresAt: row.expires_at,
@@ -265,6 +297,7 @@ type NarrativeRow = {
   prompt_version: string;
   status: string;
   sections_json: string | null;
+  fallbacks_used_json: string | null;
   input_tokens: number;
   output_tokens: number;
   cost_micro_usd: number;
@@ -272,6 +305,8 @@ type NarrativeRow = {
 };
 
 function narrativeFromRow(row: NarrativeRow): NarrativeRecord {
+  const stored = row.sections_json ? parseJson<unknown>(row.sections_json, "narrative sections") : null;
+  const storedRecord = stored && typeof stored === "object" && !Array.isArray(stored) ? stored as { sections?: NarrativeRecord["sections"]; storyPack?: NarrativeRecord["storyPack"]; observability?: NarrativeRecord["observability"] } : null;
   return {
     id: row.id,
     reportId: row.report_id,
@@ -279,9 +314,10 @@ function narrativeFromRow(row: NarrativeRow): NarrativeRecord {
     provider: row.provider,
     model: row.model,
     status: row.status as NarrativeStatus,
-    sections: row.sections_json
-      ? parseJson<NarrativeRecord["sections"]>(row.sections_json, "narrative sections")
-      : null,
+    sections: storedRecord && "sections" in storedRecord ? storedRecord.sections ?? null : stored as NarrativeRecord["sections"],
+    storyPack: storedRecord?.storyPack ?? null,
+    observability: storedRecord?.observability ?? null,
+    fallbacksUsed: row.fallbacks_used_json ? parseJson<string[]>(row.fallbacks_used_json, "narrative fallbacks") : [],
     costMicroUsd: row.cost_micro_usd,
   };
 }
@@ -301,9 +337,9 @@ async function reportById(reportId: string) {
 }
 
 async function userByAuthSubject(authSubject: string) {
-  return (await database())
+  const user = await (await database())
     .prepare(
-      "SELECT id, handle, display_name, avatar_url, bio, role FROM buildstory_users WHERE auth_subject = ?",
+      "SELECT id, handle, display_name, avatar_url, bio, role, status FROM buildstory_users WHERE auth_subject = ? AND deleted_at IS NULL",
     )
     .bind(authSubject)
     .first<{
@@ -313,7 +349,12 @@ async function userByAuthSubject(authSubject: string) {
       avatar_url: string | null;
       bio: string | null;
       role: string;
+      status: string;
     }>();
+  if (user?.status && user.status !== "active") {
+    throw new D1IngestionError("account_suspended", "This creator account is suspended.", 403);
+  }
+  return user;
 }
 
 async function processReportJob(reportId: string) {
@@ -399,22 +440,25 @@ async function processCreatorJobs(creatorId: string) {
        FROM buildstory_report_jobs j
        JOIN buildstory_reports r ON r.id = j.report_id
        WHERE r.creator_id = ? AND j.status IN ('pending', 'processing')
-       ORDER BY j.created_at ASC LIMIT 25`,
+       ORDER BY j.created_at ASC LIMIT 1`,
     )
     .bind(creatorId)
     .all<{ report_id: string }>();
-  for (const row of rows.results) await processReportJob(row.report_id);
+  if (rows.results[0]) await processReportJob(rows.results[0].report_id);
 }
 
 export async function listUploadSessions(
   creatorId: string,
+  limit = 100,
+  cursor?: string,
 ): Promise<UploadSessionView[]> {
   await processCreatorJobs(creatorId);
+  const bounded = Math.min(Math.max(1, Math.trunc(limit)), 100);
   const rows = await (await database())
     .prepare(
-      "SELECT * FROM buildstory_upload_sessions WHERE creator_id = ? ORDER BY created_at DESC LIMIT 100",
+      "SELECT * FROM buildstory_upload_sessions WHERE creator_id = ? AND (? IS NULL OR created_at < ?) ORDER BY created_at DESC LIMIT ?",
     )
-    .bind(creatorId)
+    .bind(creatorId, cursor ?? null, cursor ?? null, bounded)
     .all<SessionRow>();
   return rows.results.map(cleanSession);
 }
@@ -437,11 +481,12 @@ export async function ensureUser(session: {
   const now = new Date().toISOString();
   const existing = await db
     .prepare(
-      "SELECT id, handle, role FROM buildstory_users WHERE auth_subject = ?",
+      "SELECT id, handle, role, status FROM buildstory_users WHERE auth_subject = ?",
     )
     .bind(session.creatorId)
-    .first<{ id: string; handle: string; role: string }>();
+    .first<{ id: string; handle: string; role: string; status: string }>();
   if (existing) {
+    if (existing.status !== "active") throw new D1IngestionError("account_suspended", "This creator account is suspended.", 403);
     await db
       .prepare(
         "UPDATE buildstory_users SET display_name = ?, avatar_url = ?, updated_at = ? WHERE id = ?",
@@ -498,8 +543,9 @@ export async function ensureUser(session: {
     const raced = await db
       .prepare("SELECT id, handle, display_name, avatar_url, role FROM buildstory_users WHERE auth_subject = ?")
       .bind(session.creatorId)
-      .first<{ id: string; handle: string; display_name: string; avatar_url: string | null; role: string }>();
+      .first<{ id: string; handle: string; display_name: string; avatar_url: string | null; role: string; status: string }>();
     if (raced) {
+      if (raced.status !== "active") throw new D1IngestionError("account_suspended", "This creator account is suspended.", 403);
       return {
         id: raced.id,
         authSubject: session.creatorId,
@@ -692,9 +738,9 @@ async function createNarrativeJob(reportId: string, ownerUserId: string): Promis
       .prepare(
         `INSERT INTO buildstory_narratives (
           id, report_id, owner_user_id, mode, provider, model, prompt_version, status,
-          input_tokens, output_tokens, cost_micro_usd, created_at, updated_at
+          sections_json, fallbacks_used_json, input_tokens, output_tokens, cost_micro_usd, created_at, updated_at
         )
-        SELECT ?, ?, ?, 'cloud', '', '', ?, 'queued', 0, 0, 0, ?, ?
+        SELECT ?, ?, ?, 'cloud', '', '', ?, 'queued', NULL, '[]', 0, 0, 0, ?, ?
         WHERE EXISTS (SELECT 1 FROM buildstory_reports WHERE id = ?)`,
       )
       .bind(narrativeId, reportId, ownerUserId, NARRATIVE_PROMPT_VERSION, now, now, reportId),
@@ -707,6 +753,34 @@ async function createNarrativeJob(reportId: string, ownerUserId: string): Promis
       )
       .bind(narrativeJobId, narrativeId, now, now, now, narrativeId),
   ]);
+}
+
+async function storeLocalNarrative(
+  reportId: string,
+  ownerUserId: string,
+  generated: ScannerProjectSnapshot["generatedNarrative"] | undefined,
+  model: string | null,
+): Promise<void> {
+  const db = await database();
+  const now = new Date().toISOString();
+  await db.prepare(
+    `INSERT INTO buildstory_narratives (
+      id, report_id, owner_user_id, mode, provider, model, prompt_version, status,
+      sections_json, fallbacks_used_json, input_tokens, output_tokens, cost_micro_usd, created_at, updated_at
+    ) VALUES (?, ?, ?, 'local', ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?)`
+  ).bind(
+    makeId("nar"),
+    reportId,
+    ownerUserId,
+    generated?.provider ?? "ollama",
+    generated?.model ?? model ?? "auto",
+    NARRATIVE_PROMPT_VERSION,
+    generated ? "ready" : "failed",
+    generated ? JSON.stringify({ sections: generated.sections, storyPack: generated.storyPack, observability: { providerCounts: {}, promptVersion: NARRATIVE_PROMPT_VERSION, schemaVersion: PROJECT_SNAPSHOT_SCHEMA_VERSION, generationLatencyMs: 0, inputTokens: 0, outputTokens: 0, costMicroUsd: 0, invalidReferenceCount: 0, fallbackCount: generated.fallbacksUsed.length } }) : null,
+    JSON.stringify(generated?.fallbacksUsed ?? []),
+    now,
+    now,
+  ).run();
 }
 
 /**
@@ -736,24 +810,32 @@ async function processNarrativeJob(narrativeId: string) {
   if (changes(claimed) !== 1) return;
 
   try {
+    await db
+      .prepare("UPDATE buildstory_narratives SET status = 'generating', updated_at = ? WHERE id = ? AND status = 'queued'")
+      .bind(nowIso, narrativeId)
+      .run();
     const narrative = await db
       .prepare("SELECT * FROM buildstory_narratives WHERE id = ?")
       .bind(narrativeId)
       .first<NarrativeRow>();
     if (!narrative) throw new Error(`Narrative ${narrativeId} not found for a claimed job.`);
 
-    if (!narrativeProviderConfigured()) {
+    if (!canUseCloudNarrative(narrative.owner_user_id)) {
+      throw new NarrativeProviderError("llm_not_entitled", "Cloud narrative generation is not enabled for this account.");
+    }
+    const report = await reportById(narrative.report_id);
+    if (!report) throw new Error(`Report ${narrative.report_id} not found for narrative ${narrativeId}.`);
+    if (!narrativeProviderConfigured("cloud")) {
       throw new NarrativeProviderError("llm_not_configured", "No narrative provider is configured.");
     }
     if (!(await hasNarrativeBudget(db, narrative.owner_user_id))) {
       throw new NarrativeProviderError("llm_budget_exceeded", "Monthly narrative budget has been reached.");
     }
 
-    const report = await reportById(narrative.report_id);
-    if (!report) throw new Error(`Report ${narrative.report_id} not found for narrative ${narrativeId}.`);
     const sourceSnapshot = parseJson<ScannerProjectSnapshot>(report.source_snapshot_json, "source snapshot");
 
-    const result = await generateNarrative(sourceSnapshot);
+    const session = await sessionById(report.upload_session_id);
+    const result = await generateNarrative(sourceSnapshot, session?.narrative_model);
     const sanitizedSections = {
       headline: sanitizePublicText(result.sections.headline, NARRATIVE_FIELD_LIMITS.headline).value,
       narrative: sanitizePublicText(result.sections.narrative, NARRATIVE_FIELD_LIMITS.narrative).value,
@@ -761,24 +843,45 @@ async function processNarrativeJob(narrativeId: string) {
       learnings: result.sections.learnings.map(
         (line) => sanitizePublicText(line, NARRATIVE_FIELD_LIMITS.learningItem).value,
       ),
+      decisionPatterns: result.sections.decisionPatterns.map(
+        (line) => sanitizePublicText(line, NARRATIVE_FIELD_LIMITS.decisionPatternItem).value,
+      ),
+      standoutTraits: result.sections.standoutTraits.map(
+        (line) => sanitizePublicText(line, NARRATIVE_FIELD_LIMITS.standoutTraitItem).value,
+      ),
+      growthEdge: sanitizePublicText(result.sections.growthEdge, NARRATIVE_FIELD_LIMITS.growthEdge).value,
     };
     const costMicroUsd = estimateCostMicroUsd(result.model, result.inputTokens, result.outputTokens);
+    const observability = {
+      providerCounts: Object.fromEntries(sourceSnapshot.sourceSelection.providers.map((item) => [item.provider, item.sessionsIncluded])),
+      promptVersion: NARRATIVE_PROMPT_VERSION,
+      schemaVersion: sourceSnapshot.schemaVersion,
+      generationLatencyMs: result.generationLatencyMs,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      costMicroUsd,
+      invalidReferenceCount: result.invalidReferenceCount,
+      fallbackCount: result.fallbacksUsed.length,
+    };
+    const reportSnapshot = parseJson<ProjectSnapshot>(report.snapshot_json, "report snapshot");
+    reportSnapshot.narrative = { ...sanitizedSections, storyPack: result.storyPack };
 
     await db.batch([
       db
         .prepare(
           `UPDATE buildstory_narratives
            SET status = 'ready', provider = ?, model = ?, sections_json = ?,
-               input_tokens = ?, output_tokens = ?, cost_micro_usd = ?, last_error_code = NULL, updated_at = ?
+               input_tokens = ?, output_tokens = ?, cost_micro_usd = ?, fallbacks_used_json = ?, last_error_code = NULL, updated_at = ?
            WHERE id = ? AND status != 'failed'`,
         )
         .bind(
           result.provider,
           result.model,
-          JSON.stringify(sanitizedSections),
+           JSON.stringify({ sections: sanitizedSections, storyPack: result.storyPack, observability }),
           result.inputTokens,
           result.outputTokens,
           costMicroUsd,
+          JSON.stringify(result.fallbacksUsed),
           nowIso,
           narrativeId,
         ),
@@ -787,6 +890,9 @@ async function processNarrativeJob(narrativeId: string) {
           "UPDATE buildstory_narrative_jobs SET status = 'completed', lease_until = NULL, last_error_code = NULL, updated_at = ? WHERE narrative_id = ?",
         )
         .bind(nowIso, narrativeId),
+      db
+        .prepare("UPDATE buildstory_reports SET snapshot_json = ?, updated_at = ? WHERE id = ?")
+        .bind(JSON.stringify(reportSnapshot), nowIso, narrative.report_id),
     ]);
     await recordNarrativeSpend(db, narrative.owner_user_id, costMicroUsd);
   } catch (error) {
@@ -827,6 +933,8 @@ export async function createUploadSession(
   projectLabel = "New local project",
   apiBaseUrl = "http://localhost:3000/",
   ownerUserId: string | null = null,
+  narrativeModel: string | null = null,
+  narrativeMode: "local" | "cloud" | "off" = "cloud",
 ): Promise<{
   session: UploadSessionView;
   deviceAuthorization: DeviceAuthorization;
@@ -842,15 +950,17 @@ export async function createUploadSession(
   await (await database())
     .prepare(
       `INSERT INTO buildstory_upload_sessions (
-        id, creator_id, owner_user_id, project_label, status, created_at, expires_at,
+        id, creator_id, owner_user_id, project_label, narrative_model, narrative_mode, status, created_at, expires_at,
         status_detail, device_code_hash, updated_at
-      ) VALUES (?, ?, ?, ?, 'awaiting_scanner', ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, 'awaiting_scanner', ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
       creatorId,
       ownerUserId,
       label,
+      narrativeModel,
+      narrativeMode,
       createdAtIso,
       expiresAtIso,
       statusDetail,
@@ -863,6 +973,8 @@ export async function createUploadSession(
     id,
     creatorId,
     projectLabel: label,
+    narrativeModel,
+    narrativeMode,
     status: "awaiting_scanner",
     createdAt: createdAtIso,
     expiresAt: expiresAtIso,
@@ -911,11 +1023,22 @@ export async function getUploadSession(
 export async function claimUploadSession(
   sessionId: string,
   userCode: string,
+  narrativeModes?: Array<"local" | "cloud" | "off">,
 ): Promise<ScannerClaimResponse> {
   const row = await sessionById(sessionId);
   const codeHash = await hashToken(userCode.trim().toUpperCase());
-  if (!row || row.device_code_hash !== codeHash) {
-    throw new D1IngestionError("invalid_device_code", "Connection code is invalid.", 401);
+  const rejectConnection = (): never => {
+    throw new D1IngestionError("connect_rejected", "Connection could not be authorized.", 401);
+  };
+  if (!row) throw new D1IngestionError("connect_rejected", "Connection could not be authorized.", 401);
+  if (row.device_code_attempts >= 5 || row.device_code_hash !== codeHash) {
+    if (!row.device_code_claimed_at && row.device_code_attempts < 5 && row.device_code_hash !== codeHash) {
+      await (await database())
+        .prepare("UPDATE buildstory_upload_sessions SET device_code_attempts = MIN(device_code_attempts + 1, 5), updated_at = ? WHERE id = ? AND device_code_claimed_at IS NULL")
+        .bind(new Date().toISOString(), sessionId)
+        .run();
+    }
+    rejectConnection();
   }
   if (Date.parse(row.expires_at) <= Date.now()) {
     await (await database())
@@ -924,10 +1047,10 @@ export async function claimUploadSession(
       )
       .bind(new Date().toISOString(), sessionId)
       .run();
-    throw new D1IngestionError("session_expired", "Upload session expired.", 410);
+    rejectConnection();
   }
   if (row.device_code_claimed_at) {
-    throw new D1IngestionError("device_code_used", "Connection code has already been used.", 409);
+    rejectConnection();
   }
 
   const token = makeUploadToken();
@@ -955,7 +1078,7 @@ export async function claimUploadSession(
     )
     .run();
   if (changes(result) !== 1) {
-    throw new D1IngestionError("device_code_used", "Connection code has already been used.", 409);
+    rejectConnection();
   }
   return {
     sessionId,
@@ -966,7 +1089,8 @@ export async function claimUploadSession(
       expiresAt: tokenExpiresAt,
       schemaVersion: PROJECT_SNAPSHOT_SCHEMA_VERSION,
       maxBytes: MAX_SNAPSHOT_BYTES,
-    },
+      },
+    ...(narrativeModes ? { narrative: { mode: row.narrative_mode === "local" || row.narrative_mode === "off" ? row.narrative_mode : "cloud", model: row.narrative_model } } : {}),
   };
 }
 
@@ -1126,7 +1250,11 @@ export async function acceptSnapshot(
       409,
     );
   }
-  if (validated.snapshot.narrativeEvidence && validated.snapshot.narrativeEvidence.excerpts.length > 0) {
+  if (validated.snapshot.generatedNarrative) {
+    await storeLocalNarrative(reportId, user.id, validated.snapshot.generatedNarrative, row.narrative_model);
+  } else if (row.narrative_mode === "local") {
+    await storeLocalNarrative(reportId, user.id, undefined, row.narrative_model);
+  } else if (validated.snapshot.narrativeEvidence && validated.snapshot.narrativeEvidence.excerpts.length > 0) {
     await createNarrativeJob(reportId, user.id);
   }
   return {
@@ -1336,34 +1464,33 @@ export async function publishReport(
       422,
     );
   }
-  const conflict = await (await database())
-    .prepare(
-      "SELECT id FROM buildstory_reports WHERE publication_slug = ? AND publication_status = 'published' AND id != ?",
-    )
-    .bind(report.publication.slug, reportId)
-    .first<{ id: string }>();
-  if (conflict) {
-    throw new D1IngestionError(
-      "publication_slug_conflict",
-      "That public project slug is already in use.",
-      409,
-    );
-  }
+  const owner = await userByAuthSubject(creatorId);
+  if (!owner) throw new D1IngestionError("not_found", "Creator account not found.", 404);
+  const publicationPath = `${owner.handle.toLocaleLowerCase("en-US")}/${report.publication.slug}`;
   const publishedAt = new Date().toISOString();
-  await (await database())
-    .prepare(
-      `UPDATE buildstory_reports
-       SET publication_status = 'published', published_at = ?, public_url = ?, updated_at = ?
-       WHERE id = ? AND creator_id = ?`,
-    )
-    .bind(
-      publishedAt,
-      `${publicOrigin()}/p/${report.publication.slug}`,
-      publishedAt,
-      reportId,
-      creatorId,
-    )
-    .run();
+  try {
+    await (await database()).batch([
+      (await database()).prepare(
+        `UPDATE buildstory_reports SET publication_status = 'draft_changes', published_at = NULL, public_url = NULL, publication_path = NULL, updated_at = ?
+         WHERE project_id = ? AND publication_status = 'published' AND id != ?`,
+      ).bind(publishedAt, report.projectId, reportId),
+      (await database()).prepare(
+        `UPDATE buildstory_reports SET publication_status = 'published', publication_path = ?, published_at = ?, public_url = ?, updated_at = ?
+         WHERE id = ? AND creator_id = ?`,
+      ).bind(publicationPath, publishedAt, `${publicOrigin()}/u/${owner.handle}/${report.publication.slug}`, publishedAt, reportId, creatorId),
+    ]);
+  } catch {
+    throw new D1IngestionError("publication_path_conflict", "That public project path is already in use.", 409);
+  }
+  return getReport(creatorId, reportId);
+}
+
+export async function unpublishReport(creatorId: string, reportId: string): Promise<GeneratedReport> {
+  const result = await (await database()).prepare(
+    `UPDATE buildstory_reports SET publication_status = 'not_published', publication_path = NULL, published_at = NULL, public_url = NULL, updated_at = ?
+     WHERE id = ? AND creator_id = ? AND publication_status = 'published'`,
+  ).bind(new Date().toISOString(), reportId, creatorId).run();
+  if (changes(result) !== 1) throw new D1IngestionError("not_published", "Published report not found.", 404);
   return getReport(creatorId, reportId);
 }
 
@@ -1393,11 +1520,36 @@ export async function publicationStatusForProject(
   };
 }
 
+export async function renameProjectSlug(
+  creatorId: string,
+  projectId: string,
+  requestedSlug: string,
+): Promise<ProjectRecord> {
+  const owner = await userByAuthSubject(creatorId);
+  if (!owner) throw new D1IngestionError("not_found", "Creator account not found.", 404);
+  const slug = baseSlugFrom(requestedSlug);
+  if (slug !== requestedSlug.trim().toLocaleLowerCase("en-US") || ![...candidateSlugs(slug)].includes(slug)) {
+    throw new D1IngestionError("invalid_project_slug", "Project slugs may use lowercase letters, numbers, and hyphens.", 422);
+  }
+  const existing = await (await database()).prepare(
+    "SELECT id, owner_user_id, slug, name, repository_fingerprint FROM buildstory_projects WHERE id = ? AND owner_user_id = ?",
+  ).bind(projectId, owner.id).first<{ id: string; owner_user_id: string; slug: string; name: string; repository_fingerprint: string }>();
+  if (!existing) throw new D1IngestionError("not_found", "Project not found.", 404);
+  try {
+    await (await database()).prepare(
+      "UPDATE buildstory_projects SET slug = ?, updated_at = ? WHERE id = ? AND owner_user_id = ?",
+    ).bind(slug, new Date().toISOString(), projectId, owner.id).run();
+  } catch {
+    throw new D1IngestionError("project_slug_conflict", "That project slug is already in use.", 409, [...candidateSlugs(slug)].slice(1, 4));
+  }
+  return { id: existing.id, ownerUserId: existing.owner_user_id, slug, name: existing.name, repositoryFingerprint: existing.repository_fingerprint };
+}
+
 /** Public boundary: this query does not select the private source snapshot. */
 export async function getPublishedStoryBySlug(slug: string) {
   const row = await (await database())
     .prepare(
-      `SELECT snapshot_json, selected_public_fields_json, editorial_tagline, editorial_description, editorial_reflection
+      `SELECT id AS report_id, snapshot_json, selected_public_fields_json, editorial_tagline, editorial_description, editorial_reflection
        FROM buildstory_reports
        WHERE publication_slug = ? AND publication_status = 'published' LIMIT 1`,
     )
@@ -1407,7 +1559,7 @@ export async function getPublishedStoryBySlug(slug: string) {
       selected_public_fields_json: string;
       editorial_tagline: string;
       editorial_description: string;
-      editorial_reflection: string;
+    editorial_reflection: string; report_id: string;
     }>();
   if (!row) return null;
   const snapshot = parseJson<ProjectSnapshot>(row.snapshot_json, "public report");
@@ -1428,9 +1580,26 @@ export async function getPublishedStoryBySlug(slug: string) {
   snapshot.identity.tagline = row.editorial_tagline;
   snapshot.identity.description = row.editorial_description;
   snapshot.identity.visibility = "public";
-  return publicBuildStoryFromSnapshot(snapshot, selected, {
+  return { ...publicBuildStoryFromSnapshot(snapshot, selected, {
     reflection: row.editorial_reflection,
-  });
+  }), reportId: row.report_id };
+}
+
+export async function getPublishedStory(handle: string, slug: string) {
+  const row = await (await database()).prepare(
+    `SELECT r.id AS report_id, r.snapshot_json, r.selected_public_fields_json, r.editorial_tagline, r.editorial_description, r.editorial_reflection
+     FROM buildstory_reports r JOIN buildstory_users u ON u.id = r.owner_user_id
+     WHERE u.handle_lower = ? AND r.publication_slug = ? AND r.publication_path = ? AND r.publication_status = 'published' LIMIT 1`,
+  ).bind(handle.toLocaleLowerCase("en-US"), slug, `${handle.toLocaleLowerCase("en-US")}/${slug}`).first<{
+    report_id: string; snapshot_json: string; selected_public_fields_json: string; editorial_tagline: string; editorial_description: string; editorial_reflection: string;
+  }>();
+  if (!row) return null;
+  const snapshot = parseJson<ProjectSnapshot>(row.snapshot_json, "public report");
+  const selected = parseJson<PublicFieldKey[]>(row.selected_public_fields_json, "public field");
+  snapshot.identity.tagline = row.editorial_tagline;
+  snapshot.identity.description = row.editorial_description;
+  snapshot.identity.visibility = "public";
+  return { ...publicBuildStoryFromSnapshot(snapshot, selected, { reflection: row.editorial_reflection }), reportId: row.report_id };
 }
 
 /** IDs only, for social features (reactions/comments) to key off of - never content. */
@@ -1446,20 +1615,27 @@ export async function getPublicStoryIdentity(
   return row ? { reportId: row.id, ownerUserId: row.owner_user_id } : null;
 }
 
+export async function getPublicStoryIdentityByReportId(reportId: string) {
+  const row = await (await database()).prepare(
+    "SELECT id, owner_user_id FROM buildstory_reports WHERE id = ? AND publication_status = 'published' LIMIT 1",
+  ).bind(reportId).first<{ id: string; owner_user_id: string | null }>();
+  return row ? { reportId: row.id, ownerUserId: row.owner_user_id } : null;
+}
+
 /**
  * Public boundary: this query does not select the private source snapshot.
  * Newest published stories first, capped for a single feed page.
  */
-export async function listPublishedStories(limit = 30) {
+export async function listPublishedStories(limit = 30, cursor?: string) {
   const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), 100);
   const rows = await (await database())
     .prepare(
       `SELECT snapshot_json, selected_public_fields_json, editorial_tagline, editorial_description, editorial_reflection, published_at
        FROM buildstory_reports
-       WHERE publication_status = 'published'
+       WHERE publication_status = 'published' AND (? IS NULL OR published_at < ?)
        ORDER BY published_at DESC LIMIT ?`,
     )
-    .bind(boundedLimit)
+    .bind(cursor ?? null, cursor ?? null, boundedLimit)
     .all<{
       snapshot_json: string;
       selected_public_fields_json: string;
@@ -1497,26 +1673,28 @@ function escapeLikePattern(value: string): string {
 }
 
 /** Public boundary: matches only against already-public editorial text and the owner's handle/display name, never source snapshot content. */
-export async function searchPublishedStories(query: string, limit = 20) {
+export async function searchPublishedStories(query: string, limit = 20, cursor?: string) {
   const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), 50);
   const trimmed = query.trim().slice(0, 200);
-  if (!trimmed) return [];
+  if (trimmed.length < 2) return [];
   const pattern = `%${escapeLikePattern(trimmed)}%`;
+  const prefix = `${escapeLikePattern(trimmed.toLocaleLowerCase("en-US"))}%`;
   const rows = await (await database())
     .prepare(
       `SELECT r.snapshot_json, r.selected_public_fields_json, r.editorial_tagline, r.editorial_description, r.editorial_reflection, r.published_at
        FROM buildstory_reports r
        LEFT JOIN buildstory_users u ON u.id = r.owner_user_id
        WHERE r.publication_status = 'published'
+         AND (? IS NULL OR r.published_at < ?)
          AND (
            r.editorial_tagline LIKE ? ESCAPE '\\'
            OR r.editorial_description LIKE ? ESCAPE '\\'
-           OR u.handle LIKE ? ESCAPE '\\'
-           OR u.display_name LIKE ? ESCAPE '\\'
+           OR u.handle_lower LIKE ? ESCAPE '\\'
+           OR LOWER(u.display_name) LIKE ? ESCAPE '\\'
          )
        ORDER BY r.published_at DESC LIMIT ?`,
     )
-    .bind(pattern, pattern, pattern, pattern, boundedLimit)
+    .bind(cursor ?? null, cursor ?? null, pattern, pattern, prefix, prefix, boundedLimit)
     .all<{
       snapshot_json: string;
       selected_public_fields_json: string;

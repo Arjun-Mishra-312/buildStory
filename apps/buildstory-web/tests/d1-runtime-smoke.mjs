@@ -33,13 +33,13 @@ const connectResponse = await fetch(new URL("api/v1/cli/connect", base), {
   redirect: "error",
   headers: {
     "content-type": "application/json",
-    "x-buildstory-client-version": "0.3.0",
+    "x-buildstory-client-version": "0.4.0",
   },
   body: JSON.stringify({
     protocolVersion: "1.0",
     uploadSessionId: created.deviceAuthorization.sessionId,
     deviceCode: created.deviceAuthorization.userCode,
-    client: { command: "buildstory", version: "0.3.0" },
+    client: { command: "buildstory", version: "0.4.0" },
     capabilities: {
       projectSnapshotSchemaVersions: [schemaVersion],
       snapshotUpload: false,
@@ -122,4 +122,36 @@ await assertStatus(unsafePatchResponse, 422);
 const unsafePatchText = await unsafePatchResponse.text();
 assert.doesNotMatch(unsafePatchText, /sk-proj|abcdefghijklmnopqrstuvwxyz123456/i);
 
-console.log("D1 runtime smoke passed: durable one-use upload, job, safe reads, and editorial privacy rejection.");
+const publishResponse = await fetch(new URL(`api/creator/reports/${reportId}/publish`, base), {
+  method: "POST",
+  redirect: "error",
+  headers: { origin: base.origin },
+});
+await assertStatus(publishResponse, 200);
+const publication = (await publishResponse.json()).publication;
+assert.equal(publication.status, "published");
+assert.match(publication.publicUrl, /\/u\/[^/]+\/[^/]+$/);
+
+const canonicalPath = new URL(publication.publicUrl).pathname;
+const canonicalResponse = await fetch(new URL(canonicalPath, base), { redirect: "error" });
+await assertStatus(canonicalResponse, 200);
+
+const legacyResponse = await fetch(new URL(`p/${publication.slug}`, base), { redirect: "manual" });
+await assertStatus(legacyResponse, 308);
+assert.equal(new URL(legacyResponse.headers.get("location"), base).pathname, canonicalPath);
+
+const unpublishResponse = await fetch(new URL(`api/creator/reports/${reportId}/publish`, base), {
+  method: "DELETE",
+  redirect: "error",
+  headers: { origin: base.origin },
+});
+await assertStatus(unpublishResponse, 200);
+assert.equal((await unpublishResponse.json()).publication.status, "not_published");
+
+const unpublishedCanonical = await fetch(new URL(canonicalPath, base), { redirect: "manual" });
+await assertStatus(unpublishedCanonical, 404);
+
+const unpublishedLegacy = await fetch(new URL(`p/${publication.slug}`, base), { redirect: "manual" });
+await assertStatus(unpublishedLegacy, 404);
+
+console.log("D1 runtime smoke passed: durable one-use upload, job, safe reads, publication redirect, and unpublish cycle.");

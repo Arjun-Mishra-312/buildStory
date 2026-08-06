@@ -11,6 +11,7 @@
 **/outputs/
 **/work/
 **/*.tsbuildinfo
+**/.tmp/
 
 # Local environment and tool state
 **/.env*
@@ -19,4 +20,3 @@
 **/.vercel/
 *.log
 .DS_Store
-

@@ -51,7 +51,7 @@ export async function getCreatorSession(): Promise<CreatorSession | null> {
 }
 
 export async function requireCreator(
-  returnTo = "/dashboard",
+  returnTo = "/studio",
 ): Promise<CreatorSession> {
   const creator = await getCreatorSession();
   if (creator) return creator;
@@ -60,13 +60,13 @@ export async function requireCreator(
 
 export function safeReturnPath(value: string | null | undefined): string {
   if (!value || !value.startsWith("/") || value.startsWith("//")) {
-    return "/dashboard";
+    return "/studio";
   }
   try {
     const url = new URL(value, "https://buildstory.local");
-    if (url.origin !== "https://buildstory.local") return "/dashboard";
+    if (url.origin !== "https://buildstory.local") return "/studio";
     return `${url.pathname}${url.search}${url.hash}`;
   } catch {
-    return "/dashboard";
+    return "/studio";
   }
 }

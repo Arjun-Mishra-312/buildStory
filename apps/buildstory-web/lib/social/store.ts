@@ -48,8 +48,8 @@ export async function setReaction(reportId: string, userId: string, kind: Reacti
   return (await backend()).setReaction(reportId, userId, kind);
 }
 
-export async function listComments(reportId: string) {
-  return (await backend()).listComments(reportId);
+export async function listComments(reportId: string, limit?: number, cursor?: string) {
+  return (await backend()).listComments(reportId, limit, cursor);
 }
 
 export async function createComment(
@@ -65,8 +65,8 @@ export async function deleteComment(commentId: string, requestingUserId: string,
   return (await backend()).deleteComment(commentId, requestingUserId, requestingRole);
 }
 
-export async function listNotifications(userId: string, limit?: number) {
-  return (await backend()).listNotifications(userId, limit);
+export async function listNotifications(userId: string, limit?: number, cursor?: string) {
+  return (await backend()).listNotifications(userId, limit, cursor);
 }
 
 export async function getUnreadNotificationCount(userId: string) {
@@ -77,8 +77,8 @@ export async function markNotificationsRead(userId: string, notificationIds?: st
   return (await backend()).markNotificationsRead(userId, notificationIds);
 }
 
-export async function getActivityFeed(viewerUserId: string, limit?: number) {
-  return (await backend()).getActivityFeed(viewerUserId, limit);
+export async function getActivityFeed(viewerUserId: string, limit?: number, cursor?: string) {
+  return (await backend()).getActivityFeed(viewerUserId, limit, cursor);
 }
 
 export async function fileContentReport(
@@ -91,10 +91,10 @@ export async function fileContentReport(
   return (await backend()).fileContentReport(reporterUserId, targetType, targetId, reasonCode, note);
 }
 
-export async function listContentReports(status?: ContentReportStatus, limit?: number) {
-  return (await backend()).listContentReports(status, limit);
+export async function listContentReports(status?: ContentReportStatus, limit?: number, cursor?: string) {
+  return (await backend()).listContentReports(status, limit, cursor);
 }
 
-export async function resolveContentReport(reportId: string, status: ContentReportStatus) {
-  return (await backend()).resolveContentReport(reportId, status);
+export async function resolveContentReport(reportId: string, status: ContentReportStatus, actorUserId?: string) {
+  return (await backend()).resolveContentReport(reportId, status, actorUserId);
 }

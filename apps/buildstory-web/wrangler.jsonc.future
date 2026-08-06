@@ -1,6 +1,6 @@
 {
-  // Deploy-time config for `wrangler deploy` / `wrangler d1 execute --remote` /
-  // `wrangler queues ...` against the real Buildstory Cloudflare account.
+  // Deploy-time config for `wrangler deploy` and `wrangler d1 execute --remote`
+  // against the real Buildstory Cloudflare account.
   // Contains real, live resource IDs (see provenance below) - NOT a template.
   //
   // Still named wrangler.jsonc.future, not wrangler.jsonc, and this is
@@ -27,19 +27,9 @@
   //   confirmed live (buildstory_upload_sessions, buildstory_reports,
   //   buildstory_report_jobs, buildstory_users, buildstory_projects).
   //
-  // The narrative-generation queues were provisioned the same day:
-  //   wrangler queues create buildstory-narrative-jobs
-  //   wrangler queues create buildstory-narrative-jobs-dlq
-  // No Worker consumes them yet - Phase 2 code lands separately.
-  //
   // Remaining before this file drives an actual `wrangler deploy`:
   //   - r2_buckets: only if/when Phase 1's "move snapshot blobs out of D1"
   //     work lands (today: r2 is deliberately null, no blobs accepted).
-  //   - triggers.crons: only once a lease-reclaim/leaderboard sweeper is
-  //     actually implemented in code - don't declare a cron ahead of the
-  //     handler it would trigger.
-  //   - ratelimits: only once Phase 4's mutation rate limiting lands;
-  //     namespace_id is an arbitrary string you choose at that point.
   //   - Explicit user/release approval before the first real `wrangler deploy`.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "buildstory-web",
@@ -57,31 +47,15 @@
     }
   ],
 
-  // --- Phase 2: narrative generation queue ---------------------------------
-  "queues": {
-    "producers": [
-      { "queue": "buildstory-narrative-jobs", "binding": "NARRATIVE_QUEUE" }
-    ],
-    "consumers": [
-      {
-        "queue": "buildstory-narrative-jobs",
-        "max_batch_size": 5,
-        "max_batch_timeout": 30,
-        "max_retries": 3,
-        "dead_letter_queue": "buildstory-narrative-jobs-dlq"
-      }
-    ]
-  }
+  "triggers": {
+    "crons": ["0 * * * *", "*/5 * * * *"]
+  },
 
   // --- Phase 1: snapshot blobs out of D1 -----------------------------------
   // "r2_buckets": [
   //   { "binding": "SNAPSHOTS", "bucket_name": "buildstory-snapshots" }
   // ],
 
-  // --- Phase 1/5: lease reclaim + explore/leaderboard scoring sweep --------
-  // "triggers": {
-  //   "crons": ["*/5 * * * *"]
-  // },
 
   // --- Phase 4: per-endpoint mutation rate limiting ------------------------
   // "ratelimits": [

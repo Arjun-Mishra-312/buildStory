@@ -1,0 +1,1 @@
+ALTER TABLE `buildstory_upload_sessions` ADD `narrative_model` text;

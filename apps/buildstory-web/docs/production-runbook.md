@@ -18,8 +18,8 @@ The scanner accepts a hosted ingestion destination only when explicitly pinned p
 
 2. Copy `apps/buildstory-web/.env.example` to `.env.local`. For the documented fallback, set `BUILDSTORY_DEV_AUTH_BYPASS=true`, `BUILDSTORY_LOCAL_API_ENABLED=true`, and `BUILDSTORY_STORE=memory`.
 3. Start the web app with `npm run dev:buildstory` and open `http://localhost:3000`.
-4. Build/install the CLI from `packages/buildstory-scanner` or `artifacts/buildstory-scanner-0.3.0.tgz`.
-5. In `/dashboard/connect`, create a session and run the displayed connect command. From the chosen Git worktree run:
+4. Build/install the CLI from `packages/buildstory-scanner` or `artifacts/buildstory-scanner-0.4.0.tgz`.
+5. In `/studio/connect`, create a session and run the displayed connect command. From the chosen Git worktree run:
 
    ```powershell
    buildstory scan-upload --repo . --consent local-scan --upload-consent local-dashboard

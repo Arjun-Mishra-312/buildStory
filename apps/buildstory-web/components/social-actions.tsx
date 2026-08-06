@@ -24,11 +24,11 @@ type FollowState = {
 };
 
 type SocialActionsProps = {
-  slug: string;
+  storyId: string;
   ownerHandle: string;
 };
 
-export function SocialActions({ slug, ownerHandle }: SocialActionsProps) {
+export function SocialActions({ storyId, ownerHandle }: SocialActionsProps) {
   const router = useRouter();
   const [reactions, setReactions] = useState<ReactionSummary | null>(null);
   const [follow, setFollow] = useState<FollowState | null>(null);
@@ -40,7 +40,7 @@ export function SocialActions({ slug, ownerHandle }: SocialActionsProps) {
     void (async () => {
       try {
         const [reactionResponse, profileResponse] = await Promise.all([
-        fetch(`/api/stories/${encodeURIComponent(slug)}/reactions`, { cache: "no-store" }),
+        fetch(`/api/stories/${encodeURIComponent(storyId)}/reactions`, { cache: "no-store" }),
         fetch(`/api/users/${encodeURIComponent(ownerHandle)}`, { cache: "no-store" }),
         ]);
         if (reactionResponse.ok) setReactions((await reactionResponse.json()) as ReactionSummary);
@@ -53,7 +53,7 @@ export function SocialActions({ slug, ownerHandle }: SocialActionsProps) {
         setError("Social activity is temporarily unavailable.");
       }
     })();
-  }, [slug, ownerHandle]);
+  }, [storyId, ownerHandle]);
 
   function goToSignIn() {
     router.push(`/signin?callbackUrl=${encodeURIComponent(window.location.pathname)}`);
@@ -63,7 +63,7 @@ export function SocialActions({ slug, ownerHandle }: SocialActionsProps) {
     if (busy) return;
     setBusy(true);
     try {
-      const response = await fetch(`/api/stories/${encodeURIComponent(slug)}/reactions`, {
+      const response = await fetch(`/api/stories/${encodeURIComponent(storyId)}/reactions`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ kind }),

@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["decisionPatterns", "standoutTraits", "growthEdge"],
+  "properties": {
+    "decisionPatterns": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": { "type": "string", "minLength": 1, "maxLength": 300 }
+    },
+    "standoutTraits": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": { "type": "string", "minLength": 1, "maxLength": 300 }
+    },
+    "growthEdge": { "type": "string", "minLength": 1, "maxLength": 500 }
+  }
+}

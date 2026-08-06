@@ -3,6 +3,7 @@ import { publicBuildStoryFromSnapshot } from "@/lib/build-story";
 import { baseHandleFrom, baseSlugFrom, candidateHandles, candidateSlugs } from "@/lib/identity/handles";
 import { isLoopbackHostname } from "@/lib/ingestion/local-api";
 import { generateNarrative, narrativeProviderConfigured, NarrativeProviderError } from "@/lib/narrative/provider";
+import { canUseCloudNarrative } from "@/lib/narrative/entitlement";
 import { estimateCostMicroUsd } from "@/lib/narrative/pricing";
 import { NARRATIVE_FIELD_LIMITS } from "@/lib/narrative/schema";
 import { sanitizePublicText } from "@/lib/publication/sanitization";
@@ -33,6 +34,7 @@ import {
 type StoredUploadSession = UploadSessionView & {
   ownerUserId: string | null;
   deviceCodeHash: string;
+  deviceCodeAttempts: number;
   deviceCodeClaimedAt: string | null;
   connectionId: string | null;
   uploadTokenHash: string | null;
@@ -48,6 +50,7 @@ type StoredUser = UserRecord & {
   email: string;
   handleLower: string;
   bio: string | null;
+  status: "active" | "suspended";
 };
 
 type StoredProject = ProjectRecord & {
@@ -68,6 +71,9 @@ type StoredNarrative = {
   model: string;
   status: NarrativeStatus;
   sections: NarrativeRecord["sections"];
+  storyPack: NarrativeRecord["storyPack"];
+  observability: NarrativeRecord["observability"];
+  fallbacksUsed: string[];
   inputTokens: number;
   outputTokens: number;
   costMicroUsd: number;
@@ -111,6 +117,7 @@ function createSeedStore(): MockStore {
     avatarUrl: null,
     bio: "Independent product engineer",
     role: "member",
+    status: "active",
   };
   const project: StoredProject = {
     id: projectId,
@@ -143,6 +150,17 @@ function createSeedStore(): MockStore {
       "modelMix",
       "gitAggregates",
       "redactionSummary",
+      "archetype",
+      "profileScores",
+      "workPatterns",
+      "narrative",
+      "storyBuildArc",
+      "storyMoments",
+      "storyTurningPoint",
+      "storyDecisions",
+      "storyLearnings",
+      "storyTraits",
+      "standoutTraits",
     ],
     editorial: {
       tagline: orbitNotesSnapshot.identity.tagline,
@@ -163,6 +181,8 @@ function createSeedStore(): MockStore {
     creatorId,
     ownerUserId: userId,
     projectLabel: orbitNotesSnapshot.identity.name,
+    narrativeModel: null,
+    narrativeMode: "cloud",
     status: "report_ready",
     createdAt: orbitNotesSnapshot.provenance.scannedAt,
     expiresAt: orbitNotesSnapshot.provenance.scannedAt,
@@ -171,6 +191,7 @@ function createSeedStore(): MockStore {
     reportId,
     statusDetail: "Private report ready for review.",
     deviceCodeHash: "used-seed",
+    deviceCodeAttempts: 0,
     deviceCodeClaimedAt: orbitNotesSnapshot.provenance.scannedAt,
     connectionId: "conn_orbit_notes_seed",
     uploadTokenHash: null,
@@ -225,6 +246,8 @@ function cleanSession(session: StoredUploadSession): UploadSessionView {
     id: session.id,
     creatorId: session.creatorId,
     projectLabel: session.projectLabel,
+    narrativeModel: session.narrativeModel,
+    narrativeMode: session.narrativeMode,
     status: session.status,
     createdAt: session.createdAt,
     expiresAt: session.expiresAt,
@@ -328,6 +351,7 @@ export function ensureUser(session: {
     (candidate) => candidate.authSubject === session.creatorId,
   );
   if (existing) {
+    if (existing.status !== "active") throw new MockIngestionError("account_suspended", "This creator account is suspended.", 403);
     existing.displayName = session.name;
     existing.avatarUrl = session.image;
     registerSocialProfile(existing);
@@ -349,6 +373,7 @@ export function ensureUser(session: {
       avatarUrl: session.image,
       bio: null,
       role: "member",
+      status: "active",
     };
     store.users.set(user.id, user);
     registerSocialProfile(user);
@@ -427,6 +452,9 @@ function createNarrativeJob(reportId: string, ownerUserId: string) {
     model: "",
     status: "queued",
     sections: null,
+    storyPack: null,
+    observability: null,
+    fallbacksUsed: [],
     inputTokens: 0,
     outputTokens: 0,
     costMicroUsd: 0,
@@ -446,6 +474,9 @@ async function runNarrativeJob(narrative: StoredNarrative, reportId: string): Pr
   narrative.status = "generating";
   narrative.attempts += 1;
   try {
+    if (!canUseCloudNarrative(narrative.ownerUserId)) {
+      throw new NarrativeProviderError("llm_not_entitled", "Cloud narrative generation is not enabled for this account.");
+    }
     if (!narrativeProviderConfigured()) {
       throw new NarrativeProviderError("llm_not_configured", "No narrative provider is configured.");
     }
@@ -456,7 +487,10 @@ async function runNarrativeJob(narrative: StoredNarrative, reportId: string): Pr
     if (!report || !report.sourceSnapshot) {
       throw new Error(`Report ${reportId} has no source snapshot for narrative generation.`);
     }
-    const result = await generateNarrative(report.sourceSnapshot);
+    const result = await generateNarrative(
+      report.sourceSnapshot,
+      store.sessions.get(report.uploadSessionId)?.narrativeModel,
+    );
     narrative.provider = result.provider;
     narrative.model = result.model;
     narrative.sections = {
@@ -466,10 +500,42 @@ async function runNarrativeJob(narrative: StoredNarrative, reportId: string): Pr
       learnings: result.sections.learnings.map(
         (line) => sanitizePublicText(line, NARRATIVE_FIELD_LIMITS.learningItem).value,
       ),
+      decisionPatterns: result.sections.decisionPatterns.map(
+        (line) => sanitizePublicText(line, NARRATIVE_FIELD_LIMITS.decisionPatternItem).value,
+      ),
+      standoutTraits: result.sections.standoutTraits.map(
+        (line) => sanitizePublicText(line, NARRATIVE_FIELD_LIMITS.standoutTraitItem).value,
+      ),
+      growthEdge: sanitizePublicText(result.sections.growthEdge, NARRATIVE_FIELD_LIMITS.growthEdge).value,
     };
+    narrative.storyPack = result.storyPack;
+    narrative.observability = {
+      providerCounts: Object.fromEntries(report.sourceSnapshot?.sourceSelection.providers.map((item) => [item.provider, item.sessionsIncluded]) ?? []),
+      promptVersion: "narrative-v2",
+      schemaVersion: report.sourceSnapshot?.schemaVersion ?? "1.5.0",
+      generationLatencyMs: 0,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      costMicroUsd: estimateCostMicroUsd(result.model, result.inputTokens, result.outputTokens),
+      invalidReferenceCount: result.invalidReferenceCount,
+      fallbackCount: result.fallbacksUsed.length,
+    };
+    narrative.fallbacksUsed = result.fallbacksUsed;
     narrative.inputTokens = result.inputTokens;
     narrative.outputTokens = result.outputTokens;
     narrative.costMicroUsd = estimateCostMicroUsd(result.model, result.inputTokens, result.outputTokens);
+    report.snapshot.narrative = narrative.sections
+      ? {
+          headline: narrative.sections.headline,
+          narrative: narrative.sections.narrative,
+          turningPoint: narrative.sections.turningPoint,
+          learnings: narrative.sections.learnings,
+          decisionPatterns: narrative.sections.decisionPatterns ?? [],
+          standoutTraits: narrative.sections.standoutTraits ?? [],
+          growthEdge: narrative.sections.growthEdge ?? "",
+          storyPack: narrative.storyPack ?? undefined,
+        }
+      : undefined;
     narrative.status = "ready";
     recordNarrativeSpend(narrative.ownerUserId, narrative.costMicroUsd);
   } catch {
@@ -507,18 +573,24 @@ function narrativeRecordFor(reportId: string): NarrativeRecord | null {
     model: narrative.model,
     status: narrative.status,
     sections: narrative.sections,
+    storyPack: narrative.storyPack,
+    observability: narrative.observability,
     costMicroUsd: narrative.costMicroUsd,
+    fallbacksUsed: narrative.fallbacksUsed,
   };
 }
 
-export function listUploadSessions(creatorId: string): UploadSessionView[] {
+export function listUploadSessions(creatorId: string, limit = 100, cursor?: string): UploadSessionView[] {
+  const bounded = Math.min(Math.max(1, Math.trunc(limit)), 100);
   return Array.from(store.sessions.values())
     .filter((session) => session.creatorId === creatorId)
+    .filter((session) => !cursor || session.createdAt < cursor)
     .map((session) => {
       refreshLifecycle(session);
       return cleanSession(session);
     })
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, bounded);
 }
 
 export async function createUploadSession(
@@ -526,6 +598,8 @@ export async function createUploadSession(
   projectLabel = "New local project",
   apiBaseUrl = "http://localhost:3000/",
   ownerUserId: string | null = null,
+  narrativeModel: string | null = null,
+  narrativeMode: "local" | "cloud" | "off" = "cloud",
 ): Promise<{ session: UploadSessionView; deviceAuthorization: DeviceAuthorization }> {
   const createdAt = new Date();
   const expiresAt = new Date(createdAt.getTime() + 15 * 60_000);
@@ -536,6 +610,8 @@ export async function createUploadSession(
     creatorId,
     ownerUserId,
     projectLabel: projectLabel.trim().slice(0, 120) || "New local project",
+    narrativeModel,
+    narrativeMode,
     status: "awaiting_scanner",
     createdAt: createdAt.toISOString(),
     expiresAt: expiresAt.toISOString(),
@@ -544,6 +620,7 @@ export async function createUploadSession(
     reportId: null,
     statusDetail: "Waiting for a scanner to claim the one-time connection code.",
     deviceCodeHash: await hashToken(deviceCode),
+    deviceCodeAttempts: 0,
     deviceCodeClaimedAt: null,
     connectionId: null,
     uploadTokenHash: null,
@@ -590,21 +667,23 @@ export function getUploadSession(
 export async function claimUploadSession(
   sessionId: string,
   userCode: string,
+  narrativeModes?: Array<"local" | "cloud" | "off">,
 ): Promise<ScannerClaimResponse> {
   const session = store.sessions.get(sessionId);
-  if (
-    !session ||
-    session.deviceCodeHash !== (await hashToken(userCode.trim().toUpperCase()))
-  ) {
-    throw new MockIngestionError("invalid_device_code", "Connection code is invalid.", 401);
+  const codeHash = await hashToken(userCode.trim().toUpperCase());
+  if (!session || session.deviceCodeAttempts >= 5 || session.deviceCodeHash !== codeHash) {
+    if (session && !session.deviceCodeClaimedAt && session.deviceCodeAttempts < 5 && session.deviceCodeHash !== codeHash) {
+      session.deviceCodeAttempts += 1;
+    }
+    throw new MockIngestionError("connect_rejected", "Connection could not be authorized.", 401);
   }
   if (Date.parse(session.expiresAt) <= Date.now()) {
     session.status = "expired";
     session.statusDetail = "Connection code expired before the scanner claimed it.";
-    throw new MockIngestionError("session_expired", "Upload session expired.", 410);
+    throw new MockIngestionError("connect_rejected", "Connection could not be authorized.", 401);
   }
   if (session.deviceCodeClaimedAt) {
-    throw new MockIngestionError("device_code_used", "Connection code has already been used.", 409);
+    throw new MockIngestionError("connect_rejected", "Connection could not be authorized.", 401);
   }
 
   const token = makeUploadToken();
@@ -628,6 +707,7 @@ export async function claimUploadSession(
       schemaVersion: PROJECT_SNAPSHOT_SCHEMA_VERSION,
       maxBytes: MAX_SNAPSHOT_BYTES,
     },
+    ...(narrativeModes ? { narrative: { mode: session.narrativeMode, model: session.narrativeModel } } : {}),
   };
 }
 
@@ -757,7 +837,43 @@ export async function acceptSnapshot(
   store.reports.set(reportId, newReport);
   registerSocialReport(reportId, user.id, newReport);
 
-  if (validated.snapshot.narrativeEvidence && validated.snapshot.narrativeEvidence.excerpts.length > 0) {
+  if (validated.snapshot.generatedNarrative) {
+    store.narratives.set(reportId, {
+      id: makeId("nar"),
+      reportId,
+      ownerUserId: user.id,
+      mode: "local",
+      provider: validated.snapshot.generatedNarrative.provider,
+      model: validated.snapshot.generatedNarrative.model,
+      status: "ready",
+      sections: validated.snapshot.generatedNarrative.sections,
+      storyPack: validated.snapshot.generatedNarrative.storyPack ?? null,
+      observability: null,
+      fallbacksUsed: validated.snapshot.generatedNarrative.fallbacksUsed,
+      inputTokens: 0,
+      outputTokens: 0,
+      costMicroUsd: 0,
+      attempts: 0,
+    });
+  } else if (session.narrativeMode === "local") {
+    store.narratives.set(reportId, {
+      id: makeId("nar"),
+      reportId,
+      ownerUserId: user.id,
+      mode: "local",
+      provider: "ollama",
+      model: session.narrativeModel ?? "auto",
+      status: "failed",
+      sections: null,
+      storyPack: null,
+      observability: null,
+      fallbacksUsed: [],
+      inputTokens: 0,
+      outputTokens: 0,
+      costMicroUsd: 0,
+      attempts: 0,
+    });
+  } else if (validated.snapshot.narrativeEvidence && validated.snapshot.narrativeEvidence.excerpts.length > 0) {
     createNarrativeJob(reportId, user.id);
   }
 
@@ -902,6 +1018,19 @@ export function updateReport(
       "toolUsage",
       "gitAggregates",
       "redactionSummary",
+      "archetype",
+      "profileScores",
+      "workPatterns",
+      "narrative",
+      "storyBuildArc",
+      "storyMoments",
+      "storyTurningPoint",
+      "storyDecisions",
+      "storyLearnings",
+      "storyTraits",
+      "decisionPatterns",
+      "standoutTraits",
+      "growthEdge",
     ];
     const unique = [...new Set(update.selectedPublicFields)];
     if (unique.some((field) => !allowed.includes(field))) {
@@ -960,10 +1089,27 @@ export function publishReport(creatorId: string, reportId: string): GeneratedRep
       422,
     );
   }
+  for (const other of store.reports.values()) {
+    if (other.id !== reportId && other.projectId === report.projectId && other.publication.status === "published") {
+      other.publication.status = "draft_changes";
+      other.publication.publishedAt = null;
+      other.publication.publicUrl = null;
+    }
+  }
+  const owner = store.users.get(userIdForCreator(creatorId) ?? "");
   report.publication.status = "published";
   report.publication.publishedAt = new Date().toISOString();
-  report.publication.publicUrl = `${publicOrigin()}/p/${report.publication.slug}`;
+  report.publication.publicUrl = `${publicOrigin()}/u/${owner?.handle ?? report.snapshot.identity.owner.handle}/${report.publication.slug}`;
   registerSocialReport(reportId, userIdForCreator(creatorId), report);
+  return { ...structuredClone(report), narrative: narrativeRecordFor(reportId) };
+}
+
+export function unpublishReport(creatorId: string, reportId: string): GeneratedReport {
+  const report = store.reports.get(reportId);
+  if (!report || report.creatorId !== creatorId || report.publication.status !== "published") throw new MockIngestionError("not_published", "Published report not found.", 404);
+  report.publication.status = "not_published";
+  report.publication.publishedAt = null;
+  report.publication.publicUrl = null;
   return { ...structuredClone(report), narrative: narrativeRecordFor(reportId) };
 }
 
@@ -972,6 +1118,23 @@ export function publicationStatusForProject(creatorId: string, projectId: string
     (candidate) => candidate.creatorId === creatorId && candidate.projectId === projectId,
   );
   return report ? structuredClone(report.publication) : null;
+}
+
+export function renameProjectSlug(creatorId: string, projectId: string, requestedSlug: string): ProjectRecord {
+  const project = store.projects.get(projectId);
+  if (!project || userIdForCreator(creatorId) !== project.ownerUserId) {
+    throw new MockIngestionError("not_found", "Project not found.", 404);
+  }
+  const slug = baseSlugFrom(requestedSlug);
+  if (slug !== requestedSlug.trim().toLocaleLowerCase("en-US") || ![...candidateSlugs(slug)].includes(slug)) {
+    throw new MockIngestionError("invalid_project_slug", "Project slugs may use lowercase letters, numbers, and hyphens.", 422);
+  }
+  const conflict = Array.from(store.projects.values()).some((candidate) => candidate.id !== projectId && candidate.ownerUserId === project.ownerUserId && candidate.slug === slug);
+  if (conflict) {
+    throw new MockIngestionError("project_slug_conflict", "That project slug is already in use.", 409, [...candidateSlugs(slug)].slice(1, 4));
+  }
+  project.slug = slug;
+  return { id: project.id, ownerUserId: project.ownerUserId, slug: project.slug, name: project.name, repositoryFingerprint: project.repositoryFingerprint };
 }
 
 /** Public boundary: callers receive only the selected projection, never report state. */
@@ -991,6 +1154,19 @@ export function getPublishedStoryBySlug(slug: string) {
   });
 }
 
+export function getPublishedStory(handle: string, slug: string) {
+  const report = Array.from(store.reports.values()).find((candidate) => {
+    const owner = store.users.get(userIdForCreator(candidate.creatorId) ?? "");
+    return owner?.handleLower === handle.toLocaleLowerCase("en-US") && candidate.publication.slug === slug && candidate.publication.status === "published";
+  });
+  if (!report) return null;
+  const snapshot = structuredClone(report.snapshot);
+  snapshot.identity.tagline = report.editorial.tagline;
+  snapshot.identity.description = report.editorial.description;
+  snapshot.identity.visibility = "public";
+  return { ...publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields, { reflection: report.editorial.reflection }), reportId: report.id };
+}
+
 /** IDs only, for social features (reactions/comments) to key off of - never content. */
 export function getPublicStoryIdentity(slug: string): { reportId: string; ownerUserId: string | null } | null {
   const report = Array.from(store.reports.values()).find(
@@ -999,10 +1175,16 @@ export function getPublicStoryIdentity(slug: string): { reportId: string; ownerU
   return report ? { reportId: report.id, ownerUserId: userIdForCreator(report.creatorId) } : null;
 }
 
-export function listPublishedStories(limit = 30) {
+export function getPublicStoryIdentityByReportId(reportId: string) {
+  const report = store.reports.get(reportId);
+  return report && report.publication.status === "published" ? { reportId: report.id, ownerUserId: userIdForCreator(report.creatorId) } : null;
+}
+
+export function listPublishedStories(limit = 30, cursor?: string) {
   const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), 100);
   return Array.from(store.reports.values())
     .filter((report) => report.publication.status === "published")
+    .filter((report) => !cursor || (report.publication.publishedAt ?? "") < cursor)
     .sort((left, right) =>
       (right.publication.publishedAt ?? "").localeCompare(left.publication.publishedAt ?? ""),
     )
@@ -1022,13 +1204,14 @@ export function listPublishedStories(limit = 30) {
 }
 
 /** Public boundary: matches only against already-public editorial text and the owner's handle/display name, never source snapshot content. */
-export function searchPublishedStories(query: string, limit = 20) {
+export function searchPublishedStories(query: string, limit = 20, cursor?: string) {
   const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), 50);
   const needle = query.trim().slice(0, 200).toLocaleLowerCase("en-US");
-  if (!needle) return [];
+  if (needle.length < 2) return [];
   return Array.from(store.reports.values())
     .filter((report) => {
       if (report.publication.status !== "published") return false;
+      if (cursor && (report.publication.publishedAt ?? "") >= cursor) return false;
       const owner = store.users.get(userIdForCreator(report.creatorId) ?? "");
       const haystack = [
         report.editorial.tagline,

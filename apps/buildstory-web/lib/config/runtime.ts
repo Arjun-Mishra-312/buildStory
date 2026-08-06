@@ -88,6 +88,19 @@ export function productionRuntimeIssues(): RuntimeIssue[] {
   if (process.env.BUILDSTORY_LOCAL_API_ENABLED !== "false") {
     add("loopback_api_must_be_disabled", "BUILDSTORY_LOCAL_API_ENABLED");
   }
+  if (process.env.BUILDSTORY_LLM_API_KEY && !process.env.BUILDSTORY_LLM_BASE_URL) {
+    add("missing_value", "BUILDSTORY_LLM_BASE_URL");
+  }
+  if (process.env.BUILDSTORY_LLM_BASE_URL) {
+    try {
+      const llmUrl = new URL(process.env.BUILDSTORY_LLM_BASE_URL);
+      if (llmUrl.protocol !== "https:" || llmUrl.username || llmUrl.password || llmUrl.search || llmUrl.hash) {
+        add("invalid_https_origin", "BUILDSTORY_LLM_BASE_URL");
+      }
+    } catch {
+      add("invalid_https_origin", "BUILDSTORY_LLM_BASE_URL");
+    }
+  }
   if (
     process.env.BUILDSTORY_LOG_LEVEL &&
     !["error", "warn", "info"].includes(process.env.BUILDSTORY_LOG_LEVEL)

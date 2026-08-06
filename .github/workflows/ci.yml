@@ -27,5 +27,52 @@ jobs:
       - name: Install workspace dependencies
         run: npm ci
 
+      - name: Check production-shaped configuration
+        run: npm --prefix apps/buildstory-web run check:production-config
+        env:
+          AUTH_SECRET: ci-auth-secret-please-replace-with-a-long-random-value-123456
+          AUTH_GOOGLE_ID: ci-google-id
+          AUTH_GOOGLE_SECRET: ci-google-secret
+          BUILDSTORY_STORE: d1
+          BUILDSTORY_LOCAL_API_ENABLED: "false"
+          BUILDSTORY_PUBLIC_ORIGIN: https://buildstory.dev
+          BUILDSTORY_ALLOWED_HOSTS: buildstory.dev
+
+      - name: Check packed scanner freshness
+        run: npm run check:artifact
+
       - name: Verify buildstory-web (lint, typecheck, build, test) and buildstory-scanner (build, test)
         run: npm run verify:product
+
+      - name: Validate migrations and deploy bundle
+        env:
+          AUTH_SECRET: ci-auth-secret-please-replace-with-a-long-random-value-123456
+          AUTH_GOOGLE_ID: ci-google-id
+          AUTH_GOOGLE_SECRET: ci-google-secret
+          BUILDSTORY_STORE: d1
+          BUILDSTORY_LOCAL_API_ENABLED: "false"
+          BUILDSTORY_PUBLIC_ORIGIN: https://buildstory.dev
+          BUILDSTORY_ALLOWED_HOSTS: buildstory.dev
+        run: |
+          npx tsx scripts/migrate-d1.ts --dry-run
+          npm run deploy:preflight
+        working-directory: apps/buildstory-web
+
+      - name: Run local end-to-end smoke
+        env:
+          BUILDSTORY_DEV_AUTH_BYPASS: "true"
+          BUILDSTORY_LOCAL_API_ENABLED: "true"
+          BUILDSTORY_STORE: memory
+          BUILDSTORY_PUBLIC_ORIGIN: http://127.0.0.1:3000
+          BUILDSTORY_ALLOWED_HOSTS: 127.0.0.1,localhost
+          BUILDSTORY_SMOKE_BASE_URL: http://127.0.0.1:3000/
+        run: |
+          npm --prefix apps/buildstory-web run dev > /tmp/buildstory-dev.log 2>&1 &
+          server_pid=$!
+          trap 'kill $server_pid' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3000/api/health > /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:3000/api/health > /dev/null
+          npm --prefix apps/buildstory-web run smoke:d1

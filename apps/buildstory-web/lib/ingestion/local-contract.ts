@@ -1,6 +1,13 @@
 import type { LocalConnectRequest } from "./contracts";
 import { LocalApiRequestError } from "./local-api";
-import { PROJECT_SNAPSHOT_SCHEMA_VERSION } from "./scanner-project-snapshot";
+import { LEGACY_PROJECT_SNAPSHOT_SCHEMA_VERSION, OLDEST_PROJECT_SNAPSHOT_SCHEMA_VERSION, PROJECT_SNAPSHOT_SCHEMA_VERSION } from "./scanner-project-snapshot";
+
+/** Every ProjectSnapshot version this server still accepts at the upload boundary. See validation.ts. */
+const ACCEPTED_SNAPSHOT_SCHEMA_VERSIONS: readonly string[] = [
+  PROJECT_SNAPSHOT_SCHEMA_VERSION,
+  LEGACY_PROJECT_SNAPSHOT_SCHEMA_VERSION,
+  OLDEST_PROJECT_SNAPSHOT_SCHEMA_VERSION,
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -72,10 +79,10 @@ export function parseLocalConnectRequest(value: unknown): LocalConnectRequest {
     details.push("capabilities is required.");
   } else {
     if (
-      !hasExactKeys(value.capabilities, [
-        "projectSnapshotSchemaVersions",
-        "snapshotUpload",
-      ])
+      !(
+        hasExactKeys(value.capabilities, ["projectSnapshotSchemaVersions", "snapshotUpload"]) ||
+        hasExactKeys(value.capabilities, ["projectSnapshotSchemaVersions", "snapshotUpload", "narrativeModes"])
+      )
     ) {
       details.push(
         "capabilities accepts only projectSnapshotSchemaVersions and snapshotUpload.",
@@ -84,14 +91,25 @@ export function parseLocalConnectRequest(value: unknown): LocalConnectRequest {
     if (
       !Array.isArray(value.capabilities.projectSnapshotSchemaVersions) ||
       value.capabilities.projectSnapshotSchemaVersions.length !== 1 ||
-      value.capabilities.projectSnapshotSchemaVersions[0] !== PROJECT_SNAPSHOT_SCHEMA_VERSION
+      typeof value.capabilities.projectSnapshotSchemaVersions[0] !== "string" ||
+      !ACCEPTED_SNAPSHOT_SCHEMA_VERSIONS.includes(value.capabilities.projectSnapshotSchemaVersions[0])
     ) {
-      details.push(`The scanner must support ProjectSnapshot ${PROJECT_SNAPSHOT_SCHEMA_VERSION}.`);
+      details.push(
+        `The scanner must support one of ProjectSnapshot ${ACCEPTED_SNAPSHOT_SCHEMA_VERSIONS.join(" or ")}.`,
+      );
     }
     if (value.capabilities.snapshotUpload !== false) {
       details.push(
         "capabilities.snapshotUpload must be false because connect is a control-plane handshake; scan-upload uses the returned grant separately.",
       );
+    }
+    if ("narrativeModes" in value.capabilities && (
+      !Array.isArray(value.capabilities.narrativeModes) ||
+      value.capabilities.narrativeModes.length === 0 ||
+      value.capabilities.narrativeModes.some((mode) => !["local", "cloud", "off"].includes(mode as string)) ||
+      new Set(value.capabilities.narrativeModes).size !== value.capabilities.narrativeModes.length
+    )) {
+      details.push("capabilities.narrativeModes must be a unique non-empty list of local, cloud, and/or off.");
     }
   }
 

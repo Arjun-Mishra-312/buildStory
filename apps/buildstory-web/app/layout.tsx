@@ -1,6 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
+import { AppShell } from "@/components/shell/app-shell";
+import { getCreatorSession } from "@/lib/auth/runtime";
+import { viewerFromSession } from "@/components/shell/viewer";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -59,30 +63,19 @@ export const viewport: Viewport = {
   ],
 };
 
-const themeBootScript = `
-  (function () {
-    try {
-      var stored = localStorage.getItem('buildstory-theme');
-      var preferred = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-      document.documentElement.dataset.theme = stored || preferred;
-    } catch (_) {
-      document.documentElement.dataset.theme = 'light';
-    }
-  })();
-`;
-
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const creator = await getCreatorSession();
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+        <Script src="/theme-boot.js" strategy="beforeInteractive" />
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
-        {children}
+        <AppShell viewer={viewerFromSession(creator)}>{children}</AppShell>
       </body>
     </html>
   );

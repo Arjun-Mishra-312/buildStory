@@ -36,6 +36,41 @@
       "when": 1785891907353,
       "tag": "0004_damp_ezekiel",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1785908971779,
+      "tag": "0005_public_slug_namespacing",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1785909352285,
+      "tag": "0006_peaceful_celestials",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1785910113983,
+      "tag": "0007_tricky_kulan_gath",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1785950384398,
+      "tag": "0008_redundant_warstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785951000000,
+      "tag": "0009_local_narrative_modes",
+      "breakpoints": true
     }
   ]
 }

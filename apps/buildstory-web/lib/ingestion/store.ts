@@ -3,6 +3,7 @@ import type {
   PublicFieldKey,
   UploadSessionStatus,
 } from "./contracts";
+import type { NarrativeMode } from "./scanner-project-snapshot";
 
 type CreatorIdentity = { creatorId: string; name: string; email: string; image: string | null };
 
@@ -18,8 +19,8 @@ async function backend() {
   return import("./mock-store");
 }
 
-export async function listUploadSessions(creatorId: string) {
-  return (await backend()).listUploadSessions(creatorId);
+export async function listUploadSessions(creatorId: string, limit?: number, cursor?: string) {
+  return (await backend()).listUploadSessions(creatorId, limit, cursor);
 }
 
 export async function createUploadSession(
@@ -27,12 +28,16 @@ export async function createUploadSession(
   projectLabel = "New local project",
   apiBaseUrl = "http://localhost:3000/",
   ownerUserId: string | null = null,
+  narrativeModel: string | null = null,
+  narrativeMode: NarrativeMode = "cloud",
 ) {
   return (await backend()).createUploadSession(
     creatorId,
     projectLabel,
     apiBaseUrl,
     ownerUserId,
+    narrativeModel,
+    narrativeMode,
   );
 }
 
@@ -44,8 +49,8 @@ export async function getUploadSession(creatorId: string, sessionId: string) {
   return (await backend()).getUploadSession(creatorId, sessionId);
 }
 
-export async function claimUploadSession(sessionId: string, userCode: string) {
-  return (await backend()).claimUploadSession(sessionId, userCode);
+export async function claimUploadSession(sessionId: string, userCode: string, narrativeModes?: NarrativeMode[]) {
+  return (await backend()).claimUploadSession(sessionId, userCode, narrativeModes);
 }
 
 export async function acceptSnapshot(
@@ -92,6 +97,10 @@ export async function publishReport(creatorId: string, reportId: string) {
   return (await backend()).publishReport(creatorId, reportId);
 }
 
+export async function unpublishReport(creatorId: string, reportId: string) {
+  return (await backend()).unpublishReport(creatorId, reportId);
+}
+
 export async function publicationStatusForProject(
   creatorId: string,
   projectId: string,
@@ -99,20 +108,36 @@ export async function publicationStatusForProject(
   return (await backend()).publicationStatusForProject(creatorId, projectId);
 }
 
+export async function renameProjectSlug(
+  creatorId: string,
+  projectId: string,
+  slug: string,
+) {
+  return (await backend()).renameProjectSlug(creatorId, projectId, slug);
+}
+
 export async function getPublishedStoryBySlug(slug: string) {
   return (await backend()).getPublishedStoryBySlug(slug);
+}
+
+export async function getPublishedStory(handle: string, slug: string) {
+  return (await backend()).getPublishedStory(handle, slug);
 }
 
 export async function getPublicStoryIdentity(slug: string) {
   return (await backend()).getPublicStoryIdentity(slug);
 }
 
-export async function listPublishedStories(limit?: number) {
-  return (await backend()).listPublishedStories(limit);
+export async function getPublicStoryIdentityByReportId(reportId: string) {
+  return (await backend()).getPublicStoryIdentityByReportId(reportId);
 }
 
-export async function searchPublishedStories(query: string, limit?: number) {
-  return (await backend()).searchPublishedStories(query, limit);
+export async function listPublishedStories(limit?: number, cursor?: string) {
+  return (await backend()).listPublishedStories(limit, cursor);
+}
+
+export async function searchPublishedStories(query: string, limit?: number, cursor?: string) {
+  return (await backend()).searchPublishedStories(query, limit, cursor);
 }
 
 export function statusLabel(status: UploadSessionStatus) {

@@ -1,7 +1,8 @@
 import type { ScannerProjectSnapshot } from "../ingestion/scanner-project-snapshot";
-import { NARRATIVE_OUTPUT_JSON_SCHEMA } from "./schema";
+import { computeBuilderProfile } from "../ingestion/profile";
+import { STORY_PACK_INSIGHTS_SCHEMA, STORY_PACK_STORY_SCHEMA } from "./story-pack";
 
-const SYSTEM_PROMPT = `You write short, honest "build story" narratives for Buildstory, a site where
+const SYSTEM_PROMPT = `You write short, honest, evidence-linked "build story" narratives for Buildstory, a site where
 developers publish real, verified accounts of software they built with AI coding
 agents. You are given: (1) real, deterministic facts about one project's build
 (session count, commit count, active days, models used, token usage), and (2) a
@@ -21,6 +22,7 @@ Rules:
 - If the excerpts don't clearly support a "turning point," describe the
   most concrete decision or moment they do support instead of inventing a
   dramatic one.
+- Every sourceRefs entry must be copied exactly from the available source catalog. Never invent a source, date, provider, count, confidence, or technical claim.
 - Respond with JSON matching the given schema exactly, and nothing else.`;
 
 function factsBlock(snapshot: ScannerProjectSnapshot): string {
@@ -31,12 +33,17 @@ function factsBlock(snapshot: ScannerProjectSnapshot): string {
     : "token usage not collected";
   const activeDays = new Set(snapshot.sessions.map((session) => session.startedAt.slice(0, 10))).size;
 
+  const profile = computeBuilderProfile({ sessions: snapshot.sessions, usage: snapshot.usage, git: snapshot.git, timeWindow: snapshot.timeWindow });
+  const scoreLine = Object.entries(profile.scores).map(([key, score]) => `${key}: ${score.value}/100 (raw ${JSON.stringify(score.rawInputs)})`).join(", ");
   return [
     `Repository: ${snapshot.repository.displayName}`,
     `Build window: ${snapshot.timeWindow.start} to ${snapshot.timeWindow.end} (${activeDays} active day${activeDays === 1 ? "" : "s"})`,
     `Sessions: ${snapshot.sessions.length}`,
     `Commits: ${snapshot.git.commits} (${snapshot.git.insertions} insertions, ${snapshot.git.deletions} deletions)`,
     `Models used: ${models}`,
+    `Archetype: ${profile.archetype.name} (${profile.archetype.rationale.join(" ")})`,
+    `Profile scores: ${scoreLine}`,
+    `Work patterns: peak hours ${profile.workPatterns.peakHours.join(", ") || "none"}; preferred days ${profile.workPatterns.preferredDays.join(", ") || "none"}; median session ${profile.workPatterns.medianSessionMinutes} minutes; longest session ${profile.workPatterns.longestSessionMinutes} minutes; primary model ${profile.workPatterns.primaryModel ?? "none"}; timezone ${profile.workPatterns.timezoneLabel}`,
     tokenLine,
   ].join("\n");
 }
@@ -49,12 +56,31 @@ function excerptsBlock(snapshot: ScannerProjectSnapshot): string {
     .join("\n\n");
 }
 
+function sourceCatalogBlock(snapshot: ScannerProjectSnapshot): string {
+  return snapshot.sessions
+    .slice()
+    .sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.sessionRef.localeCompare(b.sessionRef))
+    .map((session, index) => `S${String(index + 1).padStart(2, "0")}: ${session.provider}, ended ${session.endedAt}, ${session.turns} turns, ${session.toolCalls} tool calls`)
+    .concat(snapshot.git.commits > 0 ? [`GIT: ${snapshot.git.commits} commits, ${snapshot.git.fileTouches} file touches`] : [])
+    .join("\n");
+}
+
 export function buildNarrativeMessages(snapshot: ScannerProjectSnapshot): Array<{ role: "system" | "user"; content: string }> {
   return [
     { role: "system", content: SYSTEM_PROMPT },
     {
       role: "user",
-      content: `FACTS:\n${factsBlock(snapshot)}\n\nEXCERPTS:\n${excerptsBlock(snapshot)}\n\nWrite the build story now, as JSON matching the schema.`,
+      content: `FACTS:\n${factsBlock(snapshot)}\n\nSOURCE CATALOG:\n${sourceCatalogBlock(snapshot)}\n\nEXCERPTS:\n${excerptsBlock(snapshot)}\n\nWrite only hero, buildArc, moments, and turningPoint as JSON matching the schema.`,
+    },
+  ];
+}
+
+export function buildProfileMessages(snapshot: ScannerProjectSnapshot): Array<{ role: "system" | "user"; content: string }> {
+  return [
+    { role: "system", content: `${SYSTEM_PROMPT}\nFocus only on decisionPatterns, standoutTraits, and growthEdge.` },
+    {
+      role: "user",
+      content: `FACTS:\n${factsBlock(snapshot)}\n\nSOURCE CATALOG:\n${sourceCatalogBlock(snapshot)}\n\nEXCERPTS:\n${excerptsBlock(snapshot)}\n\nWrite only decisions, learnings, standoutTraits, and growthEdge as JSON matching the schema.`,
     },
   ];
 }
@@ -64,6 +90,15 @@ export const NARRATIVE_RESPONSE_FORMAT = {
   json_schema: {
     name: "buildstory_narrative",
     strict: true,
-    schema: NARRATIVE_OUTPUT_JSON_SCHEMA,
+    schema: STORY_PACK_STORY_SCHEMA,
+  },
+};
+
+export const NARRATIVE_PROFILE_RESPONSE_FORMAT = {
+  type: "json_schema" as const,
+  json_schema: {
+    name: "buildstory_profile_narrative",
+    strict: true,
+    schema: STORY_PACK_INSIGHTS_SCHEMA,
   },
 };

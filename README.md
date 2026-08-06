@@ -6,7 +6,7 @@ Buildstory is a standalone product for publishing sanitized stories about AI-ass
 
 - `apps/buildstory-web` — Next.js 16/Vinext web app, Auth.js integration, strict local scanner API, D1 schema and migration, Cloudflare Sites configuration, tests, and operations documentation.
 - `packages/buildstory-scanner` — read-only local CLI package exposing both `buildstory` and the compatible `story-scanner` alias.
-- `artifacts/buildstory-scanner-0.3.0.tgz` — unpublished, locally installable scanner archive.
+- `artifacts/buildstory-scanner-0.4.0.tgz` — unpublished, locally installable scanner archive.
 
 This is an npm workspace: one root lockfile covers both `apps/buildstory-web` and `packages/buildstory-scanner`, installed together from the repository root. Use Node.js 22.13 or newer for the complete product workspace.
 
@@ -30,7 +30,8 @@ npm run package:scanner
 
 `verify:product` runs the web lint, typecheck, build, rendered-route/security tests, and the scanner build/privacy/package/CLI tests. `package:scanner` writes the unpublished archive to `artifacts`; it does not publish a package.
 
+Narrative generation is local-first. A new dashboard connection defaults to local Ollama generation: redacted excerpts may be used in memory to write the report, but the uploaded snapshot carries only the generated prose and deterministic metrics. Cloud narrative mode is an explicit dashboard choice and requires reviewing the redacted excerpts before they are uploaded. Off mode uploads metrics/profile facts without prose. No mode uses non-loopback network access during scanning except the single explicitly pinned upload origin.
+
 ## Production configuration
 
 Buildstory deploys from `apps/buildstory-web`, not the repository root. Production configuration, the D1 migration, readiness checks, security constraints, staging/release procedures, and rollback guidance are documented in [`apps/buildstory-web/docs/production-runbook.md`](apps/buildstory-web/docs/production-runbook.md). No repository command deploys or publishes the product.
-

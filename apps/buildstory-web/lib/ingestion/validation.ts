@@ -1,12 +1,15 @@
 import type { ErrorObject } from "ajv";
-import validateSchema from "./generated/project-snapshot-validator.mjs";
+import validateSchemaCurrent from "./generated/project-snapshot-validator.mjs";
+import validateSchemaLegacy from "./generated/project-snapshot-validator-1.2.0.mjs";
+import validateSchema13 from "./generated/project-snapshot-validator-1.3.0.mjs";
 import type { SnapshotValidationResult } from "./contracts";
 import type {
   QualityWarningCode,
   ScannerProjectSnapshot,
 } from "./scanner-project-snapshot";
-import { PROJECT_SNAPSHOT_SCHEMA_VERSION } from "./scanner-project-snapshot";
+import { LEGACY_PROJECT_SNAPSHOT_SCHEMA_VERSION, OLDEST_PROJECT_SNAPSHOT_SCHEMA_VERSION, PREVIOUS_PROJECT_SNAPSHOT_SCHEMA_VERSION, PROJECT_SNAPSHOT_SCHEMA_VERSION } from "./scanner-project-snapshot";
 import { sanitizePublicText } from "../publication/sanitization";
+import type { ReportStoryPackV2 } from "./scanner-project-snapshot";
 
 export const MAX_SNAPSHOT_BYTES = 1_000_000;
 
@@ -81,14 +84,14 @@ function displayPath(instancePath: string) {
   return instancePath ? `$${instancePath.replaceAll("/", ".")}` : "$";
 }
 
-function formatSchemaError(error: ErrorObject) {
+function formatSchemaError(error: ErrorObject, versionLabel: string) {
   const path = displayPath(error.instancePath);
   if (error.keyword === "additionalProperties") {
     const field = String(
       (error.params as { additionalProperty?: unknown }).additionalProperty ??
         "unknown",
     );
-    return `${path}.${field} is not part of ProjectSnapshot ${PROJECT_SNAPSHOT_SCHEMA_VERSION}.`;
+    return `${path}.${field} is not part of ProjectSnapshot ${versionLabel}.`;
   }
   if (error.keyword === "required") {
     const field = String(
@@ -96,12 +99,54 @@ function formatSchemaError(error: ErrorObject) {
     );
     return `${path}.${field} is required.`;
   }
-  return `${path} ${error.message ?? `does not match ProjectSnapshot ${PROJECT_SNAPSHOT_SCHEMA_VERSION}`}.`;
+  return `${path} ${error.message ?? `does not match ProjectSnapshot ${versionLabel}`}.`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+type SnapshotValidator = {
+  (value: unknown): boolean;
+  errors?: ErrorObject[] | null;
+};
+
+/**
+ * Which compiled Ajv validator applies to an upload, chosen from the
+ * payload's own schemaVersion before any structural validation runs. The
+ * legacy 1.2.0 schema stays frozen (see project-snapshot-1.2.0.schema.json)
+ * so an already-installed CLI that hasn't upgraded yet keeps working; every
+ * other version - including an unrecognized one - is validated against the
+ * current schema, which will fail closed on the schemaVersion const check.
+ */
+function resolveValidator(value: unknown): {
+  validate: SnapshotValidator;
+  versionLabel: string;
+} {
+  const version = isRecord(value) ? value.schemaVersion : undefined;
+  if (version === OLDEST_PROJECT_SNAPSHOT_SCHEMA_VERSION) {
+    return { validate: validateSchemaLegacy, versionLabel: OLDEST_PROJECT_SNAPSHOT_SCHEMA_VERSION };
+  }
+  if (version === LEGACY_PROJECT_SNAPSHOT_SCHEMA_VERSION) {
+    return { validate: validateSchema13, versionLabel: LEGACY_PROJECT_SNAPSHOT_SCHEMA_VERSION };
+  }
+  if (version === PREVIOUS_PROJECT_SNAPSHOT_SCHEMA_VERSION) {
+    const validatePrevious = ((candidate: unknown) => {
+      if (!isRecord(candidate)) return false;
+      return validateSchemaCurrent({ ...candidate, schemaVersion: PROJECT_SNAPSHOT_SCHEMA_VERSION });
+    }) as SnapshotValidator;
+    Object.defineProperty(validatePrevious, "errors", { get: () => validateSchemaCurrent.errors });
+    return { validate: validatePrevious, versionLabel: PREVIOUS_PROJECT_SNAPSHOT_SCHEMA_VERSION };
+  }
+  return { validate: validateSchemaCurrent, versionLabel: PROJECT_SNAPSHOT_SCHEMA_VERSION };
 }
 
 /** Human-facing label for a provider id. Mirrors @buildstory/scanner's scanner.ts providerLabel exactly. */
 function providerLabel(provider: ScannerProjectSnapshot["sessions"][number]["provider"]) {
-  return provider === "claude-code" ? "Claude Code" : "Codex";
+  if (provider === "claude-code") return "Claude Code";
+  if (provider === "gemini-antigravity") return "Gemini Antigravity";
+  if (provider === "cursor") return "Cursor";
+  return "Codex";
 }
 
 /**
@@ -121,6 +166,12 @@ function expectedAssumptions(snapshot: ScannerProjectSnapshot) {
     assumptions.push(
       "Codex sessions are repository-scoped from session or turn-context working-directory metadata.",
       "User-turn and assistant-message counts prefer event records and fall back to response records to avoid double counting.",
+    );
+  }
+  if (providerIds.includes("cursor")) {
+    assumptions.push(
+      "Cursor sessions are repository-scoped from each workspace's workspace.json folder path.",
+      "Cursor's local conversation format is unverified; session content metrics are best-effort and may undercount or miss activity.",
     );
   }
   if (providerIds.includes("claude-code")) {
@@ -148,6 +199,19 @@ const expectedWarningMessages: Record<QualityWarningCode, readonly string[]> = {
   CLAUDE_CODE_ROOT_UNAVAILABLE: [
     "The configured Claude Code session root was unavailable and was skipped.",
   ],
+  GEMINI_ANTIGRAVITY_ROOT_UNAVAILABLE: [
+    "Google Antigravity's local data directory was not found; treated as not installed.",
+  ],
+  CURSOR_ROOT_UNAVAILABLE: [
+    "Cursor's local workspace storage directory was not found; treated as not installed.",
+  ],
+  PROVIDER_FORMAT_UNVERIFIED: [
+    "Google Antigravity is installed, but its local conversation format is not yet verified; no sessions were read.",
+    "Cursor's local database could not be opened because this Node runtime has no built-in SQLite support; no sessions were read.",
+    "A Cursor local database could not be read; treated as zero sessions for that workspace.",
+    "Cursor's local conversation format is not yet verified against a real installation; session metrics are best-effort.",
+  ],
+  PROVIDER_SCOPE_UNKNOWN: [],
   SESSION_FILE_LIMIT_REACHED: [
     "Only the first 5000 sorted Codex session files were considered.",
     "Only the first 5000 sorted Claude Code session files were considered.",
@@ -165,6 +229,7 @@ const expectedWarningMessages: Record<QualityWarningCode, readonly string[]> = {
   SESSION_MISSING_METADATA: [
     "A Codex JSONL file had no repository-scoping metadata in its discovery prefix.",
     "A Claude Code transcript had no repository-scoping metadata in its discovery prefix.",
+    "A Cursor workspace database had no recognizable user or assistant messages in its unverified local format.",
   ],
   SESSION_TIMESTAMP_INVALID: [
     "At least one session timestamp was invalid and ignored.",
@@ -188,6 +253,7 @@ const expectedWarningMessages: Record<QualityWarningCode, readonly string[]> = {
   NO_MATCHING_SESSIONS: [
     "No Codex sessions were scoped to the selected repository.",
     "No Claude Code sessions were scoped to the selected repository.",
+    "No Cursor sessions were scoped to the selected repository.",
   ],
 };
 
@@ -237,6 +303,47 @@ function contentTextEntries(snapshot: ScannerProjectSnapshot) {
   if (snapshot.narrativeEvidence) {
     snapshot.narrativeEvidence.excerpts.forEach((excerpt, index) =>
       entries.push([`$.narrativeEvidence.excerpts[${index}].text`, excerpt.text]));
+  }
+  if (snapshot.generatedNarrative) {
+    const sections = snapshot.generatedNarrative.sections;
+    entries.push(["$.generatedNarrative.sections.headline", sections.headline]);
+    entries.push(["$.generatedNarrative.sections.narrative", sections.narrative]);
+    entries.push(["$.generatedNarrative.sections.turningPoint", sections.turningPoint]);
+    sections.learnings.forEach((value, index) => entries.push([`$.generatedNarrative.sections.learnings[${index}]`, value]));
+    sections.decisionPatterns.forEach((value, index) => entries.push([`$.generatedNarrative.sections.decisionPatterns[${index}]`, value]));
+    sections.standoutTraits.forEach((value, index) => entries.push([`$.generatedNarrative.sections.standoutTraits[${index}]`, value]));
+    entries.push(["$.generatedNarrative.sections.growthEdge", sections.growthEdge]);
+    const pack = snapshot.generatedNarrative.storyPack;
+    if (pack) {
+      entries.push(["$.generatedNarrative.storyPack.hero.headline", pack.hero.headline]);
+      entries.push(["$.generatedNarrative.storyPack.hero.summary", pack.hero.summary]);
+      pack.buildArc.forEach((item, index) => {
+        entries.push([`$.generatedNarrative.storyPack.buildArc[${index}].headline`, item.headline]);
+        entries.push([`$.generatedNarrative.storyPack.buildArc[${index}].summary`, item.summary]);
+      });
+      pack.moments.forEach((item, index) => {
+        entries.push([`$.generatedNarrative.storyPack.moments[${index}].title`, item.title]);
+        entries.push([`$.generatedNarrative.storyPack.moments[${index}].whatHappened`, item.whatHappened]);
+        entries.push([`$.generatedNarrative.storyPack.moments[${index}].whyItMattered`, item.whyItMattered]);
+      });
+      entries.push(["$.generatedNarrative.storyPack.turningPoint.quote", pack.turningPoint.quote]);
+      pack.decisions.forEach((item, index) => {
+        entries.push([`$.generatedNarrative.storyPack.decisions[${index}].title`, item.title]);
+        entries.push([`$.generatedNarrative.storyPack.decisions[${index}].rationale`, item.rationale]);
+        entries.push([`$.generatedNarrative.storyPack.decisions[${index}].outcome`, item.outcome]);
+      });
+      pack.learnings.forEach((item, index) => {
+        entries.push([`$.generatedNarrative.storyPack.learnings[${index}].title`, item.title]);
+        entries.push([`$.generatedNarrative.storyPack.learnings[${index}].detail`, item.detail]);
+      });
+      pack.standoutTraits.forEach((item, index) => {
+        entries.push([`$.generatedNarrative.storyPack.standoutTraits[${index}].title`, item.title]);
+        entries.push([`$.generatedNarrative.storyPack.standoutTraits[${index}].detail`, item.detail]);
+      });
+      entries.push(["$.generatedNarrative.storyPack.growthEdge.title", pack.growthEdge.title]);
+      entries.push(["$.generatedNarrative.storyPack.growthEdge.observation", pack.growthEdge.observation]);
+      entries.push(["$.generatedNarrative.storyPack.growthEdge.nextStep", pack.growthEdge.nextStep]);
+    }
   }
   return entries;
 }
@@ -301,6 +408,44 @@ function deterministicNarrativeViolations(snapshot: ScannerProjectSnapshot) {
   if (snapshot.redaction.findings !== findingCount) {
     errors.push("$.redaction.findings does not match the redaction category counts.");
   }
+  // Local and cloud narrative generation are mutually exclusive by design:
+  // local mode's whole privacy guarantee is that conversation excerpts never
+  // leave the machine. The scanner enforces this client-side
+  // (NARRATIVE_MODE_CONFLICT), but the server must not simply trust that -
+  // a snapshot claiming both must be rejected outright rather than silently
+  // preferring one field, which would let excerpts reach storage anyway.
+  if (snapshot.generatedNarrative && snapshot.narrativeEvidence && snapshot.narrativeEvidence.excerpts.length > 0) {
+    errors.push(
+      "$.generatedNarrative and $.narrativeEvidence.excerpts cannot both be present - local and cloud narrative generation are mutually exclusive.",
+    );
+  }
+  return errors.slice(0, 20);
+}
+
+function storyPackViolations(snapshot: ScannerProjectSnapshot): string[] {
+  const pack = snapshot.generatedNarrative?.storyPack as ReportStoryPackV2 | undefined;
+  if (!pack) return [];
+  const errors: string[] = [];
+  if (pack.version !== "2.0.0") errors.push("$.generatedNarrative.storyPack.version must be 2.0.0.");
+  const refs = new Set(pack.sources.map((source) => source.ref));
+  const checkRefs = (path: string, values: string[]) => values.forEach((ref, index) => {
+    if (!refs.has(ref)) errors.push(`${path}[${index}] references unknown source ${ref}.`);
+  });
+  const phases = pack.buildArc.map((phase) => phase.phase);
+  if (phases.length !== 3 || new Set(phases).size !== 3 || !(["discover", "decide", "deliver"] as const).every((phase) => phases.includes(phase))) {
+    errors.push("$.generatedNarrative.storyPack.buildArc must contain exactly one discover, decide, and deliver phase.");
+  }
+  if (pack.moments.length < 3 || pack.moments.length > 5) errors.push("$.generatedNarrative.storyPack.moments must contain 3-5 items.");
+  if (pack.decisions.length < 2 || pack.decisions.length > 4) errors.push("$.generatedNarrative.storyPack.decisions must contain 2-4 items.");
+  if (pack.learnings.length < 2 || pack.learnings.length > 4) errors.push("$.generatedNarrative.storyPack.learnings must contain 2-4 items.");
+  if (pack.standoutTraits.length < 2 || pack.standoutTraits.length > 4) errors.push("$.generatedNarrative.storyPack.standoutTraits must contain 2-4 items.");
+  pack.buildArc.forEach((item, index) => checkRefs(`$.generatedNarrative.storyPack.buildArc[${index}].sourceRefs`, item.sourceRefs));
+  pack.moments.forEach((item, index) => checkRefs(`$.generatedNarrative.storyPack.moments[${index}].sourceRefs`, item.sourceRefs));
+  checkRefs("$.generatedNarrative.storyPack.turningPoint.sourceRefs", pack.turningPoint.sourceRefs);
+  pack.decisions.forEach((item, index) => checkRefs(`$.generatedNarrative.storyPack.decisions[${index}].sourceRefs`, item.sourceRefs));
+  pack.learnings.forEach((item, index) => checkRefs(`$.generatedNarrative.storyPack.learnings[${index}].sourceRefs`, item.sourceRefs));
+  pack.standoutTraits.forEach((item, index) => checkRefs(`$.generatedNarrative.storyPack.standoutTraits[${index}].sourceRefs`, item.sourceRefs));
+  checkRefs("$.generatedNarrative.storyPack.growthEdge.sourceRefs", pack.growthEdge.sourceRefs);
   return errors.slice(0, 20);
 }
 
@@ -310,16 +455,17 @@ export function validateProjectSnapshot(
   const forbidden = rawFieldViolations(value);
   if (forbidden.length) return { ok: false, errors: forbidden };
 
+  const { validate: validateSchema, versionLabel } = resolveValidator(value);
   if (!validateSchema(value)) {
     const errors = (validateSchema.errors ?? [])
-      .map(formatSchemaError)
+      .map((error) => formatSchemaError(error, versionLabel))
       .filter((message, index, all) => all.indexOf(message) === index)
       .slice(0, 50);
     return {
       ok: false,
       errors: errors.length
         ? errors
-        : [`Snapshot does not match ProjectSnapshot ${PROJECT_SNAPSHOT_SCHEMA_VERSION}.`],
+        : [`Snapshot does not match ProjectSnapshot ${versionLabel}.`],
     };
   }
 
@@ -327,6 +473,7 @@ export function validateProjectSnapshot(
   const privacyErrors = [
     ...privacyBoundaryViolations(snapshot),
     ...deterministicNarrativeViolations(snapshot),
+    ...storyPackViolations(snapshot),
   ].slice(0, 20);
   if (privacyErrors.length > 0) return { ok: false, errors: privacyErrors };
 

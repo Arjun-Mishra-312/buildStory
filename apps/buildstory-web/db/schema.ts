@@ -86,6 +86,8 @@ export const uploadSessions = sqliteTable(
     creatorId: text("creator_id").notNull(),
     ownerUserId: text("owner_user_id").references(() => users.id, { onDelete: "set null" }),
     projectLabel: text("project_label").notNull(),
+    narrativeModel: text("narrative_model"),
+    narrativeMode: text("narrative_mode").notNull().default("cloud"),
     status: text("status").notNull(),
     createdAt: text("created_at").notNull(),
     expiresAt: text("expires_at").notNull(),
@@ -94,6 +96,7 @@ export const uploadSessions = sqliteTable(
     reportId: text("report_id"),
     statusDetail: text("status_detail").notNull(),
     deviceCodeHash: text("device_code_hash").notNull(),
+    deviceCodeAttempts: integer("device_code_attempts").notNull().default(0),
     deviceCodeClaimedAt: text("device_code_claimed_at"),
     connectionId: text("connection_id"),
     uploadTokenHash: text("upload_token_hash"),
@@ -137,6 +140,7 @@ export const reports = sqliteTable(
     editorialReflection: text("editorial_reflection").notNull(),
     publicationStatus: text("publication_status").notNull(),
     publicationSlug: text("publication_slug").notNull(),
+    publicationPath: text("publication_path"),
     publishedAt: text("published_at"),
     publicUrl: text("public_url"),
     updatedAt: text("updated_at").notNull(),
@@ -147,9 +151,14 @@ export const reports = sqliteTable(
       table.createdAt,
     ),
     index("idx_buildstory_reports_project").on(table.creatorId, table.projectId),
-    uniqueIndex("idx_buildstory_reports_published_slug")
-      .on(table.publicationSlug)
+    uniqueIndex("idx_buildstory_reports_published_path")
+      .on(table.publicationPath)
       .where(sql`${table.publicationStatus} = 'published'`),
+    uniqueIndex("idx_buildstory_reports_published_project")
+      .on(table.projectId)
+      .where(sql`${table.publicationStatus} = 'published'`),
+    index("idx_buildstory_reports_legacy_slug").on(table.publicationSlug),
+    index("idx_buildstory_reports_published").on(table.publishedAt),
   ],
 );
 
@@ -196,6 +205,7 @@ export const narratives = sqliteTable(
     promptVersion: text("prompt_version").notNull(),
     status: text("status").notNull(),
     sectionsJson: text("sections_json"),
+    fallbacksUsedJson: text("fallbacks_used_json"),
     inputTokens: integer("input_tokens").notNull().default(0),
     outputTokens: integer("output_tokens").notNull().default(0),
     costMicroUsd: integer("cost_micro_usd").notNull().default(0),
@@ -394,6 +404,18 @@ export const contentReports = sqliteTable(
     index("idx_buildstory_content_reports_status_created").on(table.status, table.createdAt),
     index("idx_buildstory_content_reports_target").on(table.targetType, table.targetId),
   ],
+);
+
+export const contentReportAudit = sqliteTable(
+  "buildstory_content_report_audit",
+  {
+    id: text("id").primaryKey(),
+    reportId: text("report_id").notNull().references(() => contentReports.id, { onDelete: "cascade" }),
+    actorUserId: text("actor_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    action: text("action").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [index("idx_buildstory_content_report_audit_report").on(table.reportId, table.createdAt)],
 );
 
 /**

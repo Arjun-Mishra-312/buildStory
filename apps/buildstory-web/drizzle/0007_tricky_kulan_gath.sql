@@ -1,0 +1,1 @@
+ALTER TABLE `buildstory_upload_sessions` ADD `device_code_attempts` integer DEFAULT 0 NOT NULL;

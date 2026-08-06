@@ -27,7 +27,7 @@ async function request(pathname, init = {}) {
   );
 }
 
-test("server-renders the three Buildstory routes", async () => {
+test("server-renders public routes through the shared shell", async () => {
   // This smoke test runs the compiled Worker directly with no D1 binding, so
   // /explore and /p/:slug exercise their durable-store-unavailable path
   // rather than real published content - that degraded rendering (not a
@@ -37,7 +37,10 @@ test("server-renders the three Buildstory routes", async () => {
   // coverage of the underlying store and publication logic.
   const routes = [
     ["/", /Every build has/],
+    ["/about", /Every build has/],
     ["/explore", /What are people/],
+    ["/leaderboard", /Ranked on sustained/],
+    ["/signin", /AUTHENTICATION DISABLED/],
     ["/p/some-story-slug", /TEMPORARILY UNAVAILABLE/],
   ];
 
@@ -47,8 +50,25 @@ test("server-renders the three Buildstory routes", async () => {
     assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
     const html = await response.text();
     assert.match(html, expected);
+    assert.match(response.headers.get("content-security-policy") ?? "", /script-src 'self'(?: 'sha256-[A-Za-z0-9+/]+=*)+/i);
+    assert.match(html, /<script src="\/theme-boot\.js">/i);
+    assert.equal((html.match(/class="site-header"/g) ?? []).length, 1, pathname);
+    assert.equal((html.match(/class="site-footer"/g) ?? []).length, 1, pathname);
+    assert.match(html, /Skip to content/);
+    assert.doesNotMatch(html, /Creator sign in/);
     assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/i);
   }
+});
+
+test("anonymous visitors see the introduction with section navigation only", async () => {
+  const response = await render("/");
+  const html = await response.text();
+  const primaryNav = html.match(/<nav class="primary-nav"[^>]*>([\s\S]*?)<\/nav>/)?.[1] ?? "";
+  assert.match(html, /Every build has/);
+  assert.match(primaryNav, /How it works/);
+  assert.match(primaryNav, /Manifesto/);
+  assert.doesNotMatch(primaryNav, />Explore</);
+  assert.doesNotMatch(primaryNav, />Leaderboard</);
 });
 
 test("ships site-specific social metadata", async () => {
@@ -85,8 +105,20 @@ test("renders an explicit disabled auth state and protects creator surfaces", as
   assert.match(await signIn.text(), /AUTHENTICATION DISABLED/i);
 
   const dashboard = await request("/dashboard", { redirect: "manual" });
-  assert.ok([302, 303, 307, 308].includes(dashboard.status));
-  assert.match(dashboard.headers.get("location") ?? "", /\/signin\?callbackUrl=/);
+  assert.equal(dashboard.status, 308);
+  assert.equal(dashboard.headers.get("location"), "http://localhost/studio");
+
+  const dashboardRedirects = [
+    ["/dashboard/connect", "http://localhost/studio/connect"],
+    ["/dashboard/settings", "http://localhost/studio/settings"],
+    ["/dashboard/reports/abc", "http://localhost/studio/reports/abc"],
+    ["/dashboard/feed", "http://localhost/"],
+  ];
+  for (const [pathname, location] of dashboardRedirects) {
+    const response = await request(pathname, { redirect: "manual" });
+    assert.equal(response.status, 308, pathname);
+    assert.equal(response.headers.get("location"), location, pathname);
+  }
 
   const creatorApi = await request("/api/creator/upload-sessions", {
     headers: { accept: "application/json" },

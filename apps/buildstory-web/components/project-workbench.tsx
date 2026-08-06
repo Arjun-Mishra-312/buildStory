@@ -1,31 +1,30 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import type { BuildStoryViewModel, PublicBuildStoryViewModel } from "@/lib/build-story";
 import type { NarrativeRecord, PublicationStatus, PublicFieldKey } from "@/lib/ingestion/contracts";
+import type { NarrativeDisplayStatus } from "@/lib/ingestion/narrative-status";
+import type { ReportStoryPackV2 } from "@/lib/ingestion/scanner-project-snapshot";
+import { initialsFrom } from "@/lib/identity/initials";
 import { CommentThread } from "./comment-thread";
 import { ReceiptCard } from "./receipt-card";
 import { SocialActions } from "./social-actions";
 
 type ProjectWorkbenchProps = {
-  story: BuildStoryViewModel | PublicBuildStoryViewModel;
+  story: (BuildStoryViewModel | PublicBuildStoryViewModel) & { reportId?: string };
   access?: "public" | "creator";
   reportId?: string;
   initialPublicationStatus?: PublicationStatus;
   initialSelectedPublicFields?: PublicFieldKey[];
   narrative?: NarrativeRecord | null;
+  narrativeStatus?: NarrativeDisplayStatus;
   initialEditorial?: Partial<{
     tagline: string;
     description: string;
     reflection: string;
   }>;
+  reviewedEvidence?: Array<{ excerptId: string; sessionRef: string; occurredAt: string; role: string; text: string }>;
 };
-
-function initials(name: string) {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  const letters = words.slice(0, 2).map((word) => word[0]?.toUpperCase() ?? "");
-  return letters.join("") || "?";
-}
 
 const compactNumber = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 
@@ -39,17 +38,159 @@ const fieldOptions: Array<{ id: PublicFieldKey; label: string; detail: string }>
   { id: "toolUsage", label: "Tool usage", detail: "Observed tools, not a score" },
   { id: "gitAggregates", label: "Git aggregates", detail: "Commits, files, and diff totals" },
   { id: "redactionSummary", label: "Redaction summary", detail: "Counts only, never redacted content" },
+  { id: "archetype", label: "Builder archetype", detail: "Rule-based profile label and rationale" },
+  { id: "profileScores", label: "Profile scores", detail: "Five auditable deterministic dimensions" },
+  { id: "workPatterns", label: "Work patterns", detail: "Hours, days, session shape, and model" },
+  { id: "narrative", label: "Profile narrative", detail: "Headline, story, turning point, learnings" },
+  { id: "storyBuildArc", label: "Build arc", detail: "Discover, decide, deliver phases" },
+  { id: "storyMoments", label: "Build moments", detail: "Evidence-backed moments that changed the build" },
+  { id: "storyTurningPoint", label: "Turning point", detail: "A source-linked inflection point" },
+  { id: "storyDecisions", label: "Story decisions", detail: "Decision, rationale, and outcome cards" },
+  { id: "storyLearnings", label: "Story learnings", detail: "Titled evidence-linked insights" },
+  { id: "storyTraits", label: "Story traits", detail: "Titled standout traits" },
+  { id: "storyGrowthEdge", label: "Story growth edge", detail: "Private-by-default next step" },
+  { id: "standoutTraits", label: "Standout traits", detail: "Model-written observations" },
+  { id: "decisionPatterns", label: "Decision patterns", detail: "Personal prose; off by default" },
+  { id: "growthEdge", label: "Growth edge", detail: "Personal prose; off by default" },
 ];
+
+function providerName(provider: string): string {
+  if (provider === "claude-code") return "Claude Code";
+  if (provider === "gemini-antigravity") return "Gemini Antigravity";
+  if (provider === "cursor") return "Cursor";
+  if (provider === "git") return "Git";
+  return "Codex";
+}
+
+function StorySourceBadge({ source, privateView, onOpen }: { source: ReportStoryPackV2["sources"][number]; privateView: boolean; onOpen: (ref: string) => void }) {
+  const label = `${providerName(source.provider)} · ${new Date(source.occurredAt).toLocaleDateString("en", { month: "short", day: "numeric" })}`;
+  return privateView ? (
+    <button className="story-pack__source" type="button" onClick={() => onOpen(source.ref)} title="Open evidence metadata">
+      {label} · {source.evidenceRefs.length} evidence
+    </button>
+  ) : <span className="story-pack__source">{label}</span>;
+}
+
+function StoryPackView({
+  pack,
+  privateView,
+  reviewedEvidence = [],
+  fallbacksUsed = [],
+}: {
+  pack: ReportStoryPackV2;
+  privateView: boolean;
+  reviewedEvidence?: Array<{ excerptId: string; sessionRef: string; occurredAt: string; role: string; text: string }>;
+  fallbacksUsed?: string[];
+}) {
+  const [openRef, setOpenRef] = useState<string | null>(null);
+  const sourceByRef = new Map(pack.sources.map((source) => [source.ref, source]));
+  const sourceCoverage = [...new Map(pack.sources.map((source) => [source.provider, (pack.sources.filter((item) => item.provider === source.provider).length)])).entries()];
+  const selected = openRef ? sourceByRef.get(openRef) : null;
+  const excerpts = selected?.excerptRef
+    ? reviewedEvidence.filter((excerpt) => excerpt.sessionRef === selected.sessionRef || excerpt.excerptId === selected.excerptRef)
+    : [];
+  const openEvidence = (ref: string) => setOpenRef(ref);
+  useEffect(() => {
+    if (!openRef) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenRef(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [openRef]);
+  return (
+    <div className={`story-pack ${privateView ? "story-pack--private" : "story-pack--public"}`}>
+      <div className={`story-pack__status ${fallbacksUsed?.length ? "story-pack__status--fallback" : ""}`} role="status">
+        <span>{fallbacksUsed?.length ? "METRIC-DERIVED FALLBACK" : "MODEL-WRITTEN"}</span>
+        <small>{fallbacksUsed?.length ? `${fallbacksUsed.length} component${fallbacksUsed.length === 1 ? "" : "s"} replaced after validation.` : "Every card is linked to validated source metadata."}</small>
+      </div>
+      <section className="story-pack__coverage" aria-label="Source coverage">
+        <span>SOURCE COVERAGE</span>
+        <div>{sourceCoverage.length ? sourceCoverage.map(([provider, count]) => <span key={provider}>{providerName(provider)} · {count} source{count === 1 ? "" : "s"}</span>) : <span>No provider sessions matched this report.</span>}</div>
+      </section>
+      <section className="story-pack__hero">
+        <span className="story-section__label">AI-WRITTEN BUILD STORY</span>
+        <h2>{pack.hero.headline}</h2>
+        <p>{pack.hero.summary}</p>
+      </section>
+
+      <section className="story-pack__arc" aria-label="Build arc">
+        <header><span>BUILD ARC</span><strong>{privateView ? "Evidence-linked phases" : "How the build moved"}</strong></header>
+        <div className="story-pack__arc-grid">
+          {pack.buildArc.map((phase, index) => (
+            <article key={phase.phase} className="story-pack__arc-card">
+              <span className="story-pack__phase-number">0{index + 1}</span>
+              <small>{phase.phase.toUpperCase()}</small>
+              <h3>{phase.headline}</h3>
+              <p>{phase.summary}</p>
+              <div className="story-pack__sources">{phase.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="story-pack__moments">
+        <header><span>MOMENTS THAT CHANGED THE BUILD</span><strong>{pack.moments.length} evidence-backed moments</strong></header>
+        <div className="story-pack__moment-grid">
+          {pack.moments.map((moment, index) => (
+            <article className="story-pack__moment-card" key={`${moment.title}-${index}`}>
+              <div className="story-pack__moment-index">{String(index + 1).padStart(2, "0")}</div>
+              <div>
+                <small>{moment.kind.toUpperCase()} · {moment.phase.toUpperCase()}</small>
+                <h3>{moment.title}</h3>
+                <div className="story-pack__moment-copy"><p><strong>What happened</strong>{moment.whatHappened}</p><p><strong>Why it mattered</strong>{moment.whyItMattered}</p></div>
+                <div className="story-pack__sources">{moment.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <div className="story-pack__insight-grid">
+        <section className="story-pack__insight-card story-pack__insight-card--turning"><span>TURNING POINT</span><blockquote>“{pack.turningPoint.quote}”</blockquote><div className="story-pack__sources">{pack.turningPoint.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div></section>
+        <section className="story-pack__insight-card"><span>DECISIONS</span>{pack.decisions.map((item, index) => <div className="story-pack__decision" key={`${item.title}-${index}`}><strong>{item.title}</strong><p>{item.rationale}</p><small>{item.outcome}</small></div>)}</section>
+        <section className="story-pack__insight-card"><span>LEARNINGS</span>{pack.learnings.map((item, index) => <div className="story-pack__bullet" key={`${item.title}-${index}`}><strong>{item.title}</strong><p>{item.detail}</p></div>)}</section>
+        <section className="story-pack__insight-card"><span>STANDOUT TRAITS</span>{pack.standoutTraits.map((item, index) => <div className="story-pack__bullet" key={`${item.title}-${index}`}><strong>{item.title}</strong><p>{item.detail}</p></div>)}</section>
+        <section className="story-pack__insight-card story-pack__insight-card--growth"><span>GROWTH EDGE</span><h3>{pack.growthEdge.title}</h3><p>{pack.growthEdge.observation}</p><small>{pack.growthEdge.nextStep}</small></section>
+      </div>
+
+      {privateView && openRef && selected ? (
+        <div className="story-pack__evidence-backdrop" role="presentation" onClick={() => setOpenRef(null)}>
+          <aside className="story-pack__evidence-drawer" role="dialog" aria-modal="true" aria-label="Evidence details" onClick={(event) => event.stopPropagation()}>
+            <button className="button button--text" type="button" onClick={() => setOpenRef(null)}>Close</button>
+            <span className="story-section__label">EVIDENCE {selected.ref}</span>
+            <h3>{providerName(selected.provider)}</h3>
+            <p>{new Date(selected.occurredAt).toLocaleString()} · {selected.metrics.turns} turns · {selected.metrics.toolCalls} tool calls</p>
+            {excerpts.length ? excerpts.map((excerpt) => <blockquote key={excerpt.excerptId}>{excerpt.text}</blockquote>) : <p>Only metadata is available for this source. Local narrative mode never uploads conversation excerpts.</p>}
+          </aside>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export function ProjectWorkbench({
   story,
   access = "creator",
   reportId,
   initialPublicationStatus = "not_published",
-  initialSelectedPublicFields = fieldOptions.map((field) => field.id),
+  initialSelectedPublicFields = fieldOptions.filter((field) => !["decisionPatterns", "growthEdge", "storyGrowthEdge"].includes(field.id)).map((field) => field.id),
   narrative = null,
+  narrativeStatus,
   initialEditorial,
+  reviewedEvidence = [],
 }: ProjectWorkbenchProps) {
+  const resolvedNarrativeStatus: NarrativeDisplayStatus =
+    narrativeStatus ??
+    (narrative
+      ? narrative.status === "ready"
+        ? "narrative_ready"
+        : narrative.status === "failed"
+          ? "narrative_failed"
+          : narrative.status === "generating"
+            ? "narrative_generating"
+            : "narrative_queued"
+      : "narrative_not_requested");
   const privateStory = access === "creator" ? (story as BuildStoryViewModel) : null;
   const storyReflection = "reflection" in story ? story.reflection : "";
   const initialTagline = initialEditorial?.tagline ?? story.tagline;
@@ -69,6 +210,12 @@ export function ProjectWorkbench({
   const [selectedFields, setSelectedFields] = useState<PublicFieldKey[]>(initialSelectedPublicFields);
   const [publicationStatus, setPublicationStatus] = useState<PublicationStatus>(initialPublicationStatus);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const storyNarrative = "narrative" in story ? story.narrative : null;
+  const storyPack = narrative?.storyPack ?? ("storyPack" in story && story.storyPack ? story.storyPack : null) ?? (
+    storyNarrative && typeof storyNarrative === "object" && "storyPack" in storyNarrative
+      ? (storyNarrative.storyPack as ReportStoryPackV2 | undefined) ?? null
+      : null
+  );
 
   function startEditing() {
     setDraft({ tagline, description, reflection });
@@ -138,6 +285,19 @@ export function ProjectWorkbench({
     }
   }
 
+  async function unpublish() {
+    if (!reportId || publicationStatus !== "published") return;
+    setSaveState("saving");
+    try {
+      const response = await fetch(`/api/creator/reports/${reportId}/publish`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Report unpublish failed.");
+      setPublicationStatus("not_published");
+      setSaveState("saved");
+    } catch {
+      setSaveState("error");
+    }
+  }
+
   function togglePublicField(field: PublicFieldKey) {
     if (field === "tagline") return;
     setSelectedFields((current) =>
@@ -149,7 +309,7 @@ export function ProjectWorkbench({
   async function copyLink() {
     if (publicationStatus !== "published") return;
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}/p/${story.slug}`);
+      await navigator.clipboard.writeText(`${window.location.origin}/u/${story.owner.handle}/${story.slug}`);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1600);
     } catch {
@@ -162,7 +322,7 @@ export function ProjectWorkbench({
       {access === "creator" ? (
       <div className="project-console-bar">
         <div className="project-console-bar__identity">
-          <span className="avatar">{initials(story.owner.name)}</span>
+          <span className="avatar">{initialsFrom(story.owner.name)}</span>
           <span>
             <strong>{story.name}</strong>
             <small>Owner workbench</small>
@@ -226,7 +386,7 @@ export function ProjectWorkbench({
       ) : (
         <div className="public-story-bar">
           <span><i /> Published Build Story · Universal public access</span>
-          <a href="/signin?callbackUrl=/dashboard">Creator controls →</a>
+          <a href="/signin?callbackUrl=/studio">Creator controls →</a>
         </div>
       )}
 
@@ -293,7 +453,7 @@ export function ProjectWorkbench({
                 <h1>{story.name}</h1>
                 <p className="build-story__tagline">{tagline}</p>
                 <div className="build-story__author">
-                  <span className="avatar avatar--large">{initials(story.owner.name)}</span>
+                  <span className="avatar avatar--large">{initialsFrom(story.owner.name)}</span>
                   <span>
                     <strong>{story.owner.name}</strong>
                     <small>@{story.owner.handle} · {story.owner.role}</small>
@@ -334,6 +494,23 @@ export function ProjectWorkbench({
                   </div>
                 </section>
 
+                {story.profile ? (
+                  <section className="story-section">
+                    <span className="story-section__number">02</span>
+                    <div>
+                      <span className="story-section__label">BUILDER PROFILE</span>
+                      <h2>{story.profile.archetype.name}</h2>
+                      <p>{story.profile.archetype.rationale.join(" ")}</p>
+                      <div className="profile-score-grid">
+                        {Object.entries(story.profile.scores).map(([key, score]) => (
+                          <div key={key}><strong>{score.value}</strong><span>{key === "productInstinct" ? "product instinct*" : key}</span></div>
+                        ))}
+                      </div>
+                      <small>* Product instinct is a weak proxy derived from completion and plan-before-edit signals.</small>
+                    </div>
+                  </section>
+                ) : null}
+
                 {reflection ? (
                   <aside className="story-quote">
                     <span>WHAT CHANGED MY MIND</span>
@@ -341,31 +518,14 @@ export function ProjectWorkbench({
                   </aside>
                 ) : null}
 
-                <section className="story-section">
+                {storyPack ? <StoryPackView pack={storyPack} privateView={false} reviewedEvidence={reviewedEvidence} /> : <section className="story-section story-pack-empty" aria-live="polite">
                   <span className="story-section__number">02</span>
                   <div>
                     <span className="story-section__label">THE BUILD</span>
-                    <h2>
-                      {story.milestones.length} moment{story.milestones.length === 1 ? "" : "s"} that changed
-                      the shape of it.
-                    </h2>
-                    <div className="milestone-list">
-                      {story.milestones.map((milestone) => (
-                        <article className="milestone" key={milestone.id}>
-                          <div className="milestone__rail">
-                            <span>{String(milestone.index).padStart(2, "0")}</span>
-                            <i />
-                          </div>
-                          <div>
-                            <small>{milestone.date} · {milestone.kind}</small>
-                            <h3>{milestone.title}</h3>
-                            <p>{milestone.description}</p>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
+                    <h2>Structured moments are still being assembled.</h2>
+                    <p>Deterministic session summaries stay private; this story surface only publishes evidence-linked cards once the report pack is ready.</p>
                   </div>
-                </section>
+                </section>}
 
                 <section className="story-section story-section--closing">
                   <span className="story-section__number">03</span>
@@ -398,8 +558,8 @@ export function ProjectWorkbench({
 
           {access === "public" ? (
             <div className="section-wrap community-section">
-              <SocialActions slug={story.slug} ownerHandle={story.owner.handle} />
-              <CommentThread slug={story.slug} />
+              <SocialActions storyId={story.reportId ?? story.id} ownerHandle={story.owner.handle} />
+              <CommentThread storyId={story.reportId ?? story.id} />
             </div>
           ) : null}
         </div>
@@ -439,6 +599,17 @@ export function ProjectWorkbench({
               <div><dt>Revision</dt><dd>{privateStory.repository.currentRevision}</dd></div>
             </dl>
           </div>
+
+          <section className="source-health-strip" aria-label="Session source health">
+            <span className="section-index">SOURCE HEALTH</span>
+            {(privateStory.sourceSelection?.providers ?? []).map((source) => (
+              <div key={source.provider} className={`source-health-strip__item source-health-strip__item--${source.diagnostic ?? "scanned"}`}>
+                <strong>{providerName(source.provider)}</strong>
+                <small>{source.sessionsMatched} matched · {source.sessionsIncluded} included · {source.filesDiscovered} files · {source.warnings ?? 0} warnings</small>
+                <em>{source.diagnostic === "scanned" ? "scanned" : (source.diagnostic ?? "scanned").replaceAll("-", " ")}</em>
+              </div>
+            ))}
+          </section>
 
           <section className="publication-boundary-panel">
             <header>
@@ -483,6 +654,7 @@ export function ProjectWorkbench({
                 <button className="button button--primary" type="button" onClick={publishChanges} disabled={saveState === "saving"}>
                   {publicationStatus === "published" ? "Republish page" : "Publish universal page"}
                 </button>
+                {publicationStatus === "published" ? <button className="button button--text" type="button" onClick={() => void unpublish()} disabled={saveState === "saving"}>Unpublish</button> : null}
               </div>
             </footer>
           </section>
@@ -550,11 +722,40 @@ export function ProjectWorkbench({
               </dl>
             </section>
 
-            {narrative ? (
+            {privateStory.profile ? (
+              <section className="report-card report-card--profile">
+                <header><span>06 / BUILDER PROFILE</span><strong>{privateStory.profile.archetype.name}</strong></header>
+                <p>{privateStory.profile.archetype.rationale.join(" ")}</p>
+                <div className="profile-score-grid">
+                  {Object.entries(privateStory.profile.scores).map(([key, score]) => (
+                    <div key={key}><strong>{score.value}</strong><span>{key === "productInstinct" ? "product instinct*" : key}</span></div>
+                  ))}
+                </div>
+                <dl className="report-data-list">
+                  <div><dt>Peak hours</dt><dd>{privateStory.profile.workPatterns.peakHours.map((hour) => `${String(hour).padStart(2, "0")}:00`).join(", ") || "None"} {privateStory.profile.workPatterns.timezoneLabel}</dd></div>
+                  <div><dt>Preferred days</dt><dd>{privateStory.profile.workPatterns.preferredDays.join(", ") || "None"}</dd></div>
+                  <div><dt>Session shape</dt><dd>{privateStory.profile.workPatterns.medianSessionMinutes} min median · {privateStory.profile.workPatterns.longestSessionMinutes} min longest</dd></div>
+                  <div><dt>Primary model</dt><dd>{privateStory.profile.workPatterns.primaryModel ?? "Not collected"}</dd></div>
+                </dl>
+                <small>* Product instinct is a weak proxy, not a measured personality trait.</small>
+              </section>
+            ) : null}
+
+            {resolvedNarrativeStatus === "narrative_not_requested" ? (
+              <section className="report-card report-card--narrative report-card--narrative-empty">
+                <header><span>07 / AI-WRITTEN NARRATIVE</span><strong>Not requested</strong></header>
+                <p>This scan didn&apos;t opt into narrative evidence, so no AI-written narrative was generated. Metrics above are unaffected.</p>
+              </section>
+            ) : resolvedNarrativeStatus === "narrative_no_evidence" ? (
+              <section className="report-card report-card--narrative report-card--narrative-empty">
+                <header><span>07 / AI-WRITTEN NARRATIVE</span><strong>No eligible evidence</strong></header>
+                <p>Narrative evidence was requested, but no provider had an eligible excerpt to review - so no model was called. This is expected, not a failure.</p>
+              </section>
+            ) : (
               <section className="report-card report-card--narrative">
-                <header><span>06 / AI-WRITTEN NARRATIVE</span><strong>{narrative.mode === "cloud" ? "Cloud model" : "Local model"}</strong></header>
-                {narrative.status === "ready" && narrative.sections ? (
-                  <div className="narrative-sections">
+                <header><span>07 / AI-WRITTEN NARRATIVE</span><strong>{narrative?.mode === "cloud" ? "Cloud model" : "Local model"}</strong></header>
+                {resolvedNarrativeStatus === "narrative_ready" && narrative?.sections ? (
+                  storyPack ? <StoryPackView pack={storyPack} privateView reviewedEvidence={reviewedEvidence} fallbacksUsed={narrative.fallbacksUsed} /> : <div className="narrative-sections">
                     <h3>{narrative.sections.headline}</h3>
                     <p>{narrative.sections.narrative}</p>
                     <aside className="story-quote">
@@ -562,15 +763,28 @@ export function ProjectWorkbench({
                       <blockquote>“{narrative.sections.turningPoint}”</blockquote>
                     </aside>
                     <ul>{narrative.sections.learnings.map((line) => <li key={line}>{line}</li>)}</ul>
+                    {narrative.sections.decisionPatterns?.length ? <><h4>Decision patterns</h4><ul>{narrative.sections.decisionPatterns.map((line) => <li key={line}>{line}</li>)}</ul></> : null}
+                    {narrative.sections.standoutTraits?.length ? <><h4>Standout traits</h4><ul>{narrative.sections.standoutTraits.map((line) => <li key={line}>{line}</li>)}</ul></> : null}
+                    {narrative.sections.growthEdge ? <><h4>Growth edge</h4><p>{narrative.sections.growthEdge}</p></> : null}
+                    {narrative.fallbacksUsed?.length ? (
+                      <p className="narrative-fallback-note">
+                        {narrative.fallbacksUsed.length === 1 ? "One section" : `${narrative.fallbacksUsed.length} sections`} used a default fallback instead of a model-written result ({narrative.fallbacksUsed.join(", ")}).
+                      </p>
+                    ) : null}
                     <small>{narrative.model} · {(narrative.costMicroUsd / 1_000_000).toFixed(4)} USD</small>
                   </div>
-                ) : narrative.status === "failed" ? (
-                  <p>The narrative model could not generate a story for this scan. No further attempts are made automatically.</p>
+                ) : resolvedNarrativeStatus === "narrative_failed" ? (
+                  <p>The narrative model could not generate a story for this scan after retrying. No further attempts are made automatically.</p>
                 ) : (
-                  <p>Generating your build narrative from the reviewed evidence bundle…</p>
+                  <div className="story-pack-skeleton" aria-label="Generating story pack" aria-busy="true">
+                    <div className="story-pack-skeleton__hero" />
+                    <div className="story-pack-skeleton__arc"><i /><i /><i /></div>
+                    <div className="story-pack-skeleton__cards"><i /><i /><i /><i /></div>
+                    <p>Generating your build narrative from the reviewed evidence bundle…</p>
+                  </div>
                 )}
               </section>
-            ) : null}
+            )}
           </div>
         </section>
       ) : null}

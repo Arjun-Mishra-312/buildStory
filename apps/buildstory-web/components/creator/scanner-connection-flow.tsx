@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { DeviceAuthorization, UploadSessionView } from "@/lib/ingestion/contracts";
+import { NARRATIVE_MODE_PREFERENCE_KEY, OLLAMA_MODEL_PREFERENCE_KEY } from "./ollama-model-status";
 
 const orderedStatuses = [
   "awaiting_scanner",
@@ -19,16 +20,18 @@ type CreateResponse = {
 
 export function ScannerConnectionFlow({
   initialSessions,
-  localApiEnabled,
+  scannerEnabled,
 }: {
   initialSessions: UploadSessionView[];
-  localApiEnabled: boolean;
+  scannerEnabled: boolean;
 }) {
   const [projectLabel, setProjectLabel] = useState("New local project");
   const [session, setSession] = useState<UploadSessionView | null>(null);
   const [authorization, setAuthorization] = useState<DeviceAuthorization | null>(null);
   const [starting, setStarting] = useState(false);
   const [copied, setCopied] = useState<"connect" | "upload" | null>(null);
+  const [withEvidence, setWithEvidence] = useState(false);
+  const [narrativeMode, setNarrativeMode] = useState<"local" | "cloud" | "off">("local");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -55,10 +58,21 @@ export function ScannerConnectionFlow({
     setStarting(true);
     setError(null);
     try {
+      let narrativeModel: string | null = null;
+      let selectedMode: "local" | "cloud" | "off" = "local";
+      try {
+        const storedModel = window.localStorage.getItem(OLLAMA_MODEL_PREFERENCE_KEY);
+        narrativeModel = storedModel && storedModel !== "auto" ? storedModel : null;
+        const storedMode = window.localStorage.getItem(NARRATIVE_MODE_PREFERENCE_KEY);
+        if (storedMode === "local" || storedMode === "cloud" || storedMode === "off") selectedMode = storedMode;
+      } catch {
+        narrativeModel = null;
+      }
+      setNarrativeMode(selectedMode);
       const response = await fetch("/api/creator/upload-sessions", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ projectLabel }),
+        body: JSON.stringify({ projectLabel, narrativeModel, narrativeMode: selectedMode }),
       });
       const body = (await response.json()) as CreateResponse | { error?: { message?: string } };
       if (!response.ok || !("session" in body)) {
@@ -87,14 +101,14 @@ export function ScannerConnectionFlow({
       <section className="scanner-flow__setup">
         <div className="scanner-step-label"><span>01</span> START IN THE BROWSER</div>
         <h2>Create a one-time scanner connection.</h2>
-        <p>{localApiEnabled
+        <p>{scannerEnabled
           ? "This session is bound to your creator account. No repository is read by the browser."
-          : "Hosted scanner connections are disabled. Run Buildstory locally to use the loopback-only scanner."}</p>
+          : "Scanner connections are not configured on this deployment yet."}</p>
         <label>
           <span>Project label</span>
-          <input value={projectLabel} onChange={(event) => setProjectLabel(event.target.value)} maxLength={120} disabled={!localApiEnabled} />
+          <input value={projectLabel} onChange={(event) => setProjectLabel(event.target.value)} maxLength={120} disabled={!scannerEnabled} />
         </label>
-        <button className="button button--primary" type="button" onClick={startSession} disabled={starting || !localApiEnabled}>
+        <button className="button button--primary" type="button" onClick={startSession} disabled={starting || !scannerEnabled}>
           {starting ? "Creating…" : "Create connection code"}
         </button>
         {error ? <p className="scanner-flow__error" role="alert">{error}</p> : null}
@@ -110,13 +124,31 @@ export function ScannerConnectionFlow({
               <small>{copied === "connect" ? "Copied" : "Copy connect"}</small>
             </button>
             <p className="scanner-terminal__stage"><b>B.</b> After connection succeeds, scan the current repository and explicitly upload only its validated snapshot:</p>
-            <button type="button" className="scanner-command scanner-command--secondary" onClick={() => copyCommand(authorization.scanUploadCommandHint, "upload")}>
-              <code><span>$</span> {authorization.scanUploadCommandHint}</code>
+            {narrativeMode === "cloud" ? (
+              <label className="scanner-evidence-option">
+                <input type="checkbox" checked={withEvidence} onChange={(event) => setWithEvidence(event.target.checked)} />
+                <span>Include a small, redacted narrative evidence bundle <small>(requires explicit review)</small></span>
+              </label>
+            ) : null}
+            <p className="scanner-evidence-explainer">
+              {narrativeMode === "local"
+                ? "Local mode asks Ollama on this machine to write the profile. Conversation excerpts are used in memory and never uploaded."
+                : narrativeMode === "cloud"
+                  ? "Cloud mode uploads only the redacted excerpts you review; it is opt-in and can be disabled in settings."
+                  : "Off mode uploads deterministic metrics and profile scores without narrative prose."}
+            </p>
+            <button type="button" className="scanner-command scanner-command--secondary" onClick={() => {
+              const suffix = narrativeMode === "cloud" && withEvidence ? " --with-evidence --review" : narrativeMode === "local" ? " --review" : "";
+              void copyCommand(`${authorization.scanUploadCommandHint}${suffix}`, "upload");
+            }}>
+              <code><span>$</span> {authorization.scanUploadCommandHint}{narrativeMode === "cloud" && withEvidence ? " --with-evidence --review" : narrativeMode === "local" ? " --review" : ""}</code>
               <small>{copied === "upload" ? "Copied" : "Copy upload"}</small>
             </button>
             <dl>
               <div><dt>Connection code</dt><dd>{authorization.userCode}</dd></div>
               <div><dt>Loopback API</dt><dd>{authorization.apiBaseUrl}</dd></div>
+              <div><dt>Narrative mode</dt><dd>{session?.narrativeMode ?? narrativeMode}</dd></div>
+              <div><dt>Narrative model</dt><dd>{session?.narrativeModel ?? "Automatic"}</dd></div>
               <div><dt>Expires</dt><dd>{new Date(authorization.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</dd></div>
             </dl>
             <div className="scanner-token-note">
@@ -127,9 +159,9 @@ export function ScannerConnectionFlow({
           </>
         ) : (
           <div className="scanner-terminal__idle">
-            <span>_</span><p>{localApiEnabled
+            <span>_</span><p>{scannerEnabled
               ? "A command will appear after the authenticated session is created."
-              : "No remote scanner endpoint exists. The CLI intentionally refuses this hosted origin."}</p>
+              : "The hosted scanner endpoint is not configured for this environment."}</p>
           </div>
         )}
       </section>
@@ -151,7 +183,7 @@ export function ScannerConnectionFlow({
           </p>
         ) : null}
         {session?.reportId && session.status === "report_ready" ? (
-          <a className="button button--primary" href={`/dashboard/reports/${session.reportId}`}>Review private report →</a>
+          <a className="button button--primary" href={`/studio/reports/${session.reportId}`}>Review private report →</a>
         ) : null}
       </section>
 

@@ -44,7 +44,7 @@ different port, use that exact loopback URL.
 
 ### 2. Create an owner-bound upload session
 
-Open `http://localhost:3000/dashboard/connect`, enter a project label, and click
+Open `http://localhost:3000/studio/connect`, enter a project label, and click
 **Create connection code**. The browser receives only the session ID and device
 code. It never receives the upload bearer.
 
@@ -98,7 +98,7 @@ The status response contains only protocol state and `reportReady`. When ready,
 the report response contains only a redacted summary and five aggregate counts.
 The source snapshot is never returned through the CLI report endpoint.
 
-Open the generated report from `/dashboard/connect`. Imported reports are
+Open the generated report from `/studio/connect`. Imported reports are
 creator-only and remain unpublished until the creator explicitly selects public
 fields and publishes.
 
@@ -147,10 +147,10 @@ or scan provenance.
   restart the dev server.
 - `loopback_required`: use the exact `http://localhost:PORT/`, `127.x.x.x`, or
   `::1` URL printed for the local app; remote hosts are intentionally refused.
-- `invalid_device_code`: copy the session ID and code again from the same fresh
-  dashboard session.
-- `device_code_used` or `session_expired`: create a new connection in the
-  dashboard and reconnect.
+- `connect_rejected`: copy the session ID and code again from the same fresh
+  dashboard session, or create a new connection. The server intentionally does
+  not distinguish an invalid, expired, used, or locked code to unauthenticated
+  callers.
 - `payload_too_large`: reduce the scanner time window; this development server
   grants at most 1 MB.
 - `snapshot_digest_mismatch`: upload the exact canonical bytes whose digest was

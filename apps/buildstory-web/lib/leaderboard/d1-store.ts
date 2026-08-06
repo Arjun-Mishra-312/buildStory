@@ -75,7 +75,12 @@ export async function getLeaderboard(period: LeaderboardPeriod, limit = 50): Pro
   const bounded = Math.min(Math.max(1, Math.trunc(limit)), 200);
   const computedAt = await lastComputedAt(db, period);
   if (!computedAt || Date.now() - Date.parse(computedAt) > LEADERBOARD_STALE_MS) {
-    await recomputeLeaderboard(period);
+    const claim = await db.prepare(
+      `INSERT INTO buildstory_leaderboard_runs (period, computed_at) VALUES (?, ?)
+       ON CONFLICT(period) DO UPDATE SET computed_at = excluded.computed_at
+       WHERE buildstory_leaderboard_runs.computed_at = ?`,
+    ).bind(period, new Date(0).toISOString(), computedAt ?? "").run();
+    if (Number(claim.meta?.changes ?? 0) === 1) await recomputeLeaderboard(period);
   }
   const rows = await db
     .prepare(

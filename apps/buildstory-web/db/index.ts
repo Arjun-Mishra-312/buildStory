@@ -1,6 +1,8 @@
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema";
 
+let testDatabase: D1Database | null = null;
+
 export class DatabaseUnavailableError extends Error {
   constructor() {
     super(
@@ -10,9 +12,18 @@ export class DatabaseUnavailableError extends Error {
 }
 
 export async function getD1(): Promise<D1Database> {
+  if (testDatabase) return testDatabase;
   const { env } = await import("cloudflare:workers");
   if (!env.DB) throw new DatabaseUnavailableError();
   return env.DB;
+}
+
+/** Test-only seam: production callers must continue to resolve the Worker DB binding. */
+export function __setD1ForTests(database: D1Database | null) {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("__setD1ForTests is only available when NODE_ENV=test.");
+  }
+  testDatabase = database;
 }
 
 export async function getDb() {
@@ -34,6 +45,7 @@ const REQUIRED_TABLES = [
   "buildstory_notifications",
   "buildstory_rate_limits",
   "buildstory_content_reports",
+  "buildstory_content_report_audit",
   "buildstory_leaderboard_entries",
   "buildstory_leaderboard_runs",
 ] as const;

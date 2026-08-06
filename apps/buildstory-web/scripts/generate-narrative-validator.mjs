@@ -14,45 +14,28 @@ import standaloneCode from "ajv/dist/standalone/index.js";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, "..");
-const schemaPath = path.join(projectRoot, "lib", "narrative", "narrative-output.schema.json");
 const outputDirectory = path.join(projectRoot, "lib", "narrative", "generated");
-const outputPath = path.join(outputDirectory, "narrative-output-validator.mjs");
+const entries = [
+  ["narrative-output.schema.json", "narrative-output-validator.mjs"],
+  ["narrative-profile-output.schema.json", "narrative-profile-output-validator.mjs"],
+];
 
-const NARRATIVE_OUTPUT_JSON_SCHEMA = JSON.parse(await readFile(schemaPath, "utf8"));
-
-const ajv = new Ajv2020({
-  allErrors: true,
-  strict: true,
-  code: { esm: true, source: true },
-});
-const validate = ajv.compile(NARRATIVE_OUTPUT_JSON_SCHEMA);
-const runtimeImports = `import equalModule from "ajv/dist/runtime/equal.js";
+for (const [schemaFileName, outputFileName] of entries) {
+  const schemaPath = path.join(projectRoot, "lib", "narrative", schemaFileName);
+  const outputPath = path.join(outputDirectory, outputFileName);
+  const schema = JSON.parse(await readFile(schemaPath, "utf8"));
+  const ajv = new Ajv2020({ allErrors: true, strict: true, code: { esm: true, source: true } });
+  const validate = ajv.compile(schema);
+  const runtimeImports = `import equalModule from "ajv/dist/runtime/equal.js";
 import ucs2LengthModule from "ajv/dist/runtime/ucs2length.js";`;
-
-const browserSafeStandalone = standaloneCode(ajv, validate)
-  .replace(
-    'const func0 = require("ajv/dist/runtime/equal").default;',
-    "const func0 = equalModule.default;",
-  )
-  .replace(
-    'const func2 = require("ajv/dist/runtime/ucs2length").default;',
-    "const func2 = ucs2LengthModule.default;",
-  )
-  .replace(
-    'const func1 = require("ajv/dist/runtime/ucs2length").default;',
-    "const func1 = ucs2LengthModule.default;",
-  );
-
-if (browserSafeStandalone.includes("require(")) {
-  throw new Error(
-    "Generated narrative validator contains an unhandled CommonJS runtime dependency.",
-  );
-}
-
-const source = `/* eslint-disable */
-/* Generated from lib/narrative/narrative-output-schema.mjs. Do not edit by hand. */
+  const browserSafeStandalone = standaloneCode(ajv, validate)
+    .replace('const func0 = require("ajv/dist/runtime/equal").default;', "const func0 = equalModule.default;")
+    .replaceAll('require("ajv/dist/runtime/ucs2length").default;', "ucs2LengthModule.default;");
+  if (browserSafeStandalone.includes("require(")) throw new Error("Generated narrative validator contains an unhandled CommonJS runtime dependency.");
+  const source = `/* eslint-disable */
+/* Generated from ${schemaFileName}. Do not edit by hand. */
 ${runtimeImports}
 ${browserSafeStandalone}`;
-
-await mkdir(outputDirectory, { recursive: true });
-await writeFile(outputPath, source, "utf8");
+  await mkdir(outputDirectory, { recursive: true });
+  await writeFile(outputPath, source, "utf8");
+}

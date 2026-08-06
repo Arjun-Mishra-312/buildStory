@@ -280,16 +280,17 @@ function commentRecordFor(comment: StoredComment): CommentRecord {
     reportId: comment.reportId,
     parentCommentId: comment.parentCommentId,
     author: authorFor(comment.authorUserId),
-    body: comment.body,
+    body: comment.status === "visible" ? comment.body : "",
     status: comment.status,
     createdAt: comment.createdAt,
     updatedAt: comment.updatedAt,
   };
 }
 
-export function listComments(reportId: string): CommentRecord[] {
+export function listComments(reportId: string, limit = 100, cursor?: string): CommentRecord[] {
   const all = Array.from(store.comments.values())
     .filter((comment) => comment.reportId === reportId)
+    .filter((comment) => !cursor || comment.createdAt > cursor)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const topLevel = all.filter((comment) => comment.parentCommentId === null);
   const repliesByParent = new Map<string, StoredComment[]>();
@@ -304,7 +305,7 @@ export function listComments(reportId: string): CommentRecord[] {
     ordered.push(commentRecordFor(comment));
     for (const reply of repliesByParent.get(comment.id) ?? []) ordered.push(commentRecordFor(reply));
   }
-  return ordered;
+  return ordered.slice(0, Math.min(Math.max(1, Math.trunc(limit)), 200));
 }
 
 export function createComment(
@@ -415,10 +416,11 @@ function createNotification(input: {
   store.notifications.set(notification.id, notification);
 }
 
-export function listNotifications(userId: string, limit = 30): NotificationRecord[] {
+export function listNotifications(userId: string, limit = 30, cursor?: string): NotificationRecord[] {
   const bounded = Math.min(Math.max(1, Math.trunc(limit)), 100);
   return Array.from(store.notifications.values())
     .filter((notification) => notification.userId === userId)
+    .filter((notification) => !cursor || notification.createdAt < cursor)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .slice(0, bounded)
     .map((notification) => ({
@@ -455,7 +457,7 @@ export function markNotificationsRead(userId: string, notificationIds?: string[]
 // Activity feed
 // ---------------------------------------------------------------------------
 
-export function getActivityFeed(viewerUserId: string, limit = 30): FeedEntry[] {
+export function getActivityFeed(viewerUserId: string, limit = 30, cursor?: string): FeedEntry[] {
   const bounded = Math.min(Math.max(1, Math.trunc(limit)), 100);
   const followeeIds = new Set(
     Array.from(store.follows)
@@ -464,6 +466,7 @@ export function getActivityFeed(viewerUserId: string, limit = 30): FeedEntry[] {
   );
   return Array.from(store.reports.values())
     .filter((report) => report.publicationStatus === "published" && report.ownerUserId && followeeIds.has(report.ownerUserId))
+    .filter((report) => !cursor || (report.publishedAt ?? "") < cursor)
     .sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""))
     .slice(0, bounded)
     .map((report) => {
@@ -511,15 +514,17 @@ export function fileContentReport(
   return record;
 }
 
-export function listContentReports(status?: ContentReportStatus, limit = 50): ContentReportRecord[] {
+export function listContentReports(status?: ContentReportStatus, limit = 50, cursor?: string): ContentReportRecord[] {
   const bounded = Math.min(Math.max(1, Math.trunc(limit)), 200);
   return Array.from(store.contentReports.values())
     .filter((report) => !status || report.status === status)
+    .filter((report) => !cursor || report.createdAt < cursor)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .slice(0, bounded);
 }
 
-export function resolveContentReport(reportId: string, status: ContentReportStatus): void {
+export function resolveContentReport(reportId: string, status: ContentReportStatus, actorUserId?: string): void {
+  void actorUserId;
   if (status === "open") {
     throw new SocialError("invalid_status", "A report cannot be resolved back to open.", 422);
   }

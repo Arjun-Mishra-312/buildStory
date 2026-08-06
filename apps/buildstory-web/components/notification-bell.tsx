@@ -30,7 +30,6 @@ function describe(notification: Notification): string {
 }
 
 export function NotificationBell() {
-  const [signedIn, setSignedIn] = useState(false);
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -38,13 +37,9 @@ export function NotificationBell() {
 
   async function load() {
     const response = await fetch("/api/creator/notifications", { cache: "no-store" });
-    if (response.status === 401) {
-      setSignedIn(false);
-      return;
-    }
+    if (response.status === 401) return;
     if (!response.ok) return;
     const data = (await response.json()) as { notifications: Notification[]; unreadCount: number };
-    setSignedIn(true);
     setNotifications(data.notifications);
     setUnreadCount(data.unreadCount);
   }
@@ -77,8 +72,6 @@ export function NotificationBell() {
       setNotifications((current) => current.map((notification) => ({ ...notification, readAt: notification.readAt ?? new Date().toISOString() })));
     }
   }
-
-  if (!signedIn) return null;
 
   return (
     <div className="notification-bell" ref={containerRef}>

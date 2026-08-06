@@ -1,6 +1,7 @@
 import type { ProjectSnapshot } from "@/lib/project-snapshot";
 import type { ScannerProjectSnapshot } from "./scanner-project-snapshot";
 import { PROJECT_SNAPSHOT_SCHEMA_VERSION } from "./scanner-project-snapshot";
+import { computeBuilderProfile } from "./profile";
 
 export type ReportOwner = {
   id: string;
@@ -148,5 +149,16 @@ export function reportSnapshotFromScanner(
       snapshotHash: snapshot.repository.fingerprint,
       consentVersion: snapshot.sourceSelection.consent.statementVersion,
     },
+    sourceSelection: snapshot.sourceSelection,
+    builderProfile: computeBuilderProfile({
+      sessions: snapshot.sessions,
+      usage: snapshot.usage,
+      git: snapshot.git,
+      timeWindow: snapshot.timeWindow,
+    }),
+    ...(snapshot.generatedNarrative ? {
+      narrative: snapshot.generatedNarrative.sections,
+      ...(snapshot.generatedNarrative.storyPack ? { storyPack: snapshot.generatedNarrative.storyPack } : {}),
+    } : {}),
   };
 }

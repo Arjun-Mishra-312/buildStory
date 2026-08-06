@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { SiteHeader } from "@/components/site-header";
 import {
   getAuthRuntimeMode,
   getCreatorSession,
@@ -12,7 +11,7 @@ import { signInWithGoogle } from "./actions";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Creator sign in",
+  title: "Sign in",
   description: "Sign in to connect a scanner and manage Buildstory projects.",
 };
 
@@ -29,9 +28,8 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
   const mode = getAuthRuntimeMode();
 
   return (
-    <div className="page-shell auth-page">
-      <SiteHeader compact />
-      <main className="auth-layout section-wrap">
+    <div className="auth-page">
+      <section className="auth-layout section-wrap">
         <section className="auth-layout__copy">
           <span className="section-index">( CREATOR ACCESS )</span>
           <h1>Your work stays private until you publish it.</h1>
@@ -99,7 +97,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
             Continue to public stories without signing in <span aria-hidden="true">→</span>
           </Link>
         </section>
-      </main>
+      </section>
     </div>
   );
 }

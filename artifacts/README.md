@@ -1,9 +1,9 @@
 # Local package artifacts
 
-`buildstory-scanner-0.3.0.tgz` is the unpublished installable archive built from `packages/buildstory-scanner`.
+`buildstory-scanner-0.4.0.tgz` is the unpublished installable archive built from `packages/buildstory-scanner`.
 
 ```powershell
-npm install --global ./artifacts/buildstory-scanner-0.3.0.tgz
+npm install --global ./artifacts/buildstory-scanner-0.4.0.tgz
 buildstory --version
 story-scanner --version
 ```

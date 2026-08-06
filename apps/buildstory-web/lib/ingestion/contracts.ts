@@ -1,5 +1,5 @@
 import type { ProjectSnapshot } from "@/lib/project-snapshot";
-import type { PROJECT_SNAPSHOT_SCHEMA_VERSION, ScannerProjectSnapshot } from "./scanner-project-snapshot";
+import type { PROJECT_SNAPSHOT_SCHEMA_VERSION, ScannerProjectSnapshot, NarrativeMode, ReportStoryPackV2 } from "./scanner-project-snapshot";
 
 export type UploadSessionStatus =
   | "awaiting_scanner"
@@ -26,7 +26,23 @@ export type PublicFieldKey =
   | "modelMix"
   | "toolUsage"
   | "gitAggregates"
-  | "redactionSummary";
+  | "redactionSummary"
+  | "archetype"
+  | "profileScores"
+  | "workPatterns"
+  | "narrative"
+  | "storyBuildArc"
+  | "storyMoments"
+  | "storyTurningPoint"
+  | "storyDecisions"
+  | "storyLearnings"
+  | "storyTraits"
+  | "storyGrowthEdge"
+  | "decisionPatterns"
+  | "standoutTraits"
+  | "growthEdge";
+
+export type BuilderProfileDimension = "planning" | "steering" | "execution" | "engineering" | "productInstinct";
 
 export type UserRecord = {
   id: string;
@@ -47,6 +63,18 @@ export type ProjectRecord = {
 
 export type NarrativeStatus = "queued" | "generating" | "ready" | "failed";
 
+export type NarrativeObservability = {
+  providerCounts: Record<string, number>;
+  promptVersion: string;
+  schemaVersion: string;
+  generationLatencyMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  costMicroUsd: number;
+  invalidReferenceCount: number;
+  fallbackCount: number;
+};
+
 export type NarrativeRecord = {
   id: string;
   reportId: string;
@@ -59,7 +87,13 @@ export type NarrativeRecord = {
     narrative: string;
     turningPoint: string;
     learnings: string[];
+    decisionPatterns?: string[];
+    standoutTraits?: string[];
+    growthEdge?: string;
   } | null;
+  storyPack?: ReportStoryPackV2 | null;
+  observability?: NarrativeObservability | null;
+  fallbacksUsed?: string[];
   costMicroUsd: number;
 };
 
@@ -88,6 +122,8 @@ export type UploadSessionView = {
   id: string;
   creatorId: string;
   projectLabel: string;
+  narrativeModel: string | null;
+  narrativeMode: NarrativeMode;
   status: UploadSessionStatus;
   createdAt: string;
   expiresAt: string;
@@ -101,6 +137,7 @@ export type ScannerClaimResponse = {
   sessionId: string;
   connectionId: string;
   uploadGrant: LocalUploadGrant;
+  narrative?: { mode: NarrativeMode; model: string | null };
 };
 
 export type SnapshotUploadReceipt = {
@@ -125,6 +162,7 @@ export type LocalConnectRequest = {
   capabilities: {
     projectSnapshotSchemaVersions: string[];
     snapshotUpload: boolean;
+    narrativeModes?: NarrativeMode[];
   };
 };
 
@@ -142,6 +180,7 @@ export type LocalConnectResponse = {
   uploadSessionId: string;
   connectionId: string;
   uploadGrant: LocalUploadGrant;
+  narrative?: { mode: NarrativeMode; model: string | null };
 };
 
 export type LocalSnapshotAcceptedResponse = {

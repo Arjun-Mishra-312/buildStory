@@ -26,10 +26,9 @@ export async function checkRateLimit(
   const windowStart = windowStartIso(windowSeconds, now);
   const id = `${scope}:${identity}:${windowStart}`;
 
-  await db
-    .prepare("DELETE FROM buildstory_rate_limits WHERE window_start < ?")
-    .bind(new Date(now.getTime() - STALE_WINDOW_MS).toISOString())
-    .run();
+  if (Math.random() < 0.01) {
+    await db.prepare("DELETE FROM buildstory_rate_limits WHERE window_start < ?").bind(new Date(now.getTime() - STALE_WINDOW_MS).toISOString()).run();
+  }
 
   const row = await db
     .prepare(

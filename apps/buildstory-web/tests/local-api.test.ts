@@ -28,7 +28,7 @@ function connectBody(sessionId: string, deviceCode: string) {
     protocolVersion: "1.0",
     uploadSessionId: sessionId,
     deviceCode,
-    client: { command: "buildstory", version: "0.3.0" },
+    client: { command: "buildstory", version: "0.4.0" },
     capabilities: {
       projectSnapshotSchemaVersions: [PROJECT_SNAPSHOT_SCHEMA_VERSION],
       snapshotUpload: false,
@@ -69,7 +69,7 @@ test("loopback connect refuses remote requests and browser cookies do not author
     }),
   );
   assert.equal(cookieOnly.status, 401);
-  assert.match(JSON.stringify(await body(cookieOnly)), /invalid_device_code/);
+  assert.match(JSON.stringify(await body(cookieOnly)), /connect_rejected/);
 });
 
 test("strict ProjectSnapshot validation rejects raw-content and unknown fields", () => {
@@ -132,7 +132,7 @@ test("local scanner lifecycle enforces owner, digest, size, and one-use grant bo
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-buildstory-client-version": "0.3.0",
+        "x-buildstory-client-version": "0.4.0",
       },
       body: JSON.stringify(connectBody(sessionId, userCode)),
     }),
@@ -172,8 +172,8 @@ test("local scanner lifecycle enforces owner, digest, size, and one-use grant bo
       body: JSON.stringify(connectBody(sessionId, userCode)),
     }),
   );
-  assert.equal(reusedCode.status, 409);
-  assert.match(JSON.stringify(await body(reusedCode)), /device_code_used/);
+  assert.equal(reusedCode.status, 401);
+  assert.match(JSON.stringify(await body(reusedCode)), /connect_rejected/);
 
   const statusContext = routeContext("sessionId", sessionId);
   const noSnapshotYet = await getUploadStatus(

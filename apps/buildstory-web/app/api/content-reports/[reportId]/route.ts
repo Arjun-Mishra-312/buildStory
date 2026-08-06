@@ -22,7 +22,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       return jsonError("invalid_request", "status must be \"actioned\" or \"dismissed\".", 422);
     }
     const { reportId } = await context.params;
-    await resolveContentReport(reportId, status);
+    await resolveContentReport(reportId, status, user.id);
     return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
   } catch (error) {
     return socialErrorResponse(error);

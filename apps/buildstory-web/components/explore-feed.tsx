@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { PublicBuildStoryViewModel } from "@/lib/build-story";
+import { initialsFrom } from "@/lib/identity/initials";
 
 export type ExploreStory = PublicBuildStoryViewModel & { publishedAt: string | null };
 
@@ -30,12 +31,6 @@ function accentFor(slug: string) {
     hash = (hash * 31 + slug.charCodeAt(index)) >>> 0;
   }
   return accentRotation[hash % accentRotation.length];
-}
-
-function initialsFor(name: string) {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  const letters = words.slice(0, 2).map((word) => word[0]?.toUpperCase() ?? "");
-  return letters.join("") || "?";
 }
 
 function turningPoint(story: ExploreStory) {
@@ -146,7 +141,7 @@ export function ExploreFeed({ projects, unavailable = false }: { projects: Explo
         </div>
       ) : (
         <div className="explore-layout">
-          <Link className="featured-story" href={`/p/${featured.slug}`}>
+          <Link className="featured-story" href={`/u/${featured.owner.handle}/${featured.slug}`}>
             <div className={`featured-story__visual featured-story__visual--${previewMode}`}>
               <div className="featured-story__grid" aria-hidden="true">
                 <span /><span /><span /><span /><span /><span /><span /><span />
@@ -204,7 +199,7 @@ export function ExploreFeed({ projects, unavailable = false }: { projects: Explo
                 </div>
               ) : null}
               <div className="story-byline">
-                <span className="avatar">{initialsFor(featured.owner.name)}</span>
+                <span className="avatar">{initialsFrom(featured.owner.name)}</span>
                 <span>
                   <strong>{featured.owner.name}</strong>
                   <small>@{featured.owner.handle}</small>
@@ -216,7 +211,7 @@ export function ExploreFeed({ projects, unavailable = false }: { projects: Explo
 
           <div className="story-list" aria-live="polite">
             {rest.map((project, index) => (
-              <Link className="story-row" href={`/p/${project.slug}`} key={project.slug}>
+              <Link className="story-row" href={`/u/${project.owner.handle}/${project.slug}`} key={project.slug}>
                 <div className={`story-row__index story-row__index--${accentFor(project.slug)}`}>
                   {String(index + 2).padStart(2, "0")}
                 </div>
@@ -231,7 +226,7 @@ export function ExploreFeed({ projects, unavailable = false }: { projects: Explo
                   <p>{project.description}</p>
                   {turningPoint(project) ? <blockquote>“{turningPoint(project)}”</blockquote> : null}
                   <div className="story-row__footer">
-                    <span className="avatar avatar--small">{initialsFor(project.owner.name)}</span>
+                <span className="avatar avatar--small">{initialsFrom(project.owner.name)}</span>
                     <span>{project.owner.name}</span>
                     <span className="story-row__stats">
                       {project.activeDays}d · {project.sessionCount} sessions · {project.git.commits} commits

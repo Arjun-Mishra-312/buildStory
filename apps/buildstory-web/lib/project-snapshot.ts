@@ -3,6 +3,7 @@
  * and strict JSON Schema live under lib/ingestion/scanner-project-snapshot.ts
  * and lib/ingestion/project-snapshot.schema.json.
  */
+import type { ReportStoryPackV2, SourceSelection } from "./ingestion/scanner-project-snapshot";
 export type SnapshotVisibility = "private" | "unlisted" | "public";
 
 export type ProjectIdentity = {
@@ -107,6 +108,17 @@ export type ProjectMilestone = {
   evidenceRefs: string[];
 };
 
+export type ReportNarrative = {
+  headline: string;
+  narrative: string;
+  turningPoint: string;
+  learnings: string[];
+  decisionPatterns: string[];
+  standoutTraits: string[];
+  growthEdge: string;
+  storyPack?: ReportStoryPackV2;
+};
+
 export type RedactionSummary = {
   policyVersion: string;
   redactedFiles: number;
@@ -140,6 +152,10 @@ export type ProjectSnapshot = {
   milestones: ProjectMilestone[];
   redaction: RedactionSummary;
   provenance: ScanProvenance;
+  /** Provider coverage is private creator metadata from the scanner transport. */
+  sourceSelection?: SourceSelection;
+  builderProfile?: BuilderProfile;
+  narrative?: ReportNarrative;
 };
 
 /** Swap this source for an upload/API implementation when ingestion lands. */
@@ -159,3 +175,4 @@ export function isProjectSnapshot(value: unknown): value is ProjectSnapshot {
     typeof candidate.provenance?.snapshotHash === "string"
   );
 }
+import type { BuilderProfile } from "./ingestion/profile";

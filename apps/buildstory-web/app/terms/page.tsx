@@ -1,0 +1,1 @@
+export default function TermsPage() { return <section className="legal-page section-wrap"><span className="section-index">( TERMS )</span><h1>Terms are being finalized.</h1><p>Buildstory’s legal policies are being finalized. Please check back soon.</p></section>; }

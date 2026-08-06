@@ -310,7 +310,7 @@ type CommentRow = {
   id: string;
   report_id: string;
   parent_comment_id: string | null;
-  body: string;
+  body: string | null;
   status: string;
   created_at: string;
   updated_at: string;
@@ -331,23 +331,24 @@ function commentFromRow(row: CommentRow): CommentRecord {
       display_name: row.author_display_name,
       avatar_url: row.author_avatar_url,
     }),
-    body: row.body,
+    body: row.body ?? "",
     status: row.status as CommentStatus,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-export async function listComments(reportId: string): Promise<CommentRecord[]> {
+export async function listComments(reportId: string, limit = 100, cursor?: string): Promise<CommentRecord[]> {
+  const bounded = Math.min(Math.max(1, Math.trunc(limit)), 200);
   const rows = await (await database())
     .prepare(
-      `SELECT c.id, c.report_id, c.parent_comment_id, c.body, c.status, c.created_at, c.updated_at,
-              u.id AS author_id, u.handle AS author_handle, u.display_name AS author_display_name, u.avatar_url AS author_avatar_url
+      `SELECT c.id, c.report_id, c.parent_comment_id, CASE WHEN c.status = 'visible' THEN c.body ELSE NULL END AS body, c.status, c.created_at, c.updated_at,
+               u.id AS author_id, u.handle AS author_handle, u.display_name AS author_display_name, u.avatar_url AS author_avatar_url
        FROM buildstory_comments c JOIN buildstory_users u ON u.id = c.author_user_id
-       WHERE c.report_id = ?
-       ORDER BY c.created_at ASC`,
+       WHERE c.report_id = ? AND (? IS NULL OR c.created_at > ?)
+       ORDER BY c.created_at ASC LIMIT ?`,
     )
-    .bind(reportId)
+    .bind(reportId, cursor ?? null, cursor ?? null, bounded)
     .all<CommentRow>();
   const all = rows.results.map(commentFromRow);
   const topLevel = all.filter((comment) => comment.parentCommentId === null);
@@ -528,7 +529,7 @@ type NotificationRow = {
   actor_avatar_url: string | null;
 };
 
-export async function listNotifications(userId: string, limit = 30): Promise<NotificationRecord[]> {
+export async function listNotifications(userId: string, limit = 30, cursor?: string): Promise<NotificationRecord[]> {
   const bounded = Math.min(Math.max(1, Math.trunc(limit)), 100);
   const rows = await (await database())
     .prepare(
@@ -537,10 +538,10 @@ export async function listNotifications(userId: string, limit = 30): Promise<Not
        FROM buildstory_notifications n
        JOIN buildstory_users u ON u.id = n.actor_user_id
        LEFT JOIN buildstory_reports r ON r.id = n.report_id
-       WHERE n.user_id = ?
+       WHERE n.user_id = ? AND (? IS NULL OR n.created_at < ?)
        ORDER BY n.created_at DESC LIMIT ?`,
     )
-    .bind(userId, bounded)
+    .bind(userId, cursor ?? null, cursor ?? null, bounded)
     .all<NotificationRow>();
   return rows.results.map((row) => ({
     id: row.id,
@@ -604,7 +605,7 @@ type FeedRow = {
   comment_count: number;
 };
 
-export async function getActivityFeed(viewerUserId: string, limit = 30): Promise<FeedEntry[]> {
+export async function getActivityFeed(viewerUserId: string, limit = 30, cursor?: string): Promise<FeedEntry[]> {
   const bounded = Math.min(Math.max(1, Math.trunc(limit)), 100);
   const rows = await (await database())
     .prepare(
@@ -615,11 +616,11 @@ export async function getActivityFeed(viewerUserId: string, limit = 30): Promise
        FROM buildstory_reports r
        JOIN buildstory_follows f ON f.followee_user_id = r.owner_user_id
        JOIN buildstory_users u ON u.id = r.owner_user_id
-       WHERE f.follower_user_id = ? AND r.publication_status = 'published'
+       WHERE f.follower_user_id = ? AND r.publication_status = 'published' AND (? IS NULL OR r.published_at < ?)
        ORDER BY r.published_at DESC
        LIMIT ?`,
     )
-    .bind(viewerUserId, bounded)
+    .bind(viewerUserId, cursor ?? null, cursor ?? null, bounded)
     .all<FeedRow>();
   return rows.results.map((row) => ({
     reportId: row.id,
@@ -691,24 +692,24 @@ export async function fileContentReport(
   };
 }
 
-export async function listContentReports(status?: ContentReportStatus, limit = 50): Promise<ContentReportRecord[]> {
+export async function listContentReports(status?: ContentReportStatus, limit = 50, cursor?: string): Promise<ContentReportRecord[]> {
   const bounded = Math.min(Math.max(1, Math.trunc(limit)), 200);
   const db = await database();
   const rows = status
     ? await db
         .prepare(
-          "SELECT * FROM buildstory_content_reports WHERE status = ? ORDER BY created_at DESC LIMIT ?",
+          "SELECT * FROM buildstory_content_reports WHERE status = ? AND (? IS NULL OR created_at < ?) ORDER BY created_at DESC LIMIT ?",
         )
-        .bind(status, bounded)
+        .bind(status, cursor ?? null, cursor ?? null, bounded)
         .all()
     : await db
-        .prepare("SELECT * FROM buildstory_content_reports ORDER BY created_at DESC LIMIT ?")
-        .bind(bounded)
+        .prepare("SELECT * FROM buildstory_content_reports WHERE (? IS NULL OR created_at < ?) ORDER BY created_at DESC LIMIT ?")
+        .bind(cursor ?? null, cursor ?? null, bounded)
         .all();
   return (rows.results as Array<Parameters<typeof contentReportFromRow>[0]>).map(contentReportFromRow);
 }
 
-export async function resolveContentReport(reportId: string, status: ContentReportStatus): Promise<void> {
+export async function resolveContentReport(reportId: string, status: ContentReportStatus, actorUserId?: string): Promise<void> {
   if (status === "open") {
     throw new SocialError("invalid_status", "A report cannot be resolved back to open.", 422);
   }
@@ -719,4 +720,7 @@ export async function resolveContentReport(reportId: string, status: ContentRepo
     .bind(status, now, reportId)
     .run();
   if (changes(updated) !== 1) throw new SocialError("not_found", "Content report not found.", 404);
+  if (actorUserId) {
+    await db.prepare("INSERT INTO buildstory_content_report_audit (id, report_id, actor_user_id, action, created_at) VALUES (?, ?, ?, ?, ?)").bind(makeId("audit"), reportId, actorUserId, `resolve:${status}`, now).run();
+  }
 }
