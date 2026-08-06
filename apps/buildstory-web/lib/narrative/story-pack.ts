@@ -58,14 +58,166 @@ export const STORY_PACK_INSIGHTS_SCHEMA = {
   },
 } as const;
 
-function clean(value: unknown, max: number, fallback: string): string {
-  const candidate = typeof value === "string" && value.trim() ? value.trim() : fallback;
-  return sanitizePublicText(candidate, max).value || fallback;
+export type StoryPackComponent = "story" | "insights";
+
+export type StoryPackValidation = {
+  ok: boolean;
+  errors: string[];
+};
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }
 
-function sourceRefs(value: unknown, allowed: Set<string>, fallback: string[]): string[] {
+function stringError(value: unknown, path: string, min: number, max: number): string | null {
+  if (typeof value !== "string") return `${path} must be a string.`;
+  const length = value.trim().length;
+  if (length < min) return `${path} must contain at least ${min} character${min === 1 ? "" : "s"}.`;
+  if (length > max) return `${path} must contain at most ${max} characters.`;
+  return null;
+}
+
+function refsError(value: unknown, path: string, allowed: Set<string>): string[] {
+  if (!Array.isArray(value)) return [`${path} must be an array.`];
+  const errors: string[] = [];
+  if (allowed.size > 0 && value.length < 1) errors.push(`${path} must contain at least one source reference.`);
+  if (value.length > 4) errors.push(`${path} must contain at most four source references.`);
+  const seen = new Set<string>();
+  value.forEach((item, index) => {
+    if (typeof item !== "string" || !item.trim()) errors.push(`${path}[${index}] must be a non-empty string.`);
+    else if (!allowed.has(item)) errors.push(`${path}[${index}] references unknown source ${item}.`);
+    else if (seen.has(item)) errors.push(`${path}[${index}] duplicates source ${item}.`);
+    else seen.add(item);
+  });
+  return errors;
+}
+
+function listError(value: unknown, path: string, min: number, max: number): string[] {
+  if (!Array.isArray(value)) return [`${path} must be an array.`];
+  const errors: string[] = [];
+  if (value.length < min) errors.push(`${path} must contain at least ${min} items.`);
+  if (value.length > max) errors.push(`${path} must contain at most ${max} items.`);
+  return errors;
+}
+
+function validateStoryComponent(value: Record<string, unknown>, allowed: Set<string>): string[] {
+  // Keep the bounded rollout compatibility path for older providers that
+  // still return the pre-V2 flat section names. They are normalized into the
+  // structured pack immediately after this check and never reach storage as
+  // unvalidated layout/content instructions.
+  if (!value.hero && ("headline" in value || "narrative" in value || typeof value.turningPoint === "string")) return [];
+  const errors: string[] = [];
+  const hero = record(value.hero);
+  if (!hero) errors.push("hero must be an object.");
+  else {
+    const headline = stringError(hero.headline, "hero.headline", 1, 120); if (headline) errors.push(headline);
+    const summary = stringError(hero.summary, "hero.summary", 1, 480); if (summary) errors.push(summary);
+  }
+  const arc = value.buildArc;
+  errors.push(...listError(arc, "buildArc", 3, 3));
+  if (Array.isArray(arc)) {
+    const phases = arc.map((item) => record(item)?.phase);
+    if (new Set(phases).size !== 3 || !(["discover", "decide", "deliver"] as const).every((phase) => phases.includes(phase))) {
+      errors.push("buildArc must contain exactly one discover, decide, and deliver phase.");
+    }
+    arc.forEach((item, index) => {
+      const entry = record(item); const path = `buildArc[${index}]`;
+      if (!entry) { errors.push(`${path} must be an object.`); return; }
+      if (!["discover", "decide", "deliver"].includes(String(entry.phase))) errors.push(`${path}.phase is unsupported.`);
+      const headline = stringError(entry.headline, `${path}.headline`, 1, 100); if (headline) errors.push(headline);
+      const summary = stringError(entry.summary, `${path}.summary`, 1, 260); if (summary) errors.push(summary);
+      errors.push(...refsError(entry.sourceRefs, `${path}.sourceRefs`, allowed));
+    });
+  }
+  errors.push(...listError(value.moments, "moments", 3, 5));
+  if (Array.isArray(value.moments)) value.moments.forEach((item, index) => {
+    const entry = record(item); const path = `moments[${index}]`;
+    if (!entry) { errors.push(`${path} must be an object.`); return; }
+    if (!["discover", "decide", "deliver"].includes(String(entry.phase))) errors.push(`${path}.phase is unsupported.`);
+    if (!["discovery", "decision", "breakthrough", "delivery"].includes(String(entry.kind))) errors.push(`${path}.kind is unsupported.`);
+    for (const [key, max] of [["title", 120], ["whatHappened", 400], ["whyItMattered", 400]] as const) {
+      const issue = stringError(entry[key], `${path}.${key}`, 1, max); if (issue) errors.push(issue);
+    }
+    errors.push(...refsError(entry.sourceRefs, `${path}.sourceRefs`, allowed));
+  });
+  const turning = record(value.turningPoint);
+  if (!turning) errors.push("turningPoint must be an object.");
+  else {
+    const quote = stringError(turning.quote, "turningPoint.quote", 1, 300); if (quote) errors.push(quote);
+    errors.push(...refsError(turning.sourceRefs, "turningPoint.sourceRefs", allowed));
+  }
+  return errors;
+}
+
+function validateInsightsComponent(value: Record<string, unknown>, allowed: Set<string>): string[] {
+  if (!value.decisions && ("decisionPatterns" in value || "standoutTraits" in value || typeof value.growthEdge === "string")) return [];
+  const errors: string[] = [];
+  const decisions = value.decisions;
+  errors.push(...listError(decisions, "decisions", 2, 4));
+  if (Array.isArray(decisions)) decisions.forEach((item, index) => {
+    const entry = record(item); const path = `decisions[${index}]`;
+    if (!entry) { errors.push(`${path} must be an object.`); return; }
+    for (const [key, max] of [["title", 120], ["rationale", 300], ["outcome", 300]] as const) {
+      const issue = stringError(entry[key], `${path}.${key}`, 1, max); if (issue) errors.push(issue);
+    }
+    errors.push(...refsError(entry.sourceRefs, `${path}.sourceRefs`, allowed));
+  });
+  for (const name of ["learnings", "standoutTraits"] as const) {
+    const list = value[name];
+    errors.push(...listError(list, name, 2, 4));
+    if (Array.isArray(list)) list.forEach((item, index) => {
+      const entry = record(item); const path = `${name}[${index}]`;
+      if (!entry) { errors.push(`${path} must be an object.`); return; }
+      const title = stringError(entry.title, `${path}.title`, 1, 120); if (title) errors.push(title);
+      const detail = stringError(entry.detail, `${path}.detail`, 1, 300); if (detail) errors.push(detail);
+      errors.push(...refsError(entry.sourceRefs, `${path}.sourceRefs`, allowed));
+    });
+  }
+  const growth = record(value.growthEdge);
+  if (!growth) errors.push("growthEdge must be an object.");
+  else {
+    for (const [key, max] of [["title", 120], ["observation", 400], ["nextStep", 300]] as const) {
+      const issue = stringError(growth[key], `growthEdge.${key}`, 1, max); if (issue) errors.push(issue);
+    }
+    errors.push(...refsError(growth.sourceRefs, "growthEdge.sourceRefs", allowed));
+  }
+  return errors;
+}
+
+/**
+ * Post-generation validation shared by the cloud repair loop and the local
+ * Ollama path. The API schema catches transport-level violations; this
+ * validator additionally verifies source provenance and component cardinality
+ * before normalization can produce a report.
+ */
+export function validateStoryPackComponent(value: unknown, component: StoryPackComponent, allowedRefs: Set<string>): StoryPackValidation {
+  const candidate = record(value);
+  if (!candidate) return { ok: false, errors: ["response must be a JSON object."] };
+  const errors = component === "story"
+    ? validateStoryComponent(candidate, allowedRefs)
+    : validateInsightsComponent(candidate, allowedRefs);
+  return { ok: errors.length === 0, errors: errors.slice(0, 20) };
+}
+
+function clean(path: string, value: unknown, max: number, fallback: string, fallbacks: string[]): string {
+  const candidate = typeof value === "string" && value.trim() ? value.trim() : "";
+  const sanitized = candidate ? sanitizePublicText(candidate, max).value : "";
+  if (!sanitized) {
+    fallbacks.push(path);
+    return fallback;
+  }
+  return sanitized;
+}
+
+function sourceRefs(path: string, value: unknown, allowed: Set<string>, fallback: string[], fallbacks: string[]): string[] {
   const selected = Array.isArray(value) ? [...new Set(value.filter((item): item is string => typeof item === "string" && allowed.has(item)))].slice(0, 4) : [];
-  return selected.length ? selected : fallback;
+  if (!selected.length) {
+    fallbacks.push(path);
+    return fallback;
+  }
+  return selected;
 }
 
 export function buildStoryPackSources(snapshot: ScannerProjectSnapshot): StoryPackSource[] {
@@ -122,19 +274,19 @@ export function normalizeStoryPack(value: unknown, snapshot: ScannerProjectSnaps
   const buildArc = (['discover', 'decide', 'deliver'] as const).map((phase) => {
     const raw = item(arcInput.find((entry) => item(entry).phase === phase));
     const base = fallback.buildArc.find((entry) => entry.phase === phase)!;
-    return { phase, headline: clean(raw.headline, 100, base.headline), summary: clean(raw.summary, 260, base.summary), sourceRefs: sourceRefs(raw.sourceRefs, allowed, base.sourceRefs) };
+    return { phase, headline: clean(`buildArc.${phase}.headline`, raw.headline, 100, base.headline, fallbacks), summary: clean(`buildArc.${phase}.summary`, raw.summary, 260, base.summary, fallbacks), sourceRefs: sourceRefs(`buildArc.${phase}.sourceRefs`, raw.sourceRefs, allowed, base.sourceRefs, fallbacks) };
   });
   const rawMoments = Array.isArray(candidate.moments) ? candidate.moments : [];
   const moments = rawMoments.slice(0, 5).map((entry, index) => {
     const raw = item(entry); const base = fallback.moments[index % fallback.moments.length]!;
-    return { phase: raw.phase === "discover" || raw.phase === "decide" || raw.phase === "deliver" ? raw.phase : base.phase, kind: raw.kind === "discovery" || raw.kind === "decision" || raw.kind === "breakthrough" || raw.kind === "delivery" ? raw.kind : base.kind, title: clean(raw.title, 120, base.title), whatHappened: clean(raw.whatHappened, 400, base.whatHappened), whyItMattered: clean(raw.whyItMattered, 400, base.whyItMattered), sourceRefs: sourceRefs(raw.sourceRefs, allowed, base.sourceRefs) };
+    return { phase: raw.phase === "discover" || raw.phase === "decide" || raw.phase === "deliver" ? raw.phase : base.phase, kind: raw.kind === "discovery" || raw.kind === "decision" || raw.kind === "breakthrough" || raw.kind === "delivery" ? raw.kind : base.kind, title: clean(`moments.${index}.title`, raw.title, 120, base.title, fallbacks), whatHappened: clean(`moments.${index}.whatHappened`, raw.whatHappened, 400, base.whatHappened, fallbacks), whyItMattered: clean(`moments.${index}.whyItMattered`, raw.whyItMattered, 400, base.whyItMattered, fallbacks), sourceRefs: sourceRefs(`moments.${index}.sourceRefs`, raw.sourceRefs, allowed, base.sourceRefs, fallbacks) };
   });
   if (moments.length < 3) { fallbacks.push("moments"); moments.push(...fallback.moments.slice(moments.length, 3)); }
-  const decisions = (Array.isArray(candidate.decisions) ? candidate.decisions : []).slice(0, 4).map((entry, index) => { const raw = item(entry); const base = fallback.decisions[index % fallback.decisions.length]!; return { title: clean(raw.title, 120, base.title), rationale: clean(raw.rationale, 300, base.rationale), outcome: clean(raw.outcome, 300, base.outcome), sourceRefs: sourceRefs(raw.sourceRefs, allowed, base.sourceRefs) }; });
+  const decisions = (Array.isArray(candidate.decisions) ? candidate.decisions : []).slice(0, 4).map((entry, index) => { const raw = item(entry); const base = fallback.decisions[index % fallback.decisions.length]!; return { title: clean(`decisions.${index}.title`, raw.title, 120, base.title, fallbacks), rationale: clean(`decisions.${index}.rationale`, raw.rationale, 300, base.rationale, fallbacks), outcome: clean(`decisions.${index}.outcome`, raw.outcome, 300, base.outcome, fallbacks), sourceRefs: sourceRefs(`decisions.${index}.sourceRefs`, raw.sourceRefs, allowed, base.sourceRefs, fallbacks) }; });
   if (decisions.length < 2) { fallbacks.push("decisions"); decisions.push(...fallback.decisions.slice(decisions.length, 2)); }
-  const insightList = (name: "learnings" | "standoutTraits") => { const result = (Array.isArray(candidate[name]) ? candidate[name] : []).slice(0, 4).map((entry, index) => { const raw = item(entry); const base = fallback[name][index % fallback[name].length]!; return { title: clean(raw.title, 120, base.title), detail: clean(raw.detail, 300, base.detail), sourceRefs: sourceRefs(raw.sourceRefs, allowed, base.sourceRefs) }; }); if (result.length < 2) { fallbacks.push(name); result.push(...fallback[name].slice(result.length, 2)); } return result; };
+  const insightList = (name: "learnings" | "standoutTraits") => { const result = (Array.isArray(candidate[name]) ? candidate[name] : []).slice(0, 4).map((entry, index) => { const raw = item(entry); const base = fallback[name][index % fallback[name].length]!; return { title: clean(`${name}.${index}.title`, raw.title, 120, base.title, fallbacks), detail: clean(`${name}.${index}.detail`, raw.detail, 300, base.detail, fallbacks), sourceRefs: sourceRefs(`${name}.${index}.sourceRefs`, raw.sourceRefs, allowed, base.sourceRefs, fallbacks) }; }); if (result.length < 2) { fallbacks.push(name); result.push(...fallback[name].slice(result.length, 2)); } return result; };
   const turning = item(candidate.turningPoint); const growth = item(candidate.growthEdge);
-  return { storyPack: { version: "2.0.0", sources: fallback.sources, hero: { headline: clean(hero.headline, 120, fallback.hero.headline), summary: clean(hero.summary, 480, fallback.hero.summary) }, buildArc, moments, turningPoint: { quote: clean(turning.quote, 300, fallback.turningPoint.quote), sourceRefs: sourceRefs(turning.sourceRefs, allowed, fallback.turningPoint.sourceRefs) }, decisions, learnings: insightList("learnings"), standoutTraits: insightList("standoutTraits"), growthEdge: { title: clean(growth.title, 120, fallback.growthEdge.title), observation: clean(growth.observation, 400, fallback.growthEdge.observation), nextStep: clean(growth.nextStep, 300, fallback.growthEdge.nextStep), sourceRefs: sourceRefs(growth.sourceRefs, allowed, fallback.growthEdge.sourceRefs) } }, fallbacksUsed: [...new Set(fallbacks)].sort() };
+  return { storyPack: { version: "2.0.0", sources: fallback.sources, hero: { headline: clean("hero.headline", hero.headline, 120, fallback.hero.headline, fallbacks), summary: clean("hero.summary", hero.summary, 480, fallback.hero.summary, fallbacks) }, buildArc, moments, turningPoint: { quote: clean("turningPoint.quote", turning.quote, 300, fallback.turningPoint.quote, fallbacks), sourceRefs: sourceRefs("turningPoint.sourceRefs", turning.sourceRefs, allowed, fallback.turningPoint.sourceRefs, fallbacks) }, decisions, learnings: insightList("learnings"), standoutTraits: insightList("standoutTraits"), growthEdge: { title: clean("growthEdge.title", growth.title, 120, fallback.growthEdge.title, fallbacks), observation: clean("growthEdge.observation", growth.observation, 400, fallback.growthEdge.observation, fallbacks), nextStep: clean("growthEdge.nextStep", growth.nextStep, 300, fallback.growthEdge.nextStep, fallbacks), sourceRefs: sourceRefs("growthEdge.sourceRefs", growth.sourceRefs, allowed, fallback.growthEdge.sourceRefs, fallbacks) } }, fallbacksUsed: [...new Set(fallbacks)].sort() };
 }
 
 export function sectionsFromStoryPack(pack: ReportStoryPackV2): GeneratedNarrativeSections {

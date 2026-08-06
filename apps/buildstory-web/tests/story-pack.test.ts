@@ -1,0 +1,90 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { publicBuildStoryFromSnapshot } from "../lib/build-story";
+import { reportSnapshotFromScanner } from "../lib/ingestion/report-adapter";
+import { validateProjectSnapshot } from "../lib/ingestion/validation";
+import { defaultStoryPack, normalizeStoryPack, validateStoryPackComponent } from "../lib/narrative/story-pack";
+import type { ScannerProjectSnapshot } from "../lib/ingestion/scanner-project-snapshot";
+import scannerFixture from "./fixtures/scanner-project-snapshot.json";
+
+const snapshot = scannerFixture as unknown as ScannerProjectSnapshot;
+
+test("story-pack component validation rejects malformed structure, enums, cardinality, and provenance", () => {
+  const pack = defaultStoryPack(snapshot);
+  const refs = new Set(pack.sources.map((source) => source.ref));
+  assert.equal(validateStoryPackComponent({
+    hero: pack.hero,
+    buildArc: pack.buildArc,
+    moments: pack.moments,
+    turningPoint: pack.turningPoint,
+  }, "story", refs).ok, true);
+
+  const malformed = structuredClone(pack) as Record<string, unknown>;
+  const moments = malformed.moments as Array<Record<string, unknown>>;
+  moments[0]!.kind = "invented-kind";
+  moments.push(...moments.slice(0, 3));
+  const firstRefs = (moments[1]!.sourceRefs as string[]);
+  moments[1]!.sourceRefs = [...firstRefs, firstRefs[0] ?? "unknown"];
+  const result = validateStoryPackComponent({
+    hero: malformed.hero,
+    buildArc: malformed.buildArc,
+    moments,
+    turningPoint: malformed.turningPoint,
+  }, "story", refs);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((error) => error.includes("unsupported")));
+  assert.ok(result.errors.some((error) => error.includes("at most 5")));
+  assert.ok(result.errors.some((error) => error.includes("duplicates") || error.includes("unknown")));
+});
+
+test("normalization always emits one build arc per phase and records component fallbacks", () => {
+  const result = normalizeStoryPack({ hero: { headline: "Only a headline" }, buildArc: [{ phase: "discover" }] }, snapshot);
+  assert.deepEqual(result.storyPack.buildArc.map((phase) => phase.phase), ["discover", "decide", "deliver"]);
+  assert.equal(result.storyPack.moments.length, 3);
+  assert.ok(result.fallbacksUsed.includes("moments"));
+  assert.ok(result.fallbacksUsed.includes("decisions"));
+  assert.ok(result.fallbacksUsed.includes("learnings"));
+});
+
+test("public story projection exposes only safe fallback metadata and strips session/excerpt references", () => {
+  const pack = defaultStoryPack(snapshot);
+  const privateSnapshot = reportSnapshotFromScanner({
+    ...snapshot,
+    generatedNarrative: {
+      version: "2.0.0",
+      generatedAt: snapshot.generatedAt,
+      mode: "local",
+      provider: "ollama",
+      model: "gemma4:12b",
+      sections: {
+        headline: pack.hero.headline,
+        narrative: pack.hero.summary,
+        turningPoint: pack.turningPoint.quote,
+        learnings: pack.learnings.map((item) => item.detail),
+        decisionPatterns: pack.decisions.map((item) => item.rationale),
+        standoutTraits: pack.standoutTraits.map((item) => item.detail),
+        growthEdge: pack.growthEdge.observation,
+      },
+      storyPack: pack,
+      fallbacksUsed: ["moments"],
+    },
+  }, { id: "project_test", slug: "test-project" }, { id: "usr_test", name: "Test Builder", handle: "test", role: "Builder" });
+  const projection = publicBuildStoryFromSnapshot(privateSnapshot, ["narrative", "storyMoments"]);
+  assert.deepEqual(projection.fallbacksUsed, ["moments"]);
+  assert.deepEqual(projection.narrative?.fallbacksUsed, ["moments"]);
+  assert.ok(projection.storyPack);
+  assert.ok(projection.storyPack!.sources.every((source) => !("sessionRef" in source) && !("excerptRef" in source)));
+});
+
+test("production upload validation rejects legacy scanner contracts", () => {
+  const previous = process.env.NODE_ENV;
+  Reflect.set(process.env, "NODE_ENV", "production");
+  try {
+    const result = validateProjectSnapshot(snapshot);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.match(result.errors[0] ?? "", /Production uploads require ProjectSnapshot 1\.6\.0/);
+  } finally {
+    if (previous === undefined) Reflect.deleteProperty(process.env, "NODE_ENV");
+    else Reflect.set(process.env, "NODE_ENV", previous);
+  }
+});

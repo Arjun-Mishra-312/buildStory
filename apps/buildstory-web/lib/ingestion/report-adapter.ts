@@ -169,8 +169,11 @@ export function reportSnapshotFromScanner(
       timeWindow: snapshot.timeWindow,
     }),
     ...(snapshot.generatedNarrative ? {
-      narrative: snapshot.generatedNarrative.sections,
-      ...(snapshot.generatedNarrative.storyPack ? { storyPack: snapshot.generatedNarrative.storyPack } : {}),
+      narrative: {
+        ...snapshot.generatedNarrative.sections,
+        ...(snapshot.generatedNarrative.storyPack ? { storyPack: snapshot.generatedNarrative.storyPack } : {}),
+        fallbacksUsed: snapshot.generatedNarrative.fallbacksUsed,
+      },
     } : {}),
   };
 }

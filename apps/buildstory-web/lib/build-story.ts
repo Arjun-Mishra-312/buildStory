@@ -188,9 +188,15 @@ export function publicBuildStoryFromSnapshot(
           learnings: story.narrative.learnings.map(
             (line) => sanitizePublicText(line, NARRATIVE_FIELD_LIMITS.learningItem).value,
           ),
+          ...(story.narrative.fallbacksUsed?.length
+            ? { fallbacksUsed: [...new Set(story.narrative.fallbacksUsed)].slice(0, 40) }
+            : {}),
           ...(story.narrative.storyPack ? { storyPack: publicStoryPack(story.narrative.storyPack, selected) } : {}),
         }
       : null,
+    fallbacksUsed: story.narrative?.fallbacksUsed?.length
+      ? [...new Set(story.narrative.fallbacksUsed)].slice(0, 40)
+      : [],
     storyPack: story.narrative?.storyPack && (selected.has("narrative") || ["storyBuildArc", "storyMoments", "storyTurningPoint", "storyDecisions", "storyLearnings", "storyTraits", "storyGrowthEdge"].some((field) => selected.has(field as PublicFieldKey)))
       ? publicStoryPack(story.narrative.storyPack, selected)
       : null,

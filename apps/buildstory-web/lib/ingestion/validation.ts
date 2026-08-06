@@ -457,6 +457,21 @@ export function validateProjectSnapshot(
   const forbidden = rawFieldViolations(value);
   if (forbidden.length) return { ok: false, errors: forbidden };
 
+  // Older validators remain available for local rollout fixtures, but a
+  // production upload must come from the scanner that matches the current
+  // contract. This prevents legacy renderers from silently dropping source
+  // diagnostics, story packs, or cost fields.
+  if (process.env.NODE_ENV === "production" && value && typeof value === "object" && !Array.isArray(value)) {
+    const version = (value as { schemaVersion?: unknown }).schemaVersion;
+    if (version !== PROJECT_SNAPSHOT_SCHEMA_VERSION) {
+      return { ok: false, errors: [`Production uploads require ProjectSnapshot ${PROJECT_SNAPSHOT_SCHEMA_VERSION}; received ${String(version ?? "missing")}.`] };
+    }
+    const generated = (value as { generatedNarrative?: { version?: unknown; storyPack?: unknown } }).generatedNarrative;
+    if (generated && (generated.version !== "2.0.0" || !generated.storyPack)) {
+      return { ok: false, errors: ["Production uploads require GeneratedNarrative 2.0.0 with a complete ReportStoryPackV2."] };
+    }
+  }
+
   const { validate: validateSchema, versionLabel } = resolveValidator(value);
   if (!validateSchema(value)) {
     const errors = (validateSchema.errors ?? [])

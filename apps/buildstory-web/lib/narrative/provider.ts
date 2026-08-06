@@ -7,7 +7,7 @@ import {
 import type { NarrativeProfileSections, NarrativeSections } from "./schema";
 import { isOllamaAutoModel, isOllamaBaseUrl, resolveOllamaModel } from "./ollama";
 import type { ScannerProjectSnapshot } from "../ingestion/scanner-project-snapshot";
-import { defaultStoryPack, normalizeStoryPack, sectionsFromStoryPack } from "./story-pack";
+import { defaultStoryPack, normalizeStoryPack, sectionsFromStoryPack, validateStoryPackComponent, type StoryPackComponent } from "./story-pack";
 import type { ReportStoryPackV2 } from "../ingestion/scanner-project-snapshot";
 import { sanitizePublicText } from "../publication/sanitization";
 
@@ -139,15 +139,21 @@ async function requestWithRepair(
   responseFormat: unknown,
   isOllama: boolean,
   allowedRefs: Set<string>,
+  component: StoryPackComponent,
 ): Promise<Completion> {
   let currentMessages = messages;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const result = await requestCompletion(baseUrl, apiKey, model, currentMessages, responseFormat, isOllama);
       const invalid = unknownSourceRefs(result.value, allowedRefs);
-      if (!invalid.length) return result;
+      const validation = validateStoryPackComponent(result.value, component, allowedRefs);
+      if (!invalid.length && validation.ok) return result;
       if (attempt === 1) return result;
-      currentMessages = [...messages, { role: "user", content: `Validation feedback: sourceRefs ${invalid.join(", ")} are unknown. Retry with only the provided source references.` }];
+      const feedback = [
+        invalid.length ? `unknown sourceRefs: ${invalid.join(", ")}` : "",
+        validation.errors.length ? `schema issues: ${validation.errors.slice(0, 8).join("; ")}` : "",
+      ].filter(Boolean).join(". ");
+      currentMessages = [...messages, { role: "user", content: `Validation feedback: ${feedback}. Return one JSON object matching the supplied schema and use only the provided source references.` }];
     } catch (error) {
       if (attempt === 1) throw error;
       currentMessages = [...messages, { role: "user", content: "Validation feedback: return a single valid JSON object matching the supplied schema. Do not include prose or markdown." }];
@@ -192,7 +198,7 @@ export async function generateNarrative(snapshot: ScannerProjectSnapshot, reques
   const allowedRefs = new Set(defaultStoryPack(snapshot).sources.map((source) => source.ref));
   let storyValue: unknown;
   try {
-    const result = await requestWithRepair(baseUrl, apiKey, model, buildNarrativeMessages(snapshot), NARRATIVE_RESPONSE_FORMAT, isOllama, allowedRefs);
+    const result = await requestWithRepair(baseUrl, apiKey, model, buildNarrativeMessages(snapshot), NARRATIVE_RESPONSE_FORMAT, isOllama, allowedRefs, "story");
     inputTokens += result.inputTokens;
     outputTokens += result.outputTokens;
     storyValue = result.value;
@@ -203,7 +209,7 @@ export async function generateNarrative(snapshot: ScannerProjectSnapshot, reques
 
   let profileValue: unknown;
   try {
-    const result = await requestWithRepair(baseUrl, apiKey, model, buildProfileMessages(snapshot), NARRATIVE_PROFILE_RESPONSE_FORMAT, isOllama, allowedRefs);
+    const result = await requestWithRepair(baseUrl, apiKey, model, buildProfileMessages(snapshot), NARRATIVE_PROFILE_RESPONSE_FORMAT, isOllama, allowedRefs, "insights");
     inputTokens += result.inputTokens;
     outputTokens += result.outputTokens;
     profileValue = result.value;

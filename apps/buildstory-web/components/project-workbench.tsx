@@ -525,7 +525,7 @@ export function ProjectWorkbench({
                   </aside>
                 ) : null}
 
-                {storyPack ? <StoryPackView pack={storyPack} privateView={false} reviewedEvidence={reviewedEvidence} /> : <section className="story-section story-pack-empty" aria-live="polite">
+                {storyPack ? <StoryPackView pack={storyPack} privateView={false} reviewedEvidence={reviewedEvidence} fallbacksUsed={"fallbacksUsed" in story ? story.fallbacksUsed : []} /> : <section className="story-section story-pack-empty" aria-live="polite">
                   <span className="story-section__number">02</span>
                   <div>
                     <span className="story-section__label">THE BUILD</span>
@@ -723,7 +723,7 @@ export function ProjectWorkbench({
               </div>
               {privateStory.cost && privateStory.cost.unpricedTokens > 0 ? (
                 <small className="report-models__unpriced">
-                  {compactNumber.format(privateStory.cost.unpricedTokens)} tokens from a model outside the pricing table aren't priced.
+                  {compactNumber.format(privateStory.cost.unpricedTokens)} tokens from a model outside the pricing table aren&apos;t priced.
                 </small>
               ) : null}
               <div className="report-tools">
@@ -786,24 +786,11 @@ export function ProjectWorkbench({
               <section className="report-card report-card--narrative">
                 <header><span>07 / AI-WRITTEN NARRATIVE</span><strong>{narrative?.mode === "cloud" ? "Cloud model" : "Local model"}</strong></header>
                 {resolvedNarrativeStatus === "narrative_ready" && narrative?.sections ? (
-                  storyPack ? <StoryPackView pack={storyPack} privateView reviewedEvidence={reviewedEvidence} fallbacksUsed={narrative.fallbacksUsed} /> : <div className="narrative-sections">
-                    <h3>{narrative.sections.headline}</h3>
-                    <p>{narrative.sections.narrative}</p>
-                    <aside className="story-quote">
-                      <span>TURNING POINT</span>
-                      <blockquote>“{narrative.sections.turningPoint}”</blockquote>
-                    </aside>
-                    <ul>{narrative.sections.learnings.map((line) => <li key={line}>{line}</li>)}</ul>
-                    {narrative.sections.decisionPatterns?.length ? <><h4>Decision patterns</h4><ul>{narrative.sections.decisionPatterns.map((line) => <li key={line}>{line}</li>)}</ul></> : null}
-                    {narrative.sections.standoutTraits?.length ? <><h4>Standout traits</h4><ul>{narrative.sections.standoutTraits.map((line) => <li key={line}>{line}</li>)}</ul></> : null}
-                    {narrative.sections.growthEdge ? <><h4>Growth edge</h4><p>{narrative.sections.growthEdge}</p></> : null}
-                    {narrative.fallbacksUsed?.length ? (
-                      <p className="narrative-fallback-note">
-                        {narrative.fallbacksUsed.length === 1 ? "One section" : `${narrative.fallbacksUsed.length} sections`} used a default fallback instead of a model-written result ({narrative.fallbacksUsed.join(", ")}).
-                      </p>
-                    ) : null}
-                    <small>{narrative.model} · {(narrative.costMicroUsd / 1_000_000).toFixed(4)} USD</small>
-                  </div>
+                  storyPack ? <StoryPackView pack={storyPack} privateView reviewedEvidence={reviewedEvidence} fallbacksUsed={narrative.fallbacksUsed} /> : <section className="story-section story-pack-empty" aria-live="polite">
+                    <span className="story-section__label">STRUCTURED STORY PACK</span>
+                    <h3>Structured cards are not available for this report.</h3>
+                    <p>This report was generated with an older narrative payload. Regenerate it with the current scanner to populate evidence-linked moments, decisions, learnings, traits, and growth cards.</p>
+                  </section>
                 ) : resolvedNarrativeStatus === "narrative_failed" ? (
                   <p>The narrative model could not generate a story for this scan after retrying. No further attempts are made automatically.</p>
                 ) : (

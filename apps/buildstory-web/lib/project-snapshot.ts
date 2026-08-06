@@ -135,6 +135,8 @@ export type ReportNarrative = {
   standoutTraits: string[];
   growthEdge: string;
   storyPack?: ReportStoryPackV2;
+  /** Safe component paths only; never contains prompts, excerpts, or source text. */
+  fallbacksUsed?: string[];
 };
 
 export type RedactionSummary = {

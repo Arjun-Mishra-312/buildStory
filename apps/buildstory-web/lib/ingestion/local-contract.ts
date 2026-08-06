@@ -3,11 +3,15 @@ import { LocalApiRequestError } from "./local-api";
 import { LEGACY_PROJECT_SNAPSHOT_SCHEMA_VERSION, OLDEST_PROJECT_SNAPSHOT_SCHEMA_VERSION, PROJECT_SNAPSHOT_SCHEMA_VERSION } from "./scanner-project-snapshot";
 
 /** Every ProjectSnapshot version this server still accepts at the upload boundary. See validation.ts. */
-const ACCEPTED_SNAPSHOT_SCHEMA_VERSIONS: readonly string[] = [
-  PROJECT_SNAPSHOT_SCHEMA_VERSION,
-  LEGACY_PROJECT_SNAPSHOT_SCHEMA_VERSION,
-  OLDEST_PROJECT_SNAPSHOT_SCHEMA_VERSION,
-];
+function acceptedSnapshotSchemaVersions(): readonly string[] {
+  return process.env.NODE_ENV === "production"
+    ? [PROJECT_SNAPSHOT_SCHEMA_VERSION]
+    : [
+        PROJECT_SNAPSHOT_SCHEMA_VERSION,
+        LEGACY_PROJECT_SNAPSHOT_SCHEMA_VERSION,
+        OLDEST_PROJECT_SNAPSHOT_SCHEMA_VERSION,
+      ];
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -88,14 +92,15 @@ export function parseLocalConnectRequest(value: unknown): LocalConnectRequest {
         "capabilities accepts only projectSnapshotSchemaVersions and snapshotUpload.",
       );
     }
+    const acceptedVersions = acceptedSnapshotSchemaVersions();
     if (
       !Array.isArray(value.capabilities.projectSnapshotSchemaVersions) ||
       value.capabilities.projectSnapshotSchemaVersions.length !== 1 ||
       typeof value.capabilities.projectSnapshotSchemaVersions[0] !== "string" ||
-      !ACCEPTED_SNAPSHOT_SCHEMA_VERSIONS.includes(value.capabilities.projectSnapshotSchemaVersions[0])
+      !acceptedVersions.includes(value.capabilities.projectSnapshotSchemaVersions[0])
     ) {
       details.push(
-        `The scanner must support one of ProjectSnapshot ${ACCEPTED_SNAPSHOT_SCHEMA_VERSIONS.join(" or ")}.`,
+        `The scanner must support ProjectSnapshot ${acceptedVersions.join(" or ")}.`,
       );
     }
     if (value.capabilities.snapshotUpload !== false) {
