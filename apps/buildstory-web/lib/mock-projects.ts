@@ -128,12 +128,28 @@ export const orbitNotesSnapshot = {
         label: "GPT-5.4 Codex",
         provider: "OpenAI",
         requests: 184,
+        tokenUsage: {
+          inputTokens: 590000,
+          outputTokens: 118000,
+          totalTokens: 708000,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+        },
+        costMicroUsd: 1917500,
       },
       {
         id: "claude-sonnet-4",
         label: "Claude Sonnet 4",
         provider: "Anthropic",
         requests: 67,
+        tokenUsage: {
+          inputTokens: 206750,
+          outputTokens: 41696,
+          totalTokens: 248446,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+        },
+        costMicroUsd: 1245690,
       },
     ],
     tools: [
@@ -153,6 +169,12 @@ export const orbitNotesSnapshot = {
       totalTokens: 956446,
       cacheReadInputTokens: 0,
       cacheCreationInputTokens: 0,
+    },
+    cost: {
+      totalMicroUsd: 3163190,
+      pricedTokens: 956446,
+      unpricedTokens: 0,
+      pricingTableVersion: "2026-08-05.1",
     },
   },
   git: {

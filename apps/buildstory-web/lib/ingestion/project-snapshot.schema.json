@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://story-scanner.local/schemas/project-snapshot-1.5.0.json",
+  "$id": "https://story-scanner.local/schemas/project-snapshot-1.6.0.json",
   "title": "ProjectSnapshot",
   "description": "Privacy-preserving aggregate of repository and AI coding-session activity. Transcript bodies, tool payloads, paths, diffs, and source text are intentionally not representable.",
   "type": "object",
@@ -22,7 +22,7 @@
     "quality"
   ],
   "properties": {
-    "schemaVersion": { "const": "1.5.0" },
+    "schemaVersion": { "const": "1.6.0" },
     "scanId": { "type": "string", "pattern": "^scan_[a-f0-9]{24}$" },
     "generatedAt": { "$ref": "#/$defs/dateTime" },
     "sourceSelection": { "$ref": "#/$defs/sourceSelection" },
@@ -248,7 +248,19 @@
               "provider": { "type": "string", "minLength": 1, "maxLength": 80 },
               "name": { "type": "string", "minLength": 1, "maxLength": 160 },
               "turnCount": { "$ref": "#/$defs/nonNegativeInteger" },
-              "sessionCount": { "$ref": "#/$defs/nonNegativeInteger" }
+              "sessionCount": { "$ref": "#/$defs/nonNegativeInteger" },
+              "tokenUsage": {
+                "anyOf": [
+                  { "$ref": "#/$defs/tokenUsage" },
+                  { "type": "null" }
+                ]
+              },
+              "costMicroUsd": {
+                "anyOf": [
+                  { "$ref": "#/$defs/nonNegativeInteger" },
+                  { "type": "null" }
+                ]
+              }
             }
           }
         },
@@ -259,6 +271,22 @@
             { "$ref": "#/$defs/tokenUsage" },
             { "type": "null" }
           ]
+        },
+        "cost": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["totalMicroUsd", "pricedTokens", "unpricedTokens", "pricingTableVersion"],
+          "properties": {
+            "totalMicroUsd": {
+              "anyOf": [
+                { "$ref": "#/$defs/nonNegativeInteger" },
+                { "type": "null" }
+              ]
+            },
+            "pricedTokens": { "$ref": "#/$defs/nonNegativeInteger" },
+            "unpricedTokens": { "$ref": "#/$defs/nonNegativeInteger" },
+            "pricingTableVersion": { "type": "string", "minLength": 1, "maxLength": 40 }
+          }
         }
       }
     },
@@ -453,25 +481,74 @@
         "evidenceRefs": { "type": "array", "items": { "type": "string", "pattern": "^ev_[a-f0-9]{20}$" } },
         "excerptRef": { "type": "string", "pattern": "^exc_[a-f0-9]{20}$" },
         "metrics": {
-          "type": "object", "additionalProperties": false, "required": ["turns", "assistantMessages", "toolCalls"],
-          "properties": { "turns": { "$ref": "#/$defs/nonNegativeInteger" }, "assistantMessages": { "$ref": "#/$defs/nonNegativeInteger" }, "toolCalls": { "$ref": "#/$defs/nonNegativeInteger" } }
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["turns", "assistantMessages", "toolCalls"],
+          "properties": {
+            "turns": { "$ref": "#/$defs/nonNegativeInteger" },
+            "assistantMessages": { "$ref": "#/$defs/nonNegativeInteger" },
+            "toolCalls": { "$ref": "#/$defs/nonNegativeInteger" }
+          }
         }
       }
     },
     "storyPack": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["version", "sources", "hero", "buildArc", "moments", "turningPoint", "decisions", "learnings", "standoutTraits", "growthEdge"],
       "properties": {
         "version": { "const": "2.0.0" },
         "sources": { "type": "array", "items": { "$ref": "#/$defs/storyPackSource" } },
-        "hero": { "type": "object", "additionalProperties": false, "required": ["headline", "summary"], "properties": { "headline": { "type": "string", "minLength": 1, "maxLength": 120 }, "summary": { "type": "string", "minLength": 1, "maxLength": 480 } } },
-        "buildArc": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "object", "additionalProperties": false, "required": ["phase", "headline", "summary", "sourceRefs"], "properties": { "phase": { "enum": ["discover", "decide", "deliver"] }, "headline": { "type": "string", "minLength": 1, "maxLength": 100 }, "summary": { "type": "string", "minLength": 1, "maxLength": 260 }, "sourceRefs": { "type": "array", "items": { "type": "string", "pattern": "^(S[0-9]{2,}|GIT)$" } } } } },
-        "moments": { "type": "array", "minItems": 3, "maxItems": 5, "items": { "type": "object", "additionalProperties": false, "required": ["phase", "kind", "title", "whatHappened", "whyItMattered", "sourceRefs"], "properties": { "phase": { "enum": ["discover", "decide", "deliver"] }, "kind": { "enum": ["discovery", "decision", "breakthrough", "delivery"] }, "title": { "type": "string", "minLength": 1, "maxLength": 120 }, "whatHappened": { "type": "string", "minLength": 1, "maxLength": 400 }, "whyItMattered": { "type": "string", "minLength": 1, "maxLength": 400 }, "sourceRefs": { "type": "array", "items": { "type": "string", "pattern": "^(S[0-9]{2,}|GIT)$" } } } } },
-        "turningPoint": { "type": "object", "additionalProperties": false, "required": ["quote", "sourceRefs"], "properties": { "quote": { "type": "string", "minLength": 1, "maxLength": 300 }, "sourceRefs": { "type": "array", "items": { "type": "string", "pattern": "^(S[0-9]{2,}|GIT)$" } } } },
-        "decisions": { "type": "array", "minItems": 2, "maxItems": 4, "items": { "type": "object", "additionalProperties": false, "required": ["title", "rationale", "outcome", "sourceRefs"], "properties": { "title": { "type": "string", "minLength": 1, "maxLength": 120 }, "rationale": { "type": "string", "minLength": 1, "maxLength": 300 }, "outcome": { "type": "string", "minLength": 1, "maxLength": 300 }, "sourceRefs": { "type": "array", "items": { "type": "string", "pattern": "^(S[0-9]{2,}|GIT)$" } } } } },
-        "learnings": { "type": "array", "minItems": 2, "maxItems": 4, "items": { "type": "object", "additionalProperties": false, "required": ["title", "detail", "sourceRefs"], "properties": { "title": { "type": "string", "minLength": 1, "maxLength": 120 }, "detail": { "type": "string", "minLength": 1, "maxLength": 300 }, "sourceRefs": { "type": "array", "items": { "type": "string", "pattern": "^(S[0-9]{2,}|GIT)$" } } } } },
-        "standoutTraits": { "type": "array", "minItems": 2, "maxItems": 4, "items": { "type": "object", "additionalProperties": false, "required": ["title", "detail", "sourceRefs"], "properties": { "title": { "type": "string", "minLength": 1, "maxLength": 120 }, "detail": { "type": "string", "minLength": 1, "maxLength": 300 }, "sourceRefs": { "type": "array", "items": { "type": "string", "pattern": "^(S[0-9]{2,}|GIT)$" } } } } },
-        "growthEdge": { "type": "object", "additionalProperties": false, "required": ["title", "observation", "nextStep", "sourceRefs"], "properties": { "title": { "type": "string", "minLength": 1, "maxLength": 120 }, "observation": { "type": "string", "minLength": 1, "maxLength": 400 }, "nextStep": { "type": "string", "minLength": 1, "maxLength": 300 }, "sourceRefs": { "type": "array", "items": { "type": "string", "pattern": "^(S[0-9]{2,}|GIT)$" } } } }
+        "hero": {
+          "type": "object", "additionalProperties": false, "required": ["headline", "summary"],
+          "properties": { "headline": { "type": "string", "minLength": 1, "maxLength": 120 }, "summary": { "type": "string", "minLength": 1, "maxLength": 480 } }
+        },
+        "buildArc": {
+          "type": "array", "minItems": 3, "maxItems": 3,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["phase", "headline", "summary", "sourceRefs"],
+            "properties": {
+              "phase": { "enum": ["discover", "decide", "deliver"] },
+              "headline": { "type": "string", "minLength": 1, "maxLength": 100 },
+              "summary": { "type": "string", "minLength": 1, "maxLength": 260 },
+              "sourceRefs": { "type": "array", "items": { "type": "string", "pattern": "^(S[0-9]{2,}|GIT)$" } }
+            }
+          }
+        },
+        "moments": {
+          "type": "array", "minItems": 3, "maxItems": 5,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["phase", "kind", "title", "whatHappened", "whyItMattered", "sourceRefs"],
+            "properties": {
+              "phase": { "enum": ["discover", "decide", "deliver"] },
+              "kind": { "enum": ["discovery", "decision", "breakthrough", "delivery"] },
+              "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "whatHappened": { "type": "string", "minLength": 1, "maxLength": 400 },
+              "whyItMattered": { "type": "string", "minLength": 1, "maxLength": 400 },
+              "sourceRefs": { "type": "array", "items": { "type": "string", "pattern": "^(S[0-9]{2,}|GIT)$" } }
+            }
+          }
+        },
+        "turningPoint": {
+          "type": "object", "additionalProperties": false, "required": ["quote", "sourceRefs"],
+          "properties": { "quote": { "type": "string", "minLength": 1, "maxLength": 300 }, "sourceRefs": { "type": "array", "items": { "type": "string", "pattern": "^(S[0-9]{2,}|GIT)$" } } }
+        },
+        "decisions": {
+          "type": "array", "minItems": 2, "maxItems": 4,
+          "items": { "type": "object", "additionalProperties": false, "required": ["title", "rationale", "outcome", "sourceRefs"], "properties": { "title": { "type": "string", "minLength": 1, "maxLength": 120 }, "rationale": { "type": "string", "minLength": 1, "maxLength": 300 }, "outcome": { "type": "string", "minLength": 1, "maxLength": 300 }, "sourceRefs": { "type": "array", "items": { "type": "string", "pattern": "^(S[0-9]{2,}|GIT)$" } } } }
+        },
+        "learnings": {
+          "type": "array", "minItems": 2, "maxItems": 4,
+          "items": { "type": "object", "additionalProperties": false, "required": ["title", "detail", "sourceRefs"], "properties": { "title": { "type": "string", "minLength": 1, "maxLength": 120 }, "detail": { "type": "string", "minLength": 1, "maxLength": 300 }, "sourceRefs": { "type": "array", "items": { "type": "string", "pattern": "^(S[0-9]{2,}|GIT)$" } } } }
+        },
+        "standoutTraits": {
+          "type": "array", "minItems": 2, "maxItems": 4,
+          "items": { "type": "object", "additionalProperties": false, "required": ["title", "detail", "sourceRefs"], "properties": { "title": { "type": "string", "minLength": 1, "maxLength": 120 }, "detail": { "type": "string", "minLength": 1, "maxLength": 300 }, "sourceRefs": { "type": "array", "items": { "type": "string", "pattern": "^(S[0-9]{2,}|GIT)$" } } } }
+        },
+        "growthEdge": {
+          "type": "object", "additionalProperties": false, "required": ["title", "observation", "nextStep", "sourceRefs"],
+          "properties": { "title": { "type": "string", "minLength": 1, "maxLength": 120 }, "observation": { "type": "string", "minLength": 1, "maxLength": 400 }, "nextStep": { "type": "string", "minLength": 1, "maxLength": 300 }, "sourceRefs": { "type": "array", "items": { "type": "string", "pattern": "^(S[0-9]{2,}|GIT)$" } } }
+        }
       }
     },
     "narrativeExcerpt": {

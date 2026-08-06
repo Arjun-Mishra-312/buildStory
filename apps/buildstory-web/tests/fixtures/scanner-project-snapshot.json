@@ -181,8 +181,10 @@
     "assumptions": [
       "When no explicit start is supplied, the scanner uses a deterministic 30-day lookback from the effective end.",
       "Git fileTouches is the sum of per-commit changed-file counts and is not a unique-file count.",
+      "Estimated cost is priced from a static, versioned table of known model families; a model not in that table shows tokens only, never a guessed price.",
       "Codex sessions are repository-scoped from session or turn-context working-directory metadata.",
-      "User-turn and assistant-message counts prefer event records and fall back to response records to avoid double counting."
+      "User-turn and assistant-message counts prefer event records and fall back to response records to avoid double counting.",
+      "Codex token usage is a cumulative session-wide snapshot, not tied to a specific model event; a session that switches models attributes its tokens and estimated cost to whichever model had the most turns."
     ]
   }
 }

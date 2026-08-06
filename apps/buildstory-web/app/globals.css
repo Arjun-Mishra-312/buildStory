@@ -2339,6 +2339,12 @@ html[data-theme="dark"] .closing-cta {
   font-size: var(--text-2xs);
 }
 
+.receipt__model-cost {
+  margin-left: 6px;
+  color: #77736a;
+  font-style: normal;
+}
+
 .receipt__bar {
   display: block;
   height: 6px;
@@ -2354,6 +2360,10 @@ html[data-theme="dark"] .closing-cta {
 .receipt__totals {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
+}
+
+.receipt__totals--with-cost {
+  grid-template-columns: repeat(4, 1fr);
 }
 
 .receipt__totals > div {
@@ -2700,10 +2710,35 @@ html[data-theme="dark"] .closing-cta {
 }
 
 .report-models > div > span:last-child {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
   color: var(--cobalt);
   font-family: Georgia, serif;
   font-size: 23px;
   font-style: italic;
+}
+
+.report-models__cost {
+  color: var(--muted);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: var(--text-2xs);
+  font-style: normal;
+}
+
+.report-models__unpriced {
+  display: block;
+  margin-top: 13px;
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+.report-card__cost-total {
+  color: var(--muted);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: var(--text-2xs);
+  font-weight: 650;
 }
 
 .report-tools {

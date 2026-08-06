@@ -27,6 +27,8 @@ type ProjectWorkbenchProps = {
 };
 
 const compactNumber = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+const usdFormat = new Intl.NumberFormat("en", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const formatMicroUsd = (microUsd: number) => usdFormat.format(microUsd / 1_000_000);
 
 const fieldOptions: Array<{ id: PublicFieldKey; label: string; detail: string }> = [
   { id: "tagline", label: "Tagline", detail: "Required for publication" },
@@ -35,6 +37,7 @@ const fieldOptions: Array<{ id: PublicFieldKey; label: string; detail: string }>
   { id: "sessionSummary", label: "Session summary", detail: "Count and active build time" },
   { id: "milestones", label: "Milestones", detail: "Selected turning points" },
   { id: "modelMix", label: "Model mix", detail: "Requests and relative share" },
+  { id: "costEstimate", label: "Estimated cost", detail: "Token spend by model, priced from a static table" },
   { id: "toolUsage", label: "Tool usage", detail: "Observed tools, not a score" },
   { id: "gitAggregates", label: "Git aggregates", detail: "Commits, files, and diff totals" },
   { id: "redactionSummary", label: "Redaction summary", detail: "Counts only, never redacted content" },
@@ -481,6 +484,10 @@ export function ProjectWorkbench({
                 <strong>{story.tokenUsage ? compactNumber.format(story.tokenUsage.totalTokens) : "—"}</strong>
                 <span>tokens processed</span>
               </div>
+              <div>
+                <strong>{story.cost?.totalMicroUsd != null ? formatMicroUsd(story.cost.totalMicroUsd) : "—"}</strong>
+                <span>est. AI spend</span>
+              </div>
             </div>
 
             <div className="story-layout section-wrap">
@@ -595,6 +602,16 @@ export function ProjectWorkbench({
                 <dt>Tokens</dt>
                 <dd>{privateStory.tokenUsage ? compactNumber.format(privateStory.tokenUsage.totalTokens) : "Not collected"}</dd>
               </div>
+              <div>
+                <dt>Est. cost</dt>
+                <dd>
+                  {privateStory.cost?.totalMicroUsd != null
+                    ? formatMicroUsd(privateStory.cost.totalMicroUsd)
+                    : privateStory.cost && privateStory.cost.unpricedTokens > 0
+                      ? "No priced models"
+                      : "Not collected"}
+                </dd>
+              </div>
               <div><dt>Redaction</dt><dd>Passed</dd></div>
               <div><dt>Revision</dt><dd>{privateStory.repository.currentRevision}</dd></div>
             </dl>
@@ -686,15 +703,29 @@ export function ProjectWorkbench({
             </section>
 
             <section className="report-card">
-              <header><span>03 / TOOL & MODEL USE</span><strong>Observed, not scored</strong></header>
+              <header>
+                <span>03 / TOOL & MODEL USE</span>
+                <strong>Observed, not scored</strong>
+                {privateStory.cost?.totalMicroUsd != null ? (
+                  <small className="report-card__cost-total">{formatMicroUsd(privateStory.cost.totalMicroUsd)} estimated</small>
+                ) : null}
+              </header>
               <div className="report-models">
                 {story.models.map((model) => (
                   <div key={model.id}>
-                    <span><strong>{model.label}</strong><small>{model.requests} turns</small></span>
-                    <span>{model.share}%</span>
+                    <span><strong>{model.label}</strong><small>{model.requests} turns{model.tokenUsage ? ` · ${compactNumber.format(model.tokenUsage.totalTokens)} tokens` : ""}</small></span>
+                    <span>
+                      {model.share}%
+                      {model.costMicroUsd != null ? <em className="report-models__cost">{formatMicroUsd(model.costMicroUsd)}</em> : null}
+                    </span>
                   </div>
                 ))}
               </div>
+              {privateStory.cost && privateStory.cost.unpricedTokens > 0 ? (
+                <small className="report-models__unpriced">
+                  {compactNumber.format(privateStory.cost.unpricedTokens)} tokens from a model outside the pricing table aren't priced.
+                </small>
+              ) : null}
               <div className="report-tools">
                 {privateStory.tools.map((tool) => <span key={tool.id}>{tool.label} · {tool.sessions}</span>)}
               </div>

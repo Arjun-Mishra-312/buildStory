@@ -24,6 +24,7 @@ export type PublicFieldKey =
   | "sessionSummary"
   | "milestones"
   | "modelMix"
+  | "costEstimate"
   | "toolUsage"
   | "gitAggregates"
   | "redactionSummary"

@@ -99,7 +99,7 @@ test("a locally generated narrative is stored ready without creating a cloud job
   try {
     const reportId = await acceptFreshSnapshot({
       ...structuredClone(scannerFixture),
-      schemaVersion: "1.4.0",
+      schemaVersion: "1.5.0",
       generatedNarrative: {
         version: "1.0.0",
         generatedAt: "2026-08-03T12:00:00.000Z",
@@ -134,7 +134,7 @@ test("a locally generated narrative is stored ready without creating a cloud job
 test("local and cloud narrative generation are mutually exclusive - a snapshot claiming both is rejected", async () => {
   const conflicted = {
     ...structuredClone(scannerFixture),
-    schemaVersion: "1.4.0",
+    schemaVersion: "1.5.0",
     generatedNarrative: {
       version: "1.0.0",
       generatedAt: "2026-08-03T12:00:00.000Z",

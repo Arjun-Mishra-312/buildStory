@@ -88,6 +88,16 @@ export function reportSnapshotFromScanner(
         label: model.name,
         provider: model.provider,
         requests: model.turnCount,
+        tokenUsage: model.tokenUsage
+          ? {
+              inputTokens: model.tokenUsage.inputTokens,
+              outputTokens: model.tokenUsage.outputTokens,
+              totalTokens: model.tokenUsage.totalTokens,
+              cacheReadInputTokens: model.tokenUsage.cacheReadInputTokens ?? 0,
+              cacheCreationInputTokens: model.tokenUsage.cacheCreationInputTokens ?? 0,
+            }
+          : null,
+        costMicroUsd: model.costMicroUsd ?? null,
       })),
       tools: snapshot.usage.tools.map((tool) => ({
         id: tool.name,
@@ -104,6 +114,8 @@ export function reportSnapshotFromScanner(
             cacheCreationInputTokens: snapshot.usage.tokenUsage.cacheCreationInputTokens ?? 0,
           }
         : null,
+      // Absent on a snapshot from a scanner older than 1.6.0 - "no cost data," same as an unpriced model.
+      cost: snapshot.usage.cost ?? null,
     },
     git: {
       commits: snapshot.git.commits,

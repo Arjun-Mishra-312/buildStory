@@ -54,6 +54,7 @@ export function buildStoryFromSnapshot(snapshot: ProjectSnapshot) {
     })),
     tools: snapshot.usage.tools,
     tokenUsage: snapshot.usage.tokenUsage,
+    cost: snapshot.usage.cost,
     stack: [snapshot.repository.framework, snapshot.repository.primaryLanguage, snapshot.repository.packageManager]
       .filter((value): value is string => Boolean(value) && value !== "Not collected"),
     git: snapshot.git,
@@ -159,8 +160,13 @@ export function publicBuildStoryFromSnapshot(
     sessionCount: selected.has("sessionSummary") ? story.sessionCount : 0,
     buildHours: selected.has("sessionSummary") ? story.buildHours : 0,
     modelRequests: selected.has("modelMix") ? story.modelRequests : 0,
-    models: selected.has("modelMix") ? story.models : [],
+    models: selected.has("modelMix")
+      ? story.models.map((model) =>
+          selected.has("costEstimate") ? model : { ...model, tokenUsage: null, costMicroUsd: null },
+        )
+      : [],
     tokenUsage: selected.has("modelMix") ? story.tokenUsage : null,
+    cost: selected.has("costEstimate") ? story.cost : null,
     tools: selected.has("toolUsage") ? story.tools : [],
     git: selected.has("gitAggregates")
       ? story.git

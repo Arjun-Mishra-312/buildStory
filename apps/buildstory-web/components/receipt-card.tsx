@@ -11,12 +11,16 @@ type ReceiptStory = Pick<
   | "git"
   | "modelRequests"
   | "redaction"
+  | "cost"
 >;
 
 type ReceiptCardProps = {
   story: ReceiptStory;
   compact?: boolean;
 };
+
+const usdFormat = new Intl.NumberFormat("en", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const formatMicroUsd = (microUsd: number) => usdFormat.format(microUsd / 1_000_000);
 
 export function ReceiptCard({ story, compact = false }: ReceiptCardProps) {
   return (
@@ -59,7 +63,10 @@ export function ReceiptCard({ story, compact = false }: ReceiptCardProps) {
           <div className="receipt__model" key={model.id}>
             <div>
               <span>{model.label}</span>
-              <span>{model.share}%</span>
+              <span>
+                {model.share}%
+                {model.costMicroUsd != null ? <em className="receipt__model-cost">{formatMicroUsd(model.costMicroUsd)}</em> : null}
+              </span>
             </div>
             <span className="receipt__bar" aria-hidden="true">
               <span style={{ width: `${model.share}%` }} />
@@ -69,7 +76,7 @@ export function ReceiptCard({ story, compact = false }: ReceiptCardProps) {
       </div>
 
       <div className="receipt__rule receipt__rule--dashed" />
-      <div className="receipt__totals">
+      <div className={`receipt__totals ${story.cost?.totalMicroUsd != null ? "receipt__totals--with-cost" : ""}`}>
         <div>
           <strong>{story.git.commits}</strong>
           <span>commits</span>
@@ -82,6 +89,12 @@ export function ReceiptCard({ story, compact = false }: ReceiptCardProps) {
           <strong>{story.modelRequests}</strong>
           <span>model turns</span>
         </div>
+        {story.cost?.totalMicroUsd != null ? (
+          <div>
+            <strong>{formatMicroUsd(story.cost.totalMicroUsd)}</strong>
+            <span>est. AI spend</span>
+          </div>
+        ) : null}
       </div>
 
       <div className="receipt__privacy">

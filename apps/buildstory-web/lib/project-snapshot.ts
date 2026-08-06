@@ -57,12 +57,7 @@ export type SessionSummary = {
   touchedAreas: string[];
 };
 
-/**
- * Real, aggregate token accounting for the whole build window. Per-model
- * splits are not collected yet (a session can mix models across messages),
- * so this total is the honest figure to show rather than a fabricated
- * per-model breakdown.
- */
+/** Real, aggregate token accounting for the whole build window (or one model within it). */
 export type AggregateTokenUsage = {
   inputTokens: number;
   outputTokens: number;
@@ -71,12 +66,33 @@ export type AggregateTokenUsage = {
   cacheCreationInputTokens: number;
 };
 
+/**
+ * Estimated $ cost, priced from a static, versioned table of known model
+ * families (see @buildstory/scanner's session-pricing.ts). totalMicroUsd is
+ * null only when zero models in the window are in that table - tokens are
+ * still shown, a price is never guessed.
+ */
+export type AggregateCost = {
+  totalMicroUsd: number | null;
+  pricedTokens: number;
+  unpricedTokens: number;
+  pricingTableVersion: string;
+};
+
 export type ToolModelUsage = {
   models: Array<{
     id: string;
     label: string;
     provider: string;
     requests: number;
+    /**
+     * Exact for Claude Code; a session-level approximation for Codex
+     * (attributed to the session's dominant model). Null when this model's
+     * sessions predate per-model token attribution or reported no usage.
+     */
+    tokenUsage: AggregateTokenUsage | null;
+    /** Null when `label` isn't in the static pricing table - never a fabricated price. */
+    costMicroUsd: number | null;
   }>;
   tools: Array<{
     id: string;
@@ -86,6 +102,8 @@ export type ToolModelUsage = {
   }>;
   /** null when no session in the window reported token usage. */
   tokenUsage: AggregateTokenUsage | null;
+  /** null on a report sourced from a scanner older than 1.6.0 - treat the same as "no cost data". */
+  cost: AggregateCost | null;
 };
 
 export type GitAggregates = {

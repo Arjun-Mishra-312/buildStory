@@ -6,9 +6,9 @@
  * transport object after validation; it is never accepted as upload input.
  */
 
-export const PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.5.0" as const;
-/** Accepted only as a transport compatibility shim; new scanners must emit 1.5.0. */
-export const PREVIOUS_PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.4.0" as const;
+export const PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.6.0" as const;
+/** Accepted only as a transport compatibility shim; new scanners must emit 1.6.0. */
+export const PREVIOUS_PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.5.0" as const;
 /** Still accepted at the upload boundary for already-installed CLIs during rollout. See validation.ts. */
 export const LEGACY_PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.3.0" as const;
 export const OLDEST_PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.2.0" as const;
@@ -246,10 +246,22 @@ export interface UsageSummary {
     name: string;
     turnCount: number;
     sessionCount: number;
+    /** Absent on a snapshot from a scanner older than 1.6.0 - treat the same as null. */
+    tokenUsage?: TokenUsage | null;
+    costMicroUsd?: number | null;
   }>;
   totalToolCalls: number;
   totalTurns: number;
   tokenUsage: TokenUsage | null;
+  /** Absent on a snapshot from a scanner older than 1.6.0 - treat the same as "no cost data". */
+  cost?: UsageCostSummary;
+}
+
+export interface UsageCostSummary {
+  totalMicroUsd: number | null;
+  pricedTokens: number;
+  unpricedTokens: number;
+  pricingTableVersion: string;
 }
 
 export interface GitAggregateMetrics {
