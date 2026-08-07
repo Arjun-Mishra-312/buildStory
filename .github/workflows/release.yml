@@ -54,7 +54,15 @@ jobs:
       - run: npm ci
       - run: npm --prefix apps/buildstory-web run build
       - run: npm --prefix apps/buildstory-web run prepare:deploy-config
-      - run: npx tsx scripts/migrate-d1.ts --baseline 0001_motionless_wolverine
+      # The remote D1 was migrated by hand before scripts/migrate-d1.ts existed,
+      # so it has no buildstory_migrations ledger. The baseline seeds that ledger
+      # on the first run only, and it must name the LAST migration already
+      # present or the run re-applies it and dies on "table already exists".
+      # Verified against the live database 2026-08-07: exactly 16 buildstory_*
+      # tables, matching 0000-0004; 0005's publication_path column and 0006's
+      # buildstory_content_report_audit table are both absent. Ignored once the
+      # ledger exists.
+      - run: npx tsx scripts/migrate-d1.ts --baseline 0004_damp_ezekiel
         working-directory: apps/buildstory-web
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

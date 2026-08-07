@@ -3,7 +3,7 @@ import path from "node:path";
 
 /**
  * Rewrites the Vite/vinext-generated `dist/server/wrangler.json` into a real
- * deploy config driven by `wrangler.jsonc.future`.
+ * deploy config driven by `wrangler.deploy.jsonc`.
  *
  * The generated file is built from vite.config.ts's *local dev* binding block,
  * so it ships Miniflare placeholders (`site-creator-d1`, `site-creator-r2`, the
@@ -24,7 +24,7 @@ const REQUIRED_VARS = [
   "BUILDSTORY_ALLOWED_HOSTS",
 ];
 
-/** Secrets belong in the Worker secret store; wrangler.jsonc.future is committed. */
+/** Secrets belong in the Worker secret store; wrangler.deploy.jsonc is committed. */
 const FORBIDDEN_VARS = ["AUTH_SECRET", "AUTH_GOOGLE_ID", "AUTH_GOOGLE_SECRET", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "BUILDSTORY_LLM_API_KEY", "BUILDSTORY_CRON_SECRET"];
 
 /**
@@ -75,15 +75,15 @@ function required<T>(value: T | undefined, message: string): T {
 }
 
 const appRoot = process.cwd();
-const source = parseJsonc(await readFile(path.join(appRoot, "wrangler.jsonc.future"), "utf8"));
+const source = parseJsonc(await readFile(path.join(appRoot, "wrangler.deploy.jsonc"), "utf8"));
 const generatedPath = path.join(appRoot, "dist/server/wrangler.json");
 const generated = JSON.parse(await readFile(generatedPath, "utf8")) as Record<string, unknown>;
 
 const databaseId = (source.d1_databases as Array<Record<string, string>> | undefined)?.[0]?.database_id ?? "";
 if (!databaseId || DEV_PLACEHOLDERS.includes(databaseId)) throw new Error("A real D1 database_id is required before deploy.");
 
-generated.account_id = required(source.account_id, "wrangler.jsonc.future is missing account_id.");
-generated.compatibility_date = required(source.compatibility_date, "wrangler.jsonc.future is missing compatibility_date.");
+generated.account_id = required(source.account_id, "wrangler.deploy.jsonc is missing account_id.");
+generated.compatibility_date = required(source.compatibility_date, "wrangler.deploy.jsonc is missing compatibility_date.");
 generated.compatibility_flags = source.compatibility_flags ?? generated.compatibility_flags;
 
 generated.d1_databases = (source.d1_databases as Array<Record<string, unknown>>).map((database) => {
@@ -96,19 +96,19 @@ generated.d1_databases = (source.d1_databases as Array<Record<string, unknown>>)
 // db/r2.ts resolves env.MEDIA. Without this the generated file keeps the
 // Miniflare `site-creator-r2` placeholder and deploy binds a bucket that does
 // not exist - or, worse, silently creates the wrong one.
-generated.r2_buckets = required(source.r2_buckets, "wrangler.jsonc.future must declare the MEDIA r2_buckets binding before deploy.");
+generated.r2_buckets = required(source.r2_buckets, "wrangler.deploy.jsonc must declare the MEDIA r2_buckets binding before deploy.");
 
-const vars = required(source.vars, "wrangler.jsonc.future must declare a vars block; the Worker returns 503 without BUILDSTORY_ALLOWED_HOSTS.") as Record<string, string>;
+const vars = required(source.vars, "wrangler.deploy.jsonc must declare a vars block; the Worker returns 503 without BUILDSTORY_ALLOWED_HOSTS.") as Record<string, string>;
 for (const name of REQUIRED_VARS) {
   if (!vars[name]) throw new Error(`vars.${name} is required for a production deploy.`);
 }
 for (const name of FORBIDDEN_VARS) {
-  if (name in vars) throw new Error(`${name} is a secret and must not be committed in vars; use \`wrangler secret put ${name} -c wrangler.jsonc.future\`.`);
+  if (name in vars) throw new Error(`${name} is a secret and must not be committed in vars; use \`wrangler secret put ${name} -c wrangler.deploy.jsonc\`.`);
 }
 generated.vars = vars;
 
-generated.routes = required(source.routes, "wrangler.jsonc.future must declare routes before deploy.");
-generated.triggers = required(source.triggers, "wrangler.jsonc.future must declare cron triggers; worker/index.ts's scheduled handler drives leaderboards and lease recovery.");
+generated.routes = required(source.routes, "wrangler.deploy.jsonc must declare routes before deploy.");
+generated.triggers = required(source.triggers, "wrangler.deploy.jsonc must declare cron triggers; worker/index.ts's scheduled handler drives leaderboards and lease recovery.");
 
 // The host the CLI pins, the host allowlist, and the route must agree, or the
 // deployment answers 421 on its own domain.

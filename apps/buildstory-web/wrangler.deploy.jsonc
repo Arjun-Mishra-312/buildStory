@@ -3,29 +3,47 @@
   // against the real Buildstory Cloudflare account.
   // Contains real, live resource IDs (see provenance below) - NOT a template.
   //
-  // Still named wrangler.jsonc.future, not wrangler.jsonc, and this is
-  // load-bearing, not cosmetic: confirmed 2026-08-04 that `vinext dev`
-  // auto-discovers a file literally named wrangler.jsonc in this directory
-  // regardless of whether vite.config.ts references it, and MERGES it with
-  // the inline `.openai/hosting.json`-driven config - which then declares
-  // `nodejs_compat` twice and crashes Miniflare outright
-  // ("Compatibility flag specified multiple times: nodejs_compat"). Confirmed
-  // by testing it directly: renaming this file to wrangler.jsonc reproduces
-  // the crash every time; renaming it back fixes it every time. Use
-  // `--config wrangler.jsonc.future` explicitly on every wrangler command
-  // that needs this file (all the ones below already do). Only rename to
-  // wrangler.jsonc as a deliberate cutover that also updates
-  // vite.config.ts's local-dev binding source in the same change - never as
-  // a standalone rename.
+  // The filename is load-bearing in BOTH directions - it must not be
+  // `wrangler.jsonc`, and it must end in `.jsonc`:
+  //
+  //   - Not `wrangler.jsonc`: confirmed 2026-08-04 that `vinext dev`
+  //     auto-discovers a file literally named wrangler.jsonc in this directory
+  //     regardless of whether vite.config.ts references it, and MERGES it with
+  //     the inline `.openai/hosting.json`-driven config - which then declares
+  //     `nodejs_compat` twice and crashes Miniflare outright ("Compatibility
+  //     flag specified multiple times: nodejs_compat").
+  //
+  //   - Must end in `.jsonc`: this file was previously named
+  //     `wrangler.jsonc.future`, and wrangler picks its parser by extension.
+  //     It silently declined to load a `.future` file, so every
+  //     `-c wrangler.jsonc.future` was a NO-OP - the command ran with no
+  //     config at all. Confirmed 2026-08-07: `wrangler secret list -c
+  //     wrangler.jsonc.future` failed with "Required Worker name missing"
+  //     even though `name` is set right below, and the identical file copied
+  //     to a `.jsonc` extension resolved the name immediately. Anything that
+  //     appeared to work under the old name (e.g. `d1 execute buildstory-d1`)
+  //     did so only because it resolves resources by name through the API.
+  //
+  // `wrangler.deploy.jsonc` satisfies both: wrangler parses it, and vinext
+  // does not auto-discover it. Pass `--config wrangler.deploy.jsonc`
+  // explicitly on every wrangler command that needs this file.
   //
   // account_id and the D1 database were provisioned 2026-08-04:
   //   wrangler d1 create buildstory-d1
   //     -> database_id 055b1689-e3e4-4b75-8077-331c54266920
-  //   Both drizzle/0000_nappy_the_twelve.sql and
-  //   drizzle/0001_motionless_wolverine.sql applied via
-  //   `wrangler d1 execute buildstory-d1 --remote --file=...` - 5 tables
-  //   confirmed live (buildstory_upload_sessions, buildstory_reports,
-  //   buildstory_report_jobs, buildstory_users, buildstory_projects).
+  //
+  // Live schema re-verified 2026-08-07 (the earlier "5 tables through 0001"
+  // note here was stale): 16 buildstory_* tables are present, matching
+  // migrations 0000-0004 exactly - 3 from 0000, 2 from 0001, 3 from 0002,
+  // 6 from 0003, 2 from 0004. Migration 0005 has NOT been applied
+  // (buildstory_reports.publication_path is absent), nor has 0006
+  // (buildstory_content_report_audit is absent).
+  //
+  // These were all applied by hand with `wrangler d1 execute --file=...`
+  // before scripts/migrate-d1.ts existed, so there is no
+  // buildstory_migrations ledger yet. The first migrate-d1.ts run must pass
+  // `--baseline 0004_damp_ezekiel` to seed the ledger correctly; naming an
+  // earlier tag makes it re-apply 0002+ and fail on "table already exists".
   //
   // The MEDIA bucket was provisioned 2026-08-07:
   //   wrangler r2 bucket create buildstory-media
@@ -51,7 +69,7 @@
   //
   // Secrets are deliberately absent: AUTH_SECRET, AUTH_GOOGLE_ID,
   // AUTH_GOOGLE_SECRET (and the optional AUTH_GITHUB_* pair) are set with
-  // `wrangler secret put ... -c wrangler.jsonc.future` and must never appear
+  // `wrangler secret put ... -c wrangler.deploy.jsonc` and must never appear
   // here - this file is committed.
   "vars": {
     "BUILDSTORY_STORE": "d1",

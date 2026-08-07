@@ -52,7 +52,7 @@ The scanner accepts a hosted ingestion destination only when explicitly pinned p
 
 1. Review the diff, migration, dependency audit, privacy tests, and deployment artifact.
 2. Configuration reaches the Worker by two separate paths, and the split is enforced:
-   - **Non-secret values** live in `vars` in `wrangler.jsonc.future`, committed.
+   - **Non-secret values** live in `vars` in `wrangler.deploy.jsonc`, committed.
      `prepare-deploy-config.ts` copies that block into `dist/server/wrangler.json`
      and fails the build if any required name is missing. Without it the Worker
      answers `503 host_allowlist_unconfigured` on every request, because
@@ -60,9 +60,9 @@ The scanner accepts a hosted ingestion destination only when explicitly pinned p
    - **Secrets** are never committed. Set each once per environment:
 
      ```powershell
-     npx wrangler secret put AUTH_SECRET -c wrangler.jsonc.future
-     npx wrangler secret put AUTH_GOOGLE_ID -c wrangler.jsonc.future
-     npx wrangler secret put AUTH_GOOGLE_SECRET -c wrangler.jsonc.future
+     npx wrangler secret put AUTH_SECRET -c wrangler.deploy.jsonc
+     npx wrangler secret put AUTH_GOOGLE_ID -c wrangler.deploy.jsonc
+     npx wrangler secret put AUTH_GOOGLE_SECRET -c wrangler.deploy.jsonc
      ```
 
      `wrangler secret put` reads the value from stdin, so it never lands in shell

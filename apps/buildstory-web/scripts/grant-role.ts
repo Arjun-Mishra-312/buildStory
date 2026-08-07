@@ -7,4 +7,4 @@ if (!userId || !["member", "moderator", "admin"].includes(role)) {
   throw new Error("Usage: tsx scripts/grant-role.ts --user-id <id> --role member|moderator|admin");
 }
 const sql = `UPDATE buildstory_users SET role = '${role}', updated_at = datetime('now') WHERE id = '${userId.replaceAll("'", "''")}'`;
-execFileSync("npx", ["wrangler", "d1", "execute", "buildstory-d1", "--remote", "--config", "wrangler.jsonc.future", "--command", sql], { stdio: "inherit" });
+execFileSync("npx", ["wrangler", "d1", "execute", "buildstory-d1", "--remote", "--config", "wrangler.deploy.jsonc", "--command", sql], { stdio: "inherit" });

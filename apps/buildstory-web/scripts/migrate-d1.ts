@@ -15,7 +15,7 @@ const valueAfter = (flag: string, fallback: string) => {
 const dryRun = has("--dry-run");
 const localValidation = has("--local");
 const localSqlite = has("--local-sqlite");
-const config = valueAfter("--config", "wrangler.jsonc.future");
+const config = valueAfter("--config", "wrangler.deploy.jsonc");
 const baseline = valueAfter("--baseline", "");
 const databasePath = valueAfter("--db-path", path.join(".tmp", "buildstory-contract.sqlite"));
 const root = process.cwd();
