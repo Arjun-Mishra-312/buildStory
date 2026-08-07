@@ -1,10 +1,22 @@
 name: Production release
 
 on:
+  push:
+    branches: [main]
+  # Kept so a release can still be re-run by hand - e.g. to redeploy an
+  # unchanged commit after rotating a Worker secret.
   workflow_dispatch:
 
 permissions:
   contents: read
+
+# Serialise releases. Two pushes landing close together would otherwise run two
+# deploys and, worse, two `migrate-d1.ts` invocations against the same database.
+# cancel-in-progress is deliberately false: cancelling a run midway through
+# applying migrations is exactly the failure this is meant to prevent.
+concurrency:
+  group: production-release
+  cancel-in-progress: false
 
 jobs:
   verify:
@@ -20,9 +32,17 @@ jobs:
       - run: npm run check:artifact
       - run: npm --prefix apps/buildstory-web run check:production-config
         env:
-          AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
-          AUTH_GOOGLE_ID: ${{ secrets.AUTH_GOOGLE_ID }}
-          AUTH_GOOGLE_SECRET: ${{ secrets.AUTH_GOOGLE_SECRET }}
+          # Deliberately placeholders, not real secrets. check:production-config
+          # calls productionRuntimeIssues(), which only asserts presence, length
+          # and format - it never authenticates against Google or anything else.
+          # The real credentials live in the Worker secret store and are never
+          # needed to build or deploy. What actually validates them is the
+          # post-deploy /api/ready probe below, which returns
+          # {"configuration":false} if a real secret is missing or malformed.
+          # So CI needs exactly one repository secret: CLOUDFLARE_API_TOKEN.
+          AUTH_SECRET: ci-shape-check-only-not-a-real-secret-0000000000
+          AUTH_GOOGLE_ID: ci-shape-check-only
+          AUTH_GOOGLE_SECRET: ci-shape-check-only
           BUILDSTORY_STORE: d1
           BUILDSTORY_LOCAL_API_ENABLED: "false"
           BUILDSTORY_PUBLIC_ORIGIN: https://buildstory.dev
@@ -33,9 +53,17 @@ jobs:
         working-directory: apps/buildstory-web
       - run: npm --prefix apps/buildstory-web run deploy:preflight
         env:
-          AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
-          AUTH_GOOGLE_ID: ${{ secrets.AUTH_GOOGLE_ID }}
-          AUTH_GOOGLE_SECRET: ${{ secrets.AUTH_GOOGLE_SECRET }}
+          # Deliberately placeholders, not real secrets. check:production-config
+          # calls productionRuntimeIssues(), which only asserts presence, length
+          # and format - it never authenticates against Google or anything else.
+          # The real credentials live in the Worker secret store and are never
+          # needed to build or deploy. What actually validates them is the
+          # post-deploy /api/ready probe below, which returns
+          # {"configuration":false} if a real secret is missing or malformed.
+          # So CI needs exactly one repository secret: CLOUDFLARE_API_TOKEN.
+          AUTH_SECRET: ci-shape-check-only-not-a-real-secret-0000000000
+          AUTH_GOOGLE_ID: ci-shape-check-only
+          AUTH_GOOGLE_SECRET: ci-shape-check-only
           BUILDSTORY_STORE: d1
           BUILDSTORY_LOCAL_API_ENABLED: "false"
           BUILDSTORY_PUBLIC_ORIGIN: https://buildstory.dev
@@ -54,14 +82,14 @@ jobs:
       - run: npm ci
       - run: npm --prefix apps/buildstory-web run build
       - run: npm --prefix apps/buildstory-web run prepare:deploy-config
-      # The remote D1 was migrated by hand before scripts/migrate-d1.ts existed,
-      # so it has no buildstory_migrations ledger. The baseline seeds that ledger
-      # on the first run only, and it must name the LAST migration already
-      # present or the run re-applies it and dies on "table already exists".
-      # Verified against the live database 2026-08-07: exactly 16 buildstory_*
-      # tables, matching 0000-0004; 0005's publication_path column and 0006's
-      # buildstory_content_report_audit table are both absent. Ignored once the
-      # ledger exists.
+      # --baseline only does anything when buildstory_migrations is EMPTY, which
+      # is no longer the case: the ledger was seeded on 2026-08-07 and now records
+      # all 17 migrations, so this is a no-op against the current database and
+      # every run simply applies whatever is new. It is kept because it is still
+      # correct for a fresh environment (staging, or a rebuilt D1) that starts
+      # from the same hand-migrated 0000-0004 schema. Do NOT lower this value:
+      # naming an earlier tag on an empty ledger makes the run re-apply 0002+
+      # onto existing tables and fail partway through.
       - run: npx tsx scripts/migrate-d1.ts --baseline 0004_damp_ezekiel
         working-directory: apps/buildstory-web
         env:
