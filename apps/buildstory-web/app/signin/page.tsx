@@ -4,9 +4,11 @@ import { redirect } from "next/navigation";
 import {
   getAuthRuntimeMode,
   getCreatorSession,
+  isGithubOAuthConfigured,
+  isGoogleOAuthConfigured,
   safeReturnPath,
 } from "@/lib/auth/runtime";
-import { signInWithGoogle } from "./actions";
+import { signInWithGithub, signInWithGoogle } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -47,23 +49,37 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
         <section className="auth-card">
           <div className="auth-card__header">
             <span className="wordmark__mark" aria-hidden="true"><span /><span /></span>
-            <div><strong>Buildstory for creators</strong><small>Google-first account access</small></div>
+            <div><strong>Buildstory for creators</strong><small>Google or GitHub account access</small></div>
           </div>
 
           {params.error ? (
             <p className="auth-notice auth-notice--error">
-              Google sign-in did not complete. Nothing was changed; please try again.
+              Sign-in did not complete. Nothing was changed; please try again.
             </p>
           ) : null}
 
-          {mode === "google" ? (
-            <form action={signInWithGoogle}>
-              <input type="hidden" name="callbackUrl" value={callbackUrl} />
-              <button className="google-signin" type="submit">
-                <span aria-hidden="true">G</span>
-                Continue with Google
-              </button>
-            </form>
+          {mode === "oauth" ? (
+            <div className="auth-card__providers">
+              {isGoogleOAuthConfigured() ? (
+                <form action={signInWithGoogle}>
+                  <input type="hidden" name="callbackUrl" value={callbackUrl} />
+                  <button className="google-signin" type="submit">
+                    <span aria-hidden="true">G</span>
+                    Continue with Google
+                  </button>
+                </form>
+              ) : null}
+
+              {isGithubOAuthConfigured() ? (
+                <form action={signInWithGithub}>
+                  <input type="hidden" name="callbackUrl" value={callbackUrl} />
+                  <button className="github-signin" type="submit">
+                    <span aria-hidden="true">GH</span>
+                    Continue with GitHub
+                  </button>
+                </form>
+              ) : null}
+            </div>
           ) : null}
 
           {mode === "development-bypass" ? (
@@ -80,7 +96,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
           {mode === "disabled" ? (
             <div className="auth-disabled">
               <span>AUTHENTICATION DISABLED</span>
-              <h2>Add Google credentials or opt into the local dev identity.</h2>
+              <h2>Add Google or GitHub credentials, or opt into the local dev identity.</h2>
               <p>
                 The public site remains available. Creator routes stay locked
                 until the local environment is configured as documented in the README.

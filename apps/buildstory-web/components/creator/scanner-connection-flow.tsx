@@ -99,8 +99,8 @@ export function ScannerConnectionFlow({
   return (
     <div className="scanner-flow">
       <section className="scanner-flow__setup">
-        <div className="scanner-step-label"><span>01</span> START IN THE BROWSER</div>
-        <h2>Create a one-time scanner connection.</h2>
+        <div className="scanner-step-label"><span>01</span> PROJECT DETAILS</div>
+        <h2>Start a guided story capture.</h2>
         <p>{scannerEnabled
           ? "This session is bound to your creator account. No repository is read by the browser."
           : "Scanner connections are not configured on this deployment yet."}</p>
@@ -109,13 +109,13 @@ export function ScannerConnectionFlow({
           <input value={projectLabel} onChange={(event) => setProjectLabel(event.target.value)} maxLength={120} disabled={!scannerEnabled} />
         </label>
         <button className="button button--primary" type="button" onClick={startSession} disabled={starting || !scannerEnabled}>
-          {starting ? "Creating…" : "Create connection code"}
+          {starting ? "Starting…" : "Create story connection"}
         </button>
         {error ? <p className="scanner-flow__error" role="alert">{error}</p> : null}
       </section>
 
       <section className={`scanner-terminal ${authorization ? "is-ready" : ""}`}>
-        <header><span>02 / CONNECT, THEN SCAN + UPLOAD</span><i /><i /><i /></header>
+        <header><span>02 / CONNECTION COMMAND</span><i /><i /><i /></header>
         {authorization ? (
           <>
             <p className="scanner-terminal__stage"><b>A.</b> Connect this CLI to the account-bound session:</p>
@@ -167,7 +167,7 @@ export function ScannerConnectionFlow({
       </section>
 
       <section className="scanner-flow__status">
-        <div className="scanner-step-label"><span>03</span> WATCH THE HANDOFF</div>
+        <div className="scanner-step-label"><span>03</span> LIVE PROGRESS</div>
         <h2>{session ? session.projectLabel : "Status appears here."}</h2>
         <div className="scanner-status-list">
           {orderedStatuses.map((status, index) => (

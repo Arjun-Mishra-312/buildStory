@@ -27,9 +27,13 @@
   //   confirmed live (buildstory_upload_sessions, buildstory_reports,
   //   buildstory_report_jobs, buildstory_users, buildstory_projects).
   //
+  // The MEDIA bucket was provisioned 2026-08-07:
+  //   wrangler r2 bucket create buildstory-media
+  //     -> 'buildstory-media', Standard storage class
+  // Wrangler's own output suggests the binding name `buildstory_media`; ignore
+  // it. db/r2.ts resolves `env.MEDIA`, so the binding must stay MEDIA.
+  //
   // Remaining before this file drives an actual `wrangler deploy`:
-  //   - r2_buckets: only if/when Phase 1's "move snapshot blobs out of D1"
-  //     work lands (today: r2 is deliberately null, no blobs accepted).
   //   - Explicit user/release approval before the first real `wrangler deploy`.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "buildstory-web",
@@ -39,6 +43,25 @@
 
   "account_id": "bfa5ce4b5d65e18a3d1cdb834183f388",
 
+  // Non-secret runtime configuration. worker/index.ts reads
+  // env.BUILDSTORY_ALLOWED_HOSTS on every request and returns 503
+  // host_allowlist_unconfigured when it is empty, so without this block the
+  // deployment answers nothing. lib/config/runtime.ts validates the same names
+  // at build time via check:production-config.
+  //
+  // Secrets are deliberately absent: AUTH_SECRET, AUTH_GOOGLE_ID,
+  // AUTH_GOOGLE_SECRET (and the optional AUTH_GITHUB_* pair) are set with
+  // `wrangler secret put ... -c wrangler.jsonc.future` and must never appear
+  // here - this file is committed.
+  "vars": {
+    "BUILDSTORY_STORE": "d1",
+    "BUILDSTORY_DEV_AUTH_BYPASS": "false",
+    "BUILDSTORY_LOCAL_API_ENABLED": "false",
+    "BUILDSTORY_PUBLIC_ORIGIN": "https://buildstory.dev",
+    "BUILDSTORY_ALLOWED_HOSTS": "buildstory.dev",
+    "BUILDSTORY_LOG_LEVEL": "info"
+  },
+
   "d1_databases": [
     {
       "binding": "DB",
@@ -46,6 +69,11 @@
       "database_id": "055b1689-e3e4-4b75-8077-331c54266920"
     }
   ],
+
+  // Single source of truth for the deployed hostname. prepare-deploy-config.ts
+  // copies this verbatim and cross-checks it against vars.BUILDSTORY_PUBLIC_ORIGIN,
+  // so the route, the origin the CLI pins, and the host allowlist cannot drift.
+  "routes": [{ "pattern": "buildstory.dev/*", "zone_name": "buildstory.dev" }],
 
   "triggers": {
     "crons": ["0 * * * *", "*/5 * * * *"]
@@ -55,6 +83,14 @@
   // "r2_buckets": [
   //   { "binding": "SNAPSHOTS", "bucket_name": "buildstory-snapshots" }
   // ],
+
+  // --- Phase 2: creator-uploaded artifact media (cover/screenshots) -------
+  // Live. db/r2.ts throws MediaStorageUnavailableError without this binding,
+  // which would break report cover/screenshot upload and leave R2 objects
+  // orphaned on account deletion (lib/account/d1-store.ts swallows that error).
+  "r2_buckets": [
+    { "binding": "MEDIA", "bucket_name": "buildstory-media" }
+  ],
 
 
   // --- Phase 4: per-endpoint mutation rate limiting ------------------------

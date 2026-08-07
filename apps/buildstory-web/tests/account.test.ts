@@ -8,6 +8,7 @@ import {
   ensureUser,
   getReport,
   publishReport,
+  updateReport,
 } from "../lib/ingestion/mock-store";
 import { sha256Digest } from "../lib/ingestion/local-contract";
 import { AccountError } from "../lib/account/contracts";
@@ -24,6 +25,7 @@ async function publishSnapshotForUser(creatorId: string) {
   const receipt = await acceptSnapshot(sessionId, claim.uploadGrant.bearerToken, await sha256Digest(raw), scannerFixture);
   const reportId = receipt.reportEndpoint!.split("/").at(-1)!;
   await getReport(creatorId, reportId);
+  updateReport(creatorId, reportId, { category: "web-apps" });
   await publishReport(creatorId, reportId);
   return reportId;
 }

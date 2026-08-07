@@ -6,7 +6,7 @@ Buildstory is a standalone product for publishing sanitized stories about AI-ass
 
 - `apps/buildstory-web` — Next.js 16/Vinext web app, Auth.js integration, strict local scanner API, D1 schema and migration, Cloudflare Sites configuration, tests, and operations documentation.
 - `packages/buildstory-scanner` — read-only local CLI package exposing both `buildstory` and the compatible `story-scanner` alias.
-- `artifacts/buildstory-scanner-0.4.0.tgz` — unpublished, locally installable scanner archive.
+- `artifacts/` — packed scanner archives for local install and release verification. `npm run package:scanner` writes the current one; `npm run check:artifact` asserts the newest matches the source schema.
 
 This is an npm workspace: one root lockfile covers both `apps/buildstory-web` and `packages/buildstory-scanner`, installed together from the repository root. Use Node.js 22.13 or newer for the complete product workspace.
 
@@ -28,7 +28,7 @@ npm run build:buildstory
 npm run package:scanner
 ```
 
-`verify:product` runs the web lint, typecheck, build, rendered-route/security tests, and the scanner build/privacy/package/CLI tests. `package:scanner` writes the unpublished archive to `artifacts`; it does not publish a package.
+`verify:product` runs the web lint, typecheck, build, rendered-route/security tests, and the scanner build/privacy/package/CLI tests. `package:scanner` writes a packed archive to `artifacts`; it does not publish to npm. The scanner publishes as `@buildstory/scanner` and installs one binary, `buildstory-scan`.
 
 Narrative generation is local-first. A new dashboard connection defaults to local Ollama generation: redacted excerpts may be used in memory to write the report, but the uploaded snapshot carries only the generated prose and deterministic metrics. Cloud narrative mode is an explicit dashboard choice and requires reviewing the redacted excerpts before they are uploaded. Off mode uploads metrics/profile facts without prose. No mode uses non-loopback network access during scanning except the single explicitly pinned upload origin.
 

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 type NotificationActor = { id: string; handle: string; displayName: string; avatarUrl: string | null };
 type Notification = {
   id: string;
-  kind: "follow" | "reaction" | "comment" | "comment_reply";
+  kind: "follow" | "reaction" | "comment" | "comment_reply" | "comment_upvote";
   actor: NotificationActor;
   reportId: string | null;
   reportSlug: string | null;
@@ -24,6 +24,8 @@ function describe(notification: Notification): string {
       return `${notification.actor.displayName} commented on your build story.`;
     case "comment_reply":
       return `${notification.actor.displayName} replied to your comment.`;
+    case "comment_upvote":
+      return `${notification.actor.displayName} upvoted your comment.`;
     default:
       return "New activity.";
   }

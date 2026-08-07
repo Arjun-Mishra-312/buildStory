@@ -369,7 +369,7 @@ test("local scanner lifecycle enforces owner, digest, size, and one-use grant bo
     /Editorial text cannot contain secrets/i,
   );
 
-  updateReport(creatorId, reportId, { selectedPublicFields: ["tagline"] });
+  updateReport(creatorId, reportId, { selectedPublicFields: ["tagline"], category: "web-apps" });
   publishReport(creatorId, reportId);
   const published = getPublishedStoryBySlug(privateReport.publication.slug);
   assert.ok(published);

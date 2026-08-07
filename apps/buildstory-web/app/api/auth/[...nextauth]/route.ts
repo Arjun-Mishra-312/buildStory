@@ -6,7 +6,7 @@ function disabledAuthResponse() {
     {
       error: {
         code: "auth_disabled",
-        message: "Google OAuth is not configured in this environment.",
+        message: "OAuth sign-in is not configured in this environment.",
       },
     },
     { status: 503, headers: { "cache-control": "no-store" } },
@@ -14,6 +14,6 @@ function disabledAuthResponse() {
 }
 
 export const GET =
-  getAuthRuntimeMode() === "google" ? handlers.GET : disabledAuthResponse;
+  getAuthRuntimeMode() === "oauth" ? handlers.GET : disabledAuthResponse;
 export const POST =
-  getAuthRuntimeMode() === "google" ? handlers.POST : disabledAuthResponse;
+  getAuthRuntimeMode() === "oauth" ? handlers.POST : disabledAuthResponse;

@@ -1,0 +1,1 @@
+ALTER TABLE `buildstory_projects` ADD `verified_repo_at` text;

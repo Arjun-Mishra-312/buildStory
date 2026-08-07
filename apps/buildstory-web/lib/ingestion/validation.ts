@@ -167,7 +167,7 @@ function expectedAssumptions(snapshot: ScannerProjectSnapshot) {
     assumptions.push(
       "Codex sessions are repository-scoped from session or turn-context working-directory metadata.",
       "User-turn and assistant-message counts prefer event records and fall back to response records to avoid double counting.",
-      "Codex token usage is a cumulative session-wide snapshot, not tied to a specific model event; a session that switches models attributes its tokens and estimated cost to whichever model had the most turns.",
+      "Codex token usage is attributed per accepted token-count response to the active turn-context model; repeated cumulative snapshots are ignored and counter resets start a new ledger segment.",
     );
   }
   if (providerIds.includes("cursor")) {
@@ -180,8 +180,8 @@ function expectedAssumptions(snapshot: ScannerProjectSnapshot) {
     assumptions.push(
       "Claude Code sessions are repository-scoped from the working directory recorded on transcript lines.",
       "Claude Code turn counts exclude tool-result continuation lines; only author-authored messages are counted as turns.",
-      "Claude Code token usage is summed per assistant message rather than read from a cumulative counter.",
-      "Claude Code subagent invocations and their token usage are counted from a sibling transcript directory when present.",
+      "Claude Code token usage is summed per globally deduplicated assistant response, including advisor iterations and folded subagent transcripts.",
+      "Claude Code subagent invocations and their token usage are folded into the parent session while the invocation count remains separately visible.",
     );
   }
   return assumptions;

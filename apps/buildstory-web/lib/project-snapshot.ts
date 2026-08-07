@@ -55,6 +55,7 @@ export type SessionSummary = {
   modelIds: string[];
   toolIds: string[];
   touchedAreas: string[];
+  subagentInvocations?: number;
 };
 
 /** Real, aggregate token accounting for the whole build window (or one model within it). */
@@ -85,11 +86,7 @@ export type ToolModelUsage = {
     label: string;
     provider: string;
     requests: number;
-    /**
-     * Exact for Claude Code; a session-level approximation for Codex
-     * (attributed to the session's dominant model). Null when this model's
-     * sessions predate per-model token attribution or reported no usage.
-     */
+    /** Exact normalized model-response calls after provider-ledger parsing. */
     tokenUsage: AggregateTokenUsage | null;
     /** Null when `label` isn't in the static pricing table - never a fabricated price. */
     costMicroUsd: number | null;

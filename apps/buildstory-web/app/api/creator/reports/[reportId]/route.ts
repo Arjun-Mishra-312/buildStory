@@ -1,5 +1,5 @@
 import { ingestionErrorResponse, jsonError, requireApiCreator } from "@/lib/api/responses";
-import type { GeneratedReport, PublicFieldKey } from "@/lib/ingestion/contracts";
+import type { GeneratedReport, PublicFieldKey, StoryCategory } from "@/lib/ingestion/contracts";
 import { readBoundedJson } from "@/lib/ingestion/local-api";
 import { getReport, updateReport } from "@/lib/ingestion/store";
 import { assertSameOriginBrowserMutation } from "@/lib/security/browser-request";
@@ -34,7 +34,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (
       Object.keys(raw).length === 0 ||
       Object.keys(raw).some(
-        (key) => key !== "selectedPublicFields" && key !== "editorial",
+        (key) => key !== "selectedPublicFields" && key !== "editorial" && key !== "artifact" && key !== "category",
       ) ||
       (raw.selectedPublicFields !== undefined &&
         (!Array.isArray(raw.selectedPublicFields) ||
@@ -46,17 +46,28 @@ export async function PATCH(request: Request, context: RouteContext) {
           Object.keys(raw.editorial).some(
             (key) => !["tagline", "description", "reflection"].includes(key),
           ) ||
-          Object.values(raw.editorial).some((field) => typeof field !== "string")))
+          Object.values(raw.editorial).some((field) => typeof field !== "string"))) ||
+      (raw.artifact !== undefined &&
+        (!raw.artifact ||
+          typeof raw.artifact !== "object" ||
+          Array.isArray(raw.artifact) ||
+          Object.keys(raw.artifact).some(
+            (key) => !["projectUrl", "repoUrl", "videoUrl"].includes(key),
+          ) ||
+          Object.values(raw.artifact).some((field) => field !== null && typeof field !== "string")))
+      || (raw.category !== undefined && raw.category !== null && typeof raw.category !== "string")
     ) {
       return jsonError(
         "invalid_report_update",
-        "Report updates may contain only public-field names and string editorial values.",
+        "Report updates may contain public-field names, editorial values, a category, and artifact link URLs.",
         422,
       );
     }
     const body = value as {
       selectedPublicFields?: PublicFieldKey[];
       editorial?: Partial<GeneratedReport["editorial"]>;
+      artifact?: { projectUrl?: string | null; repoUrl?: string | null; videoUrl?: string | null };
+      category?: StoryCategory | null;
     };
     const { reportId } = await context.params;
     const report = await updateReport(creator.creatorId, reportId, body);

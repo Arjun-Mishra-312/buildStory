@@ -54,7 +54,7 @@ In the repository you intend to scan, run the first command copied from the
 dashboard. It has this shape:
 
 ```powershell
-buildstory connect "UPLOAD_SESSION_ID" --code "DEVICE_CODE" --api-base-url "http://localhost:3000/"
+buildstory-scan connect "UPLOAD_SESSION_ID" --code "DEVICE_CODE" --api-base-url "http://localhost:3000/"
 ```
 
 `connect` sends only the bounded protocol request to
@@ -67,7 +67,7 @@ discards the device code and session ID.
 Run the second dashboard command from the selected Git repository:
 
 ```powershell
-buildstory scan-upload --repo . --consent local-scan --upload-consent local-dashboard
+buildstory-scan scan-upload --repo . --consent local-scan --upload-consent local-dashboard
 ```
 
 The scanner builds, canonicalizes, validates, and leak-checks the snapshot
@@ -91,7 +91,7 @@ The dashboard polls its creator-owned status route automatically. The CLI can
 also use the consumed bearer for read-only GETs until expiry:
 
 ```powershell
-buildstory status
+buildstory-scan status
 ```
 
 The status response contains only protocol state and `reportReady`. When ready,
@@ -158,7 +158,7 @@ or scan provenance.
 - `invalid_project_snapshot`: update the CLI/schema pair or remove the reported
   unsupported/raw field locally.
 - `upload_token_used`: the snapshot was already accepted; run
-  `buildstory status` instead of uploading again.
+  `buildstory-scan status` instead of uploading again.
 - `upload_token_expired`: create a fresh dashboard connection. Credentials and
   uploads are never silently retried.
 

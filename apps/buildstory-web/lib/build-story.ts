@@ -1,11 +1,31 @@
 import type { ProjectSnapshot } from "./project-snapshot";
-import type { PublicFieldKey } from "./ingestion/contracts";
+import type { PublicFieldKey, StoryCategory } from "./ingestion/contracts";
 import type { ReportStoryPackV2 } from "./ingestion/scanner-project-snapshot";
 import { NARRATIVE_FIELD_LIMITS } from "./narrative/schema";
 import { sanitizePublicText } from "./publication/sanitization";
 
 export type BuildStoryViewModel = ReturnType<typeof buildStoryFromSnapshot>;
 export type PublicBuildStoryViewModel = ReturnType<typeof publicBuildStoryFromSnapshot>;
+
+function costShares(models: ProjectSnapshot["usage"]["models"]): Map<string, number | null> {
+  const priced = models.filter((model) => model.costMicroUsd !== null);
+  const total = priced.reduce((sum, model) => sum + (model.costMicroUsd ?? 0), 0);
+  const shares = new Map<string, number | null>(models.map((model) => [model.id, null]));
+  if (total <= 0) return shares;
+
+  const floors = priced.map((model) => {
+    const exact = ((model.costMicroUsd ?? 0) * 100) / total;
+    return { id: model.id, floor: Math.floor(exact), remainder: exact - Math.floor(exact) };
+  });
+  let remaining = 100 - floors.reduce((sum, item) => sum + item.floor, 0);
+  floors.sort((left, right) => right.remainder - left.remainder || left.id.localeCompare(right.id));
+  for (const item of floors) {
+    const share = item.floor + (remaining > 0 ? 1 : 0);
+    shares.set(item.id, share);
+    if (remaining > 0) remaining -= 1;
+  }
+  return shares;
+}
 
 const shortMonthDay = new Intl.DateTimeFormat("en", {
   month: "short",
@@ -20,16 +40,42 @@ const longDate = new Intl.DateTimeFormat("en", {
   timeZone: "UTC",
 });
 
+function isSyntheticModelLabel(label: string) {
+  return label.trim().toLocaleLowerCase("en-US") === "<synthetic>";
+}
+
+function observedActivityWindow(snapshot: ProjectSnapshot) {
+  if (snapshot.sessions.length === 0) return snapshot.timeWindow;
+  return {
+    ...snapshot.timeWindow,
+    startedAt: snapshot.sessions.reduce(
+      (earliest, session) => session.startedAt < earliest ? session.startedAt : earliest,
+      snapshot.sessions[0]!.startedAt,
+    ),
+    endedAt: snapshot.sessions.reduce(
+      (latest, session) => session.endedAt > latest ? session.endedAt : latest,
+      snapshot.sessions[0]!.endedAt,
+    ),
+  };
+}
+
 export function buildStoryFromSnapshot(snapshot: ProjectSnapshot) {
+  const reportModels = snapshot.usage.models.filter((model) => !isSyntheticModelLabel(model.label));
+  const activityWindow = observedActivityWindow(snapshot);
   const minutes = snapshot.sessions.reduce(
     (sum, session) => sum + session.durationMinutes,
     0,
   );
-  const modelRequests = snapshot.usage.models.reduce(
+  const modelRequests = reportModels.reduce(
     (sum, model) => sum + model.requests,
     0,
   );
-  const endedAtYear = new Date(snapshot.timeWindow.endedAt).getUTCFullYear();
+  const subagentCount = snapshot.sessions.reduce(
+    (sum, session) => sum + (session.subagentInvocations ?? 0),
+    0,
+  );
+  const shares = costShares(reportModels);
+  const endedAtYear = new Date(activityWindow.endedAt).getUTCFullYear();
 
   return {
     id: snapshot.identity.id,
@@ -40,17 +86,15 @@ export function buildStoryFromSnapshot(snapshot: ProjectSnapshot) {
     status: snapshot.identity.status,
     owner: snapshot.identity.owner,
     repository: snapshot.repository,
-    dateRange: `${shortMonthDay.format(new Date(snapshot.timeWindow.startedAt))} — ${shortMonthDay.format(new Date(snapshot.timeWindow.endedAt))}, ${endedAtYear}`,
+    dateRange: `${shortMonthDay.format(new Date(activityWindow.startedAt))} — ${shortMonthDay.format(new Date(activityWindow.endedAt))}, ${endedAtYear}`,
     activeDays: snapshot.timeWindow.activeDays,
     sessionCount: snapshot.sessions.length,
+    subagentCount,
     buildHours: Math.round((minutes / 60) * 10) / 10,
     modelRequests,
-    models: snapshot.usage.models.map((model) => ({
+    models: reportModels.map((model) => ({
       ...model,
-      share:
-        modelRequests > 0
-          ? Math.round((model.requests / modelRequests) * 100)
-          : 0,
+      share: shares.get(model.id) ?? null,
     })),
     tools: snapshot.usage.tools,
     tokenUsage: snapshot.usage.tokenUsage,
@@ -74,8 +118,24 @@ export function buildStoryFromSnapshot(snapshot: ProjectSnapshot) {
     ...(snapshot.sourceSelection ? { sourceSelection: snapshot.sourceSelection } : {}),
     profile: snapshot.builderProfile ?? null,
     narrative: snapshot.narrative ?? null,
-    receiptId: `BR-${snapshot.timeWindow.endedAt.slice(2, 10).replaceAll("-", "")}-${snapshot.repository.currentRevision.toUpperCase()}`,
+    receiptId: `BR-${activityWindow.endedAt.slice(2, 10).replaceAll("-", "")}-${snapshot.repository.currentRevision.toUpperCase()}`,
   };
+}
+
+/**
+ * Defense-in-depth at the publication boundary: even though artifact URLs
+ * are validated at write time (see lib/ingestion/*-store.ts updateReportArtifact),
+ * this boundary never trusts stored data blindly - only well-formed https
+ * URLs ever reach a public response.
+ */
+function safeHttpsUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 function publicStoryPack(
@@ -122,6 +182,14 @@ function publicStoryPack(
   };
 }
 
+export type ArtifactMediaItem = { id: string; url: string; kind: "cover" | "screenshot" };
+export type ArtifactLinksInput = {
+  projectUrl?: string | null;
+  repoUrl?: string | null;
+  videoUrl?: string | null;
+  media?: ArtifactMediaItem[];
+};
+
 /**
  * Explicit publication boundary. Public routes receive this projection rather
  * than the source snapshot or full private report.
@@ -129,7 +197,8 @@ function publicStoryPack(
 export function publicBuildStoryFromSnapshot(
   snapshot: ProjectSnapshot,
   selectedPublicFields: PublicFieldKey[],
-  editorial?: { tagline?: string; description?: string; reflection?: string },
+  editorial?: { tagline?: string; description?: string; reflection?: string; category?: StoryCategory | null },
+  artifact?: ArtifactLinksInput,
 ) {
   const story = buildStoryFromSnapshot(snapshot);
   const selected = new Set(selectedPublicFields);
@@ -149,6 +218,7 @@ export function publicBuildStoryFromSnapshot(
     tagline: selected.has("tagline") ? publicTagline : "",
     description: selected.has("description") ? publicDescription : "",
     reflection: selected.has("description") ? publicReflection : "",
+    category: editorial?.category ?? "other",
     status: story.status,
     owner: {
       name: sanitizePublicText(story.owner.name, 160).value,
@@ -158,6 +228,7 @@ export function publicBuildStoryFromSnapshot(
     dateRange: selected.has("timeWindow") ? story.dateRange : "Private build window",
     activeDays: selected.has("timeWindow") ? story.activeDays : 0,
     sessionCount: selected.has("sessionSummary") ? story.sessionCount : 0,
+    subagentCount: selected.has("sessionSummary") ? story.subagentCount : 0,
     buildHours: selected.has("sessionSummary") ? story.buildHours : 0,
     modelRequests: selected.has("modelMix") ? story.modelRequests : 0,
     models: selected.has("modelMix")
@@ -213,5 +284,13 @@ export function publicBuildStoryFromSnapshot(
     growthEdge: selected.has("growthEdge") && story.narrative?.growthEdge
       ? sanitizePublicText(story.narrative.growthEdge, NARRATIVE_FIELD_LIMITS.growthEdge).value
       : "",
+    artifactLinks: selected.has("artifactLinks")
+      ? {
+          projectUrl: safeHttpsUrl(artifact?.projectUrl),
+          repoUrl: safeHttpsUrl(artifact?.repoUrl),
+          videoUrl: safeHttpsUrl(artifact?.videoUrl),
+        }
+      : { projectUrl: null, repoUrl: null, videoUrl: null },
+    artifactMedia: selected.has("artifactMedia") ? (artifact?.media ?? []) : [],
   };
 }

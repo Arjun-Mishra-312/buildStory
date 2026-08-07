@@ -1,19 +1,26 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import type { BuildStoryViewModel, PublicBuildStoryViewModel } from "@/lib/build-story";
-import type { NarrativeRecord, PublicationStatus, PublicFieldKey } from "@/lib/ingestion/contracts";
+import { STORY_CATEGORIES, type NarrativeRecord, type PublicationStatus, type PublicFieldKey, type ReportMediaRecord, type StoryCategory } from "@/lib/ingestion/contracts";
 import type { NarrativeDisplayStatus } from "@/lib/ingestion/narrative-status";
 import type { ReportStoryPackV2 } from "@/lib/ingestion/scanner-project-snapshot";
+import { copyToClipboard } from "@/lib/clipboard";
 import { initialsFrom } from "@/lib/identity/initials";
+import { resolveVideoEmbed } from "@/lib/media/video-embed";
+import { ChapterTimeline, type ChapterSummary } from "./chapter-timeline";
 import { CommentThread } from "./comment-thread";
 import { ReceiptCard } from "./receipt-card";
+import { ShareButton } from "./share-button";
 import { SocialActions } from "./social-actions";
+
+type ArtifactLinksState = { projectUrl: string | null; repoUrl: string | null; videoUrl: string | null };
 
 type ProjectWorkbenchProps = {
   story: (BuildStoryViewModel | PublicBuildStoryViewModel) & { reportId?: string };
   access?: "public" | "creator";
   reportId?: string;
+  projectId?: string;
   initialPublicationStatus?: PublicationStatus;
   initialSelectedPublicFields?: PublicFieldKey[];
   narrative?: NarrativeRecord | null;
@@ -23,6 +30,12 @@ type ProjectWorkbenchProps = {
     description: string;
     reflection: string;
   }>;
+  initialCategory?: StoryCategory | null;
+  initialArtifact?: ArtifactLinksState;
+  initialMedia?: ReportMediaRecord[];
+  initialVerifiedRepoAt?: string | null;
+  chapters?: ChapterSummary[];
+  currentChapterIndex?: number;
   reviewedEvidence?: Array<{ excerptId: string; sessionRef: string; occurredAt: string; role: string; text: string }>;
 };
 
@@ -55,6 +68,8 @@ const fieldOptions: Array<{ id: PublicFieldKey; label: string; detail: string }>
   { id: "standoutTraits", label: "Standout traits", detail: "Model-written observations" },
   { id: "decisionPatterns", label: "Decision patterns", detail: "Personal prose; off by default" },
   { id: "growthEdge", label: "Growth edge", detail: "Personal prose; off by default" },
+  { id: "artifactLinks", label: "Project links", detail: "Project URL, repo, and video; off by default" },
+  { id: "artifactMedia", label: "Screenshots & cover image", detail: "Uploaded images; off by default" },
 ];
 
 function providerName(provider: string): string {
@@ -176,11 +191,18 @@ export function ProjectWorkbench({
   story,
   access = "creator",
   reportId,
+  projectId,
   initialPublicationStatus = "not_published",
-  initialSelectedPublicFields = fieldOptions.filter((field) => !["decisionPatterns", "growthEdge", "storyGrowthEdge"].includes(field.id)).map((field) => field.id),
+  initialSelectedPublicFields = fieldOptions.filter((field) => !["decisionPatterns", "growthEdge", "storyGrowthEdge", "artifactLinks", "artifactMedia"].includes(field.id)).map((field) => field.id),
   narrative = null,
   narrativeStatus,
   initialEditorial,
+  initialCategory,
+  initialArtifact,
+  initialMedia = [],
+  initialVerifiedRepoAt = null,
+  chapters = [],
+  currentChapterIndex,
   reviewedEvidence = [],
 }: ProjectWorkbenchProps) {
   const resolvedNarrativeStatus: NarrativeDisplayStatus =
@@ -203,30 +225,80 @@ export function ProjectWorkbench({
     (storyReflection || (access === "creator"
       ? "AI made it cheap to explore three architectures. Tester feedback made it obvious which one deserved to survive."
       : ""));
+  const resolvedCategory = initialCategory ?? ("category" in story ? story.category : null);
   const [view, setView] = useState<"public" | "private">("public");
   const [editing, setEditing] = useState(false);
   const [tagline, setTagline] = useState(initialTagline);
   const [description, setDescription] = useState(initialDescription);
   const [reflection, setReflection] = useState(defaultReflection);
-  const [draft, setDraft] = useState({ tagline, description, reflection });
+  const [category, setCategory] = useState<StoryCategory | null>(resolvedCategory);
+  const [artifactLinks, setArtifactLinks] = useState<ArtifactLinksState>(
+    initialArtifact ?? { projectUrl: null, repoUrl: null, videoUrl: null },
+  );
+  const [draft, setDraft] = useState({
+    tagline,
+    description,
+    reflection,
+    projectUrl: artifactLinks.projectUrl ?? "",
+    repoUrl: artifactLinks.repoUrl ?? "",
+    videoUrl: artifactLinks.videoUrl ?? "",
+    category: resolvedCategory ?? "",
+  });
+  const [media, setMedia] = useState<ReportMediaRecord[]>(initialMedia);
+  const [mediaBusy, setMediaBusy] = useState(false);
+  const [mediaError, setMediaError] = useState<string | null>(null);
+  const [verifiedRepoAt, setVerifiedRepoAt] = useState<string | null>(initialVerifiedRepoAt);
+  const [verifyState, setVerifyState] = useState<"idle" | "verifying" | "error">("idle");
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [copied, setCopied] = useState(false);
+  const [badgeCopied, setBadgeCopied] = useState(false);
   const [selectedFields, setSelectedFields] = useState<PublicFieldKey[]>(initialSelectedPublicFields);
   const [publicationStatus, setPublicationStatus] = useState<PublicationStatus>(initialPublicationStatus);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [publicationError, setPublicationError] = useState<string | null>(null);
   const storyNarrative = "narrative" in story ? story.narrative : null;
   const storyPack = narrative?.storyPack ?? ("storyPack" in story && story.storyPack ? story.storyPack : null) ?? (
     storyNarrative && typeof storyNarrative === "object" && "storyPack" in storyNarrative
       ? (storyNarrative.storyPack as ReportStoryPackV2 | undefined) ?? null
       : null
   );
+  // Public visitors see the server-gated projection already on `story`; the creator's own
+  // preview shows their live draft regardless of the publication-boundary checkboxes, matching
+  // how tagline/description/profile already behave above - this panel is an editor+preview,
+  // not the enforcement boundary (that's publicBuildStoryFromSnapshot, server-side).
+  const displayArtifactLinks = access === "public" && "artifactLinks" in story ? story.artifactLinks : artifactLinks;
+  const displayArtifactMedia = access === "public" && "artifactMedia" in story ? story.artifactMedia : media;
+  const videoEmbed = resolveVideoEmbed(displayArtifactLinks.videoUrl);
+  const coverMedia = displayArtifactMedia.find((item) => item.kind === "cover") ?? displayArtifactMedia[0] ?? null;
+  const screenshotMedia = displayArtifactMedia.filter((item) => item.id !== coverMedia?.id);
+  const hasArtifact = Boolean(
+    displayArtifactLinks.projectUrl || displayArtifactLinks.repoUrl || displayArtifactLinks.videoUrl || displayArtifactMedia.length,
+  );
 
   function startEditing() {
-    setDraft({ tagline, description, reflection });
+    setDraft({
+      tagline,
+      description,
+      reflection,
+      projectUrl: artifactLinks.projectUrl ?? "",
+      repoUrl: artifactLinks.repoUrl ?? "",
+      videoUrl: artifactLinks.videoUrl ?? "",
+      category: category ?? "",
+    });
     setEditing(true);
   }
 
   function cancelEditing() {
-    setDraft({ tagline, description, reflection });
+    setDraft({
+      tagline,
+      description,
+      reflection,
+      projectUrl: artifactLinks.projectUrl ?? "",
+      repoUrl: artifactLinks.repoUrl ?? "",
+      videoUrl: artifactLinks.videoUrl ?? "",
+      category: category ?? "",
+    });
     setEditing(false);
   }
 
@@ -237,19 +309,28 @@ export function ProjectWorkbench({
       description: draft.description.trim() || description,
       reflection: draft.reflection.trim() || reflection,
     };
+    const nextArtifact = {
+      projectUrl: draft.projectUrl.trim() || null,
+      repoUrl: draft.repoUrl.trim() || null,
+      videoUrl: draft.videoUrl.trim() || null,
+    };
+    const nextCategory = draft.category && STORY_CATEGORIES.includes(draft.category as StoryCategory) ? draft.category as StoryCategory : null;
     setSaveState("saving");
     try {
       if (reportId) {
         const response = await fetch(`/api/creator/reports/${reportId}`, {
           method: "PATCH",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ editorial: next, selectedPublicFields: selectedFields }),
+          body: JSON.stringify({ editorial: next, selectedPublicFields: selectedFields, artifact: nextArtifact, category: nextCategory }),
         });
         if (!response.ok) throw new Error("Report update failed.");
       }
       setTagline(next.tagline);
       setDescription(next.description);
       setReflection(next.reflection);
+      setArtifactLinks(nextArtifact);
+      setCategory(nextCategory);
+      if (nextCategory) setPublicationError(null);
       setPublicationStatus((current) => current === "published" ? "draft_changes" : current);
       setSaveState("saved");
       setEditing(false);
@@ -276,14 +357,28 @@ export function ProjectWorkbench({
   }
 
   async function publishChanges() {
-    if (!reportId) return;
+    if (!reportId) {
+      setPublicationError("This story is not ready to publish yet.");
+      return;
+    }
+    if (!category) {
+      setPublicationError("Choose a story category before publishing.");
+      setView("public");
+      startEditing();
+      return;
+    }
+    setPublicationError(null);
     setSaveState("saving");
     try {
       const response = await fetch(`/api/creator/reports/${reportId}/publish`, { method: "POST" });
-      if (!response.ok) throw new Error("Report publication failed.");
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+        throw new Error(payload?.error?.message ?? "Could not publish this story.");
+      }
       setPublicationStatus("published");
       setSaveState("saved");
-    } catch {
+    } catch (error) {
+      setPublicationError(error instanceof Error ? error.message : "Could not publish this story.");
       setSaveState("error");
     }
   }
@@ -301,6 +396,71 @@ export function ProjectWorkbench({
     }
   }
 
+  async function uploadMedia(file: File, kind: "cover" | "screenshot") {
+    if (!reportId || mediaBusy) return;
+    setMediaBusy(true);
+    setMediaError(null);
+    try {
+      const response = await fetch(`/api/creator/reports/${reportId}/media?kind=${kind}`, {
+        method: "POST",
+        headers: { "content-type": file.type },
+        body: file,
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+        setMediaError(payload?.error?.message ?? "Could not upload that image.");
+        return;
+      }
+      const data = (await response.json()) as { media: ReportMediaRecord };
+      setMedia((current) => [...current, data.media]);
+    } catch {
+      setMediaError("Could not upload that image.");
+    } finally {
+      setMediaBusy(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function removeMedia(mediaId: string) {
+    if (!reportId || mediaBusy) return;
+    setMediaBusy(true);
+    setMediaError(null);
+    try {
+      const response = await fetch(`/api/creator/reports/${reportId}/media/${mediaId}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Delete failed.");
+      setMedia((current) => current.filter((item) => item.id !== mediaId));
+    } catch {
+      setMediaError("Could not remove that image.");
+    } finally {
+      setMediaBusy(false);
+    }
+  }
+
+  async function verifyRepository() {
+    if (!projectId || !artifactLinks.repoUrl || verifyState === "verifying") return;
+    setVerifyState("verifying");
+    setVerifyError(null);
+    try {
+      const response = await fetch(`/api/creator/projects/${projectId}/verify-repo`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repoUrl: artifactLinks.repoUrl }),
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+        setVerifyError(payload?.error?.message ?? "Could not verify that repository.");
+        setVerifyState("error");
+        return;
+      }
+      const data = (await response.json()) as { verifiedRepoAt: string };
+      setVerifiedRepoAt(data.verifiedRepoAt);
+      setVerifyState("idle");
+    } catch {
+      setVerifyError("Could not verify that repository.");
+      setVerifyState("error");
+    }
+  }
+
   function togglePublicField(field: PublicFieldKey) {
     if (field === "tagline") return;
     setSelectedFields((current) =>
@@ -311,13 +471,18 @@ export function ProjectWorkbench({
 
   async function copyLink() {
     if (publicationStatus !== "published") return;
-    try {
-      await navigator.clipboard.writeText(`${window.location.origin}/u/${story.owner.handle}/${story.slug}`);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
-    } catch {
-      setCopied(false);
-    }
+    const ok = await copyToClipboard(`${window.location.origin}/u/${story.owner.handle}/${story.slug}`);
+    setCopied(ok);
+    if (ok) window.setTimeout(() => setCopied(false), 1600);
+  }
+
+  async function copyBadgeMarkdown() {
+    if (publicationStatus !== "published") return;
+    const path = `/u/${story.owner.handle}/${story.slug}`;
+    const markdown = `[![Buildstory](${window.location.origin}${path}/badge.svg)](${window.location.origin}${path})`;
+    const ok = await copyToClipboard(markdown);
+    setBadgeCopied(ok);
+    if (ok) window.setTimeout(() => setBadgeCopied(false), 1600);
   }
 
   return (
@@ -363,15 +528,26 @@ export function ProjectWorkbench({
               Edit public page
             </button>
           ) : null}
-          <button
-            className="button button--dark button--small"
-            type="button"
-            onClick={() => void copyLink()}
-            disabled={publicationStatus !== "published"}
-            title={publicationStatus === "published" ? "Copy the public story URL" : "Publish the story before sharing it"}
-          >
-            {copied ? "Public link copied" : publicationStatus === "published" ? "Copy public link" : "Publish to share"} <span aria-hidden="true">↗</span>
-          </button>
+          {publicationStatus === "published" ? (
+            <button
+              className="button button--dark button--small"
+              type="button"
+              onClick={() => void copyLink()}
+              title="Copy the public story URL"
+            >
+              {copied ? "Public link copied" : "Copy public link"} <span aria-hidden="true">↗</span>
+            </button>
+          ) : null}
+          {publicationStatus === "published" ? (
+            <button
+              className="button button--secondary button--small"
+              type="button"
+              onClick={() => void copyBadgeMarkdown()}
+              title="Copy a README badge for this story"
+            >
+              {badgeCopied ? "Badge markdown copied" : "Copy README badge"}
+            </button>
+          ) : null}
           {publicationStatus !== "published" ? (
             <button
               className="button button--primary button--small"
@@ -379,7 +555,7 @@ export function ProjectWorkbench({
               onClick={publishChanges}
               disabled={saveState === "saving"}
             >
-              {publicationStatus === "draft_changes" ? "Publish changes" : "Publish page"}
+              {saveState === "saving" ? "Publishing…" : publicationStatus === "draft_changes" ? "Publish changes" : "Publish page"}
             </button>
           ) : (
             <span className="publication-live"><i /> Published</span>
@@ -393,6 +569,12 @@ export function ProjectWorkbench({
         </div>
       )}
 
+      {access === "creator" && publicationError ? (
+        <div className="publication-feedback" role="alert">
+          <strong>Could not publish.</strong> {publicationError}
+        </div>
+      ) : null}
+
       {view === "public" ? (
         <div id="public-panel" role="tabpanel" aria-labelledby="public-tab">
           {editing ? (
@@ -403,7 +585,9 @@ export function ProjectWorkbench({
                   <h2>Keep the facts. Make the story yours.</h2>
                 </div>
                 <span>
-                  {saveState === "saving"
+                  {publicationError
+                    ? publicationError
+                    : saveState === "saving"
                     ? "Saving private report…"
                     : saveState === "error"
                       ? "Save failed"
@@ -418,6 +602,13 @@ export function ProjectWorkbench({
                   maxLength={90}
                 />
                 <small>{draft.tagline.length}/90</small>
+              </label>
+              <label className="project-editor__category">
+                <span>Story category <small className="project-editor__field-note">Required before publishing</small></span>
+                <select value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })}>
+                  <option value="">Choose a category</option>
+                  {STORY_CATEGORIES.map((value) => <option value={value} key={value}>{value.split("-").map((part) => part[0]?.toUpperCase() + part.slice(1)).join(" ")}</option>)}
+                </select>
               </label>
               <label>
                 <span>Opening paragraph</span>
@@ -439,6 +630,66 @@ export function ProjectWorkbench({
                 />
                 <small>{draft.reflection.length}/260</small>
               </label>
+
+              <div className="project-editor__section-label">
+                <span>THE ARTIFACT</span>
+                <small>Not shown publicly unless you tick &ldquo;Project links&rdquo; / &ldquo;Screenshots &amp; cover image&rdquo; below and publish.</small>
+              </div>
+              <label>
+                <span>Live project URL</span>
+                <input
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://your-project.example.com"
+                  value={draft.projectUrl}
+                  onChange={(event) => setDraft({ ...draft, projectUrl: event.target.value })}
+                  maxLength={2000}
+                />
+              </label>
+              <label>
+                <span>Repository URL</span>
+                <input
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://github.com/you/project"
+                  value={draft.repoUrl}
+                  onChange={(event) => setDraft({ ...draft, repoUrl: event.target.value })}
+                  maxLength={2000}
+                />
+              </label>
+              {projectId && artifactLinks.repoUrl ? (
+                <div className="project-editor__repo-verify">
+                  {verifiedRepoAt ? (
+                    <span className="verified-chip" title={`Verified ${new Date(verifiedRepoAt).toLocaleDateString()}`}>
+                      <span aria-hidden="true">✓</span> Verified repository owner
+                    </span>
+                  ) : (
+                    <>
+                      <button
+                        className="button button--secondary button--small"
+                        type="button"
+                        onClick={() => void verifyRepository()}
+                        disabled={verifyState === "verifying"}
+                      >
+                        {verifyState === "verifying" ? "Verifying…" : "Verify GitHub ownership"}
+                      </button>
+                      {verifyError ? <small className="project-editor__repo-verify-error" role="alert">{verifyError}</small> : null}
+                    </>
+                  )}
+                </div>
+              ) : null}
+              <label>
+                <span>Demo video (YouTube, Vimeo, or Loom)</span>
+                <input
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://www.youtube.com/watch?v=…"
+                  value={draft.videoUrl}
+                  onChange={(event) => setDraft({ ...draft, videoUrl: event.target.value })}
+                  maxLength={2000}
+                />
+              </label>
+
               <div className="project-editor__actions">
                 <button className="button button--text" type="button" onClick={cancelEditing}>Cancel</button>
                 <button className="button button--primary" type="submit">Save public draft</button>
@@ -446,12 +697,52 @@ export function ProjectWorkbench({
             </form>
           ) : null}
 
+          {editing ? (
+            <div className="project-media-editor">
+              <div className="project-editor__section-label">
+                <span>SCREENSHOTS &amp; COVER IMAGE</span>
+                <small>PNG, JPEG, or WebP · up to 5 MB · up to 5 images. EXIF metadata is stripped from JPEGs on upload.</small>
+              </div>
+              {mediaError ? <p className="comment-thread__error" role="alert">{mediaError}</p> : null}
+              <div className="project-media-editor__grid">
+                {media.map((item) => (
+                  <figure key={item.id} className="project-media-editor__item">
+                    {/* User-uploaded media uses signed application URLs rather than the framework image optimizer. */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={item.url} alt="" />
+                    <figcaption>
+                      <span>{item.kind === "cover" ? "Cover" : "Screenshot"}</span>
+                      <button type="button" className="button button--text" onClick={() => void removeMedia(item.id)} disabled={mediaBusy}>
+                        Remove
+                      </button>
+                    </figcaption>
+                  </figure>
+                ))}
+              </div>
+              {media.length < 5 ? (
+                <label className="project-media-editor__upload">
+                  <span>{mediaBusy ? "Uploading…" : media.some((item) => item.kind === "cover") ? "Add a screenshot" : "Add a cover image"}</span>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    disabled={mediaBusy}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void uploadMedia(file, media.some((item) => item.kind === "cover") ? "screenshot" : "cover");
+                    }}
+                  />
+                </label>
+              ) : null}
+            </div>
+          ) : null}
+
           <article className="build-story">
             <header className="build-story__hero section-wrap">
               <div className="build-story__hero-copy">
                 <div className="story-kicker">
                   <span className={`status-dot status-dot--${story.status === "shipped" ? "shipped" : "building"}`} />
-                  {story.status.toUpperCase()} · {story.dateRange.toUpperCase()}
+                  {story.status.toUpperCase()} · {(category ?? ("category" in story ? story.category : "other")).toUpperCase()} · {story.dateRange.toUpperCase()}
                 </div>
                 <h1>{story.name}</h1>
                 <p className="build-story__tagline">{tagline}</p>
@@ -462,17 +753,54 @@ export function ProjectWorkbench({
                     <small>@{story.owner.handle} · {story.owner.role}</small>
                   </span>
                 </div>
+                <div className="build-story__hero-actions" aria-label="Project links">
+                  {displayArtifactLinks.projectUrl ? <a className="button button--primary" href={displayArtifactLinks.projectUrl} target="_blank" rel="noopener noreferrer nofollow">View live demo <span aria-hidden="true">↗</span></a> : null}
+                  {displayArtifactLinks.repoUrl ? <a className="button button--secondary" href={displayArtifactLinks.repoUrl} target="_blank" rel="noopener noreferrer nofollow">GitHub repository <span aria-hidden="true">↗</span></a> : null}
+                  {displayArtifactLinks.videoUrl ? <a className="button button--text" href={displayArtifactLinks.videoUrl} target="_blank" rel="noopener noreferrer nofollow">Watch demo <span aria-hidden="true">↗</span></a> : null}
+                  {displayArtifactLinks.repoUrl && verifiedRepoAt ? <span className="verified-chip" title={`Verified ${new Date(verifiedRepoAt).toLocaleDateString()}`}><span aria-hidden="true">✓</span> Verified owner</span> : null}
+                </div>
               </div>
-              <div className="build-story__cover" aria-hidden="true">
-                <span className="orbit orbit--one" />
-                <span className="orbit orbit--two" />
-                <span className="orbit orbit--three" />
-                <span className="orbit-note orbit-note--one">{story.sessionCount} sessions</span>
-                <span className="orbit-note orbit-note--two">{story.git.commits} commits</span>
-                <span className="orbit-note orbit-note--three">{story.activeDays} days</span>
-                <span className="cover-caption">BUILD / 0.1</span>
+              <div className="build-story__cover">
+                {coverMedia ? <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={coverMedia.url} alt={`${story.name} product preview`} />
+                </> : <><span className="orbit orbit--one" /><span className="orbit orbit--two" /><span className="orbit orbit--three" /><span className="orbit-note orbit-note--one">{story.sessionCount} sessions</span><span className="orbit-note orbit-note--two">{story.git.commits} commits</span><span className="orbit-note orbit-note--three">{story.activeDays} days</span><span className="cover-caption">BUILD / RECEIPT</span></>}
               </div>
             </header>
+
+            {access === "public" && currentChapterIndex ? (
+              <ChapterTimeline chapters={chapters} handle={story.owner.handle} slug={story.slug} currentChapterIndex={currentChapterIndex} />
+            ) : null}
+
+            {hasArtifact && (displayArtifactMedia.length > 0 || videoEmbed) ? (
+              <section className="artifact-panel section-wrap" aria-label="The artifact">
+                {coverMedia ? (
+                  <div className="artifact-panel__cover">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={coverMedia.url} alt="" />
+                  </div>
+                ) : null}
+                {videoEmbed ? (
+                  <div className="artifact-panel__video">
+                    <iframe
+                      src={videoEmbed.embedUrl}
+                      title={`${story.name} demo video`}
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                      loading="lazy"
+                    />
+                  </div>
+                ) : null}
+                {screenshotMedia.length ? (
+                  <div className="artifact-panel__screenshots">
+                    {screenshotMedia.map((item) => <span key={item.id}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={item.url} alt="" loading="lazy" />
+                    </span>)}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
 
             <div className="story-stats section-wrap" aria-label="Build summary">
               <div><strong>{story.activeDays}</strong><span>active days</span></div>
@@ -486,7 +814,7 @@ export function ProjectWorkbench({
               </div>
               <div>
                 <strong>{story.cost?.totalMicroUsd != null ? formatMicroUsd(story.cost.totalMicroUsd) : "—"}</strong>
-                <span>est. AI spend</span>
+                <span>est. API-equivalent spend</span>
               </div>
             </div>
 
@@ -565,7 +893,14 @@ export function ProjectWorkbench({
 
           {access === "public" ? (
             <div className="section-wrap community-section">
-              <SocialActions storyId={story.reportId ?? story.id} ownerHandle={story.owner.handle} />
+              <div className="community-section__actions">
+                <SocialActions storyId={story.reportId ?? story.id} ownerHandle={story.owner.handle} />
+                <ShareButton
+                  path={`/u/${story.owner.handle}/${story.slug}`}
+                  title={story.name}
+                  downloadPath={`/api/share/story/${story.owner.handle}/${story.slug}`}
+                />
+              </div>
               <CommentThread storyId={story.reportId ?? story.id} />
             </div>
           ) : null}
@@ -658,7 +993,9 @@ export function ProjectWorkbench({
             </div>
             <footer>
               <span>
-                {saveState === "error"
+                {publicationError
+                  ? publicationError
+                  : saveState === "error"
                   ? "Private report update failed."
                   : saveState === "saved"
                     ? "Private report selection saved."
@@ -669,7 +1006,7 @@ export function ProjectWorkbench({
                   Save private selection
                 </button>
                 <button className="button button--primary" type="button" onClick={publishChanges} disabled={saveState === "saving"}>
-                  {publicationStatus === "published" ? "Republish page" : "Publish universal page"}
+                  {saveState === "saving" ? "Publishing…" : publicationStatus === "published" ? "Republish page" : "Publish universal page"}
                 </button>
                 {publicationStatus === "published" ? <button className="button button--text" type="button" onClick={() => void unpublish()} disabled={saveState === "saving"}>Unpublish</button> : null}
               </div>
@@ -713,9 +1050,9 @@ export function ProjectWorkbench({
               <div className="report-models">
                 {story.models.map((model) => (
                   <div key={model.id}>
-                    <span><strong>{model.label}</strong><small>{model.requests} turns{model.tokenUsage ? ` · ${compactNumber.format(model.tokenUsage.totalTokens)} tokens` : ""}</small></span>
+                    <span><strong>{model.label}</strong><small>{model.requests} model calls{model.tokenUsage ? ` · ${compactNumber.format(model.tokenUsage.totalTokens)} tokens` : ""}</small></span>
                     <span>
-                      {model.share}%
+                      {model.share === null ? "unpriced" : `${model.share}%`}
                       {model.costMicroUsd != null ? <em className="report-models__cost">{formatMicroUsd(model.costMicroUsd)}</em> : null}
                     </span>
                   </div>
@@ -752,9 +1089,10 @@ export function ProjectWorkbench({
                 <div><dt>Consent policy</dt><dd>{privateStory.provenance.consentVersion}</dd></div>
               </dl>
             </section>
+          </div>
 
-            {privateStory.profile ? (
-              <section className="report-card report-card--profile">
+          {privateStory.profile ? (
+            <section className="report-card report-card--profile">
                 <header><span>06 / BUILDER PROFILE</span><strong>{privateStory.profile.archetype.name}</strong></header>
                 <p>{privateStory.profile.archetype.rationale.join(" ")}</p>
                 <div className="profile-score-grid">
@@ -769,10 +1107,10 @@ export function ProjectWorkbench({
                   <div><dt>Primary model</dt><dd>{privateStory.profile.workPatterns.primaryModel ?? "Not collected"}</dd></div>
                 </dl>
                 <small>* Product instinct is a weak proxy, not a measured personality trait.</small>
-              </section>
-            ) : null}
+            </section>
+          ) : null}
 
-            {resolvedNarrativeStatus === "narrative_not_requested" ? (
+          {resolvedNarrativeStatus === "narrative_not_requested" ? (
               <section className="report-card report-card--narrative report-card--narrative-empty">
                 <header><span>07 / AI-WRITTEN NARRATIVE</span><strong>Not requested</strong></header>
                 <p>This scan didn&apos;t opt into narrative evidence, so no AI-written narrative was generated. Metrics above are unaffected.</p>
@@ -803,7 +1141,6 @@ export function ProjectWorkbench({
                 )}
               </section>
             )}
-          </div>
         </section>
       ) : null}
     </main>

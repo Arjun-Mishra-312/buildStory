@@ -44,7 +44,7 @@ npm install --global ./artifacts/buildstory-scanner-0.4.0.tgz
 buildstory --version
 ```
 
-The dashboard provides the exact `buildstory connect ... --api-base-url http://localhost:3000/` command. A scan/upload still requires both `--consent local-scan` and `--upload-consent local-dashboard`.
+The dashboard provides the exact `buildstory-scan connect ... --api-base-url http://localhost:3000/` command. A scan/upload still requires both `--consent local-scan` and `--upload-consent local-dashboard`.
 
 ## Google/Auth.js
 

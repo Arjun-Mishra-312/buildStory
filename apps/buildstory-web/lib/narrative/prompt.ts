@@ -27,7 +27,7 @@ Rules:
 
 function factsBlock(snapshot: ScannerProjectSnapshot): string {
   const usage = snapshot.usage;
-  const models = usage.models.map((model) => `${model.name} (${model.turnCount} turns)`).join(", ") || "none recorded";
+  const models = usage.models.map((model) => `${model.name} (${model.turnCount} model calls)`).join(", ") || "none recorded";
   const tokenLine = usage.tokenUsage
     ? `${usage.tokenUsage.totalTokens.toLocaleString("en-US")} tokens processed (${usage.tokenUsage.inputTokens.toLocaleString("en-US")} in / ${usage.tokenUsage.outputTokens.toLocaleString("en-US")} out)`
     : "token usage not collected";

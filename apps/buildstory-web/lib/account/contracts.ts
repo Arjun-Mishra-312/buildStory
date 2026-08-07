@@ -44,6 +44,8 @@ export type AccountExport = {
     createdAt: string;
   }>;
   reactionsGiven: Array<{ reportId: string; kind: string; createdAt: string }>;
+  commentUpvotesGiven: Array<{ commentId: string; reportId: string; createdAt: string }>;
   following: string[];
   followers: string[];
+  media: Array<{ id: string; reportId: string; url: string; kind: string; createdAt: string }>;
 };

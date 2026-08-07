@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { EditorialIllustration } from "@/components/editorial-illustration";
 import type { FeedEntry } from "@/lib/social/contracts";
 
 export function HomeFeed({ entries, unavailable }: { entries: FeedEntry[]; unavailable: boolean }) {
@@ -20,9 +21,16 @@ export function HomeFeed({ entries, unavailable }: { entries: FeedEntry[]; unava
           <p>Try again in a moment.</p>
         </div>
       ) : entries.length === 0 ? (
-        <div className="leaderboard-empty" role="status">
-          <strong>Your feed is quiet.</strong>
-          <p>Follow builders from their public profile pages to see their stories here.</p>
+        <div className="feed-empty" role="status">
+          <div className="feed-empty__art" aria-hidden="true">
+            <EditorialIllustration kind="feed-quiet" />
+          </div>
+          <div className="feed-empty__copy">
+            <span className="section-index">( YOUR NEXT THREAD )</span>
+            <strong>Your feed is quiet.</strong>
+            <p>Follow builders from their public profile pages to see their stories here.</p>
+            <Link className="button button--secondary" href="/explore">Find builders to follow <span aria-hidden="true">→</span></Link>
+          </div>
         </div>
       ) : (
         <div className="feed-list">
@@ -32,7 +40,7 @@ export function HomeFeed({ entries, unavailable }: { entries: FeedEntry[]; unava
                 <strong>{entry.author.displayName}</strong>
                 <small>@{entry.author.handle}</small>
               </div>
-              <Link href={`/u/${entry.author.handle}/${entry.slug}`}>{entry.tagline}</Link>
+              <Link href={`/u/${entry.author.handle}/${entry.slug}/${entry.chapterIndex}`}>{entry.tagline}</Link>
               <div className="feed-list__meta">
                 <span>{entry.reactionTotal} reactions</span>
                 <span>{entry.commentCount} comments</span>

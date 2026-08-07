@@ -27,7 +27,7 @@ export async function generateMetadata(): Promise<Metadata> {
     requestHeaders.get("x-forwarded-proto") ??
     (host.includes("localhost") ? "http" : "https");
   const metadataBase = new URL(`${protocol}://${host}`);
-  const socialImage = new URL("/og.png", metadataBase).toString();
+  const socialImage = new URL("/og.jpg", metadataBase).toString();
 
   return {
     metadataBase,
@@ -43,7 +43,7 @@ export async function generateMetadata(): Promise<Metadata> {
       title: "Every build has a story.",
       description:
         "Private-first build reports and public stories for people making software with AI.",
-      images: [{ url: socialImage, width: 1731, height: 909, alt: "Buildstory — Every build has a story." }],
+      images: [{ url: socialImage, width: 1200, height: 630, alt: "Buildstory — Every build has a story." }],
     },
     twitter: {
       card: "summary_large_image",

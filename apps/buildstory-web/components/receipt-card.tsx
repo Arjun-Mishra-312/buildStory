@@ -7,6 +7,7 @@ type ReceiptStory = Pick<
   | "dateRange"
   | "buildHours"
   | "sessionCount"
+  | "subagentCount"
   | "models"
   | "git"
   | "modelRequests"
@@ -52,7 +53,7 @@ export function ReceiptCard({ story, compact = false }: ReceiptCardProps) {
         </div>
         <div>
           <dt>AI sessions</dt>
-          <dd>{story.sessionCount}</dd>
+          <dd>{story.sessionCount} sessions{story.subagentCount > 0 ? ` · ${story.subagentCount} subagent runs` : ""}</dd>
         </div>
       </dl>
 
@@ -64,12 +65,12 @@ export function ReceiptCard({ story, compact = false }: ReceiptCardProps) {
             <div>
               <span>{model.label}</span>
               <span>
-                {model.share}%
+                {model.share === null ? "unpriced" : `${model.share}%`}
                 {model.costMicroUsd != null ? <em className="receipt__model-cost">{formatMicroUsd(model.costMicroUsd)}</em> : null}
               </span>
             </div>
             <span className="receipt__bar" aria-hidden="true">
-              <span style={{ width: `${model.share}%` }} />
+              <span style={{ width: `${model.share ?? 0}%` }} />
             </span>
           </div>
         ))}
@@ -87,12 +88,12 @@ export function ReceiptCard({ story, compact = false }: ReceiptCardProps) {
         </div>
         <div>
           <strong>{story.modelRequests}</strong>
-          <span>model turns</span>
+          <span>model calls</span>
         </div>
         {story.cost?.totalMicroUsd != null ? (
           <div>
             <strong>{formatMicroUsd(story.cost.totalMicroUsd)}</strong>
-            <span>est. AI spend</span>
+            <span>est. API-equivalent spend</span>
           </div>
         ) : null}
       </div>
@@ -102,9 +103,14 @@ export function ReceiptCard({ story, compact = false }: ReceiptCardProps) {
         Redacted locally · {story.redaction.tokensRemoved.toLocaleString()} tokens
         withheld
       </div>
+      {story.cost && story.cost.unpricedTokens > 0 ? (
+        <p className="receipt__fineprint">
+          {story.cost.unpricedTokens.toLocaleString()} tokens from unpriced models are excluded from the cost-share denominator.
+        </p>
+      ) : null}
       <div className="receipt__barcode" aria-hidden="true" />
       <p className="receipt__fineprint">
-        Process evidence, not a productivity score.
+        Rate-card estimate, not billed subscription spend · process evidence, not a productivity score.
       </p>
       <div className="receipt__teeth receipt__teeth--bottom" aria-hidden="true" />
     </aside>

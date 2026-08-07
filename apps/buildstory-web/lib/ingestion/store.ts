@@ -1,8 +1,10 @@
 import type {
   GeneratedReport,
   PublicFieldKey,
+  ReportMediaKind,
   UploadSessionStatus,
 } from "./contracts";
+import type { ArtifactLinksUpdate } from "./artifact-links";
 import type { NarrativeMode } from "./scanner-project-snapshot";
 
 type CreatorIdentity = { creatorId: string; name: string; email: string; image: string | null };
@@ -43,6 +45,45 @@ export async function createUploadSession(
 
 export async function ensureUser(session: CreatorIdentity) {
   return (await backend()).ensureUser(session);
+}
+
+export async function findUserByIdentity(provider: string, subject: string) {
+  return (await backend()).findUserByIdentity(provider, subject);
+}
+
+export async function findUserByVerifiedEmail(email: string) {
+  return (await backend()).findUserByVerifiedEmail(email);
+}
+
+export async function linkIdentity(userId: string, provider: string, subject: string, email: string) {
+  return (await backend()).linkIdentity(userId, provider, subject, email);
+}
+
+export async function markEmailVerified(userId: string) {
+  return (await backend()).markEmailVerified(userId);
+}
+
+export async function getIdentityForUser(userId: string, provider: string) {
+  return (await backend()).getIdentityForUser(userId, provider);
+}
+
+export async function getProjectForVerification(creatorId: string, projectId: string) {
+  return (await backend()).getProjectForVerification(creatorId, projectId);
+}
+
+export async function markProjectRepoVerified(creatorId: string, projectId: string) {
+  return (await backend()).markProjectRepoVerified(creatorId, projectId);
+}
+
+export async function getPublicProjectVerification(handle: string, slug: string) {
+  return (await backend()).getPublicProjectVerification(handle, slug);
+}
+
+export async function updateProfile(
+  userId: string,
+  update: { bio?: string; displayName?: string; handle?: string },
+) {
+  return (await backend()).updateProfile(userId, update);
 }
 
 export async function getUploadSession(creatorId: string, sessionId: string) {
@@ -88,9 +129,27 @@ export async function updateReport(
   update: {
     selectedPublicFields?: PublicFieldKey[];
     editorial?: Partial<GeneratedReport["editorial"]>;
+    artifact?: ArtifactLinksUpdate;
+    category?: GeneratedReport["category"];
   },
 ) {
   return (await backend()).updateReport(creatorId, reportId, update);
+}
+
+export async function listReportMedia(reportId: string) {
+  return (await backend()).listReportMedia(reportId);
+}
+
+export async function addReportMedia(
+  creatorId: string,
+  reportId: string,
+  media: { r2Key: string; contentType: string; byteSize: number; kind: ReportMediaKind },
+) {
+  return (await backend()).addReportMedia(creatorId, reportId, media);
+}
+
+export async function deleteReportMedia(creatorId: string, mediaId: string) {
+  return (await backend()).deleteReportMedia(creatorId, mediaId);
 }
 
 export async function publishReport(creatorId: string, reportId: string) {
@@ -124,6 +183,14 @@ export async function getPublishedStory(handle: string, slug: string) {
   return (await backend()).getPublishedStory(handle, slug);
 }
 
+export async function getPublishedStoryChapter(handle: string, slug: string, chapterIndex: number) {
+  return (await backend()).getPublishedStoryChapter(handle, slug, chapterIndex);
+}
+
+export async function listPublishedChapters(handle: string, slug: string) {
+  return (await backend()).listPublishedChapters(handle, slug);
+}
+
 export async function getPublicStoryIdentity(slug: string) {
   return (await backend()).getPublicStoryIdentity(slug);
 }
@@ -136,8 +203,27 @@ export async function listPublishedStories(limit?: number, cursor?: string) {
   return (await backend()).listPublishedStories(limit, cursor);
 }
 
+export async function listStoriesByOwner(ownerUserId: string, limit?: number, cursor?: string) {
+  return (await backend()).listStoriesByOwner(ownerUserId, limit, cursor);
+}
+
 export async function searchPublishedStories(query: string, limit?: number, cursor?: string) {
   return (await backend()).searchPublishedStories(query, limit, cursor);
+}
+
+export type ExploreQuery = {
+  query?: string;
+  category?: string;
+  tools?: string[];
+  models?: string[];
+  hasDemo?: boolean;
+  sort?: "newest" | "trending";
+  limit?: number;
+  cursor?: string;
+};
+
+export async function explorePublishedStories(query: ExploreQuery = {}) {
+  return (await backend()).explorePublishedStories(query);
 }
 
 export function statusLabel(status: UploadSessionStatus) {

@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-export function AccountDangerZone({ handle }: { handle: string }) {
+export function AccountDangerZone({ handle, exportOnly = false, deleteOnly = false }: { handle: string; exportOnly?: boolean; deleteOnly?: boolean }) {
   const router = useRouter();
   const [exporting, setExporting] = useState(false);
   const [confirmText, setConfirmText] = useState("");
@@ -54,15 +54,15 @@ export function AccountDangerZone({ handle }: { handle: string }) {
 
   return (
     <div className="account-settings">
-      <section className="report-card">
+      {!deleteOnly ? <section className="report-card">
         <header><span>DATA EXPORT</span><strong>Download everything tied to your account</strong></header>
         <p>Profile, projects, reports, comments you&apos;ve written, reactions you&apos;ve given, and your follow graph, as one JSON file.</p>
         <button className="button button--secondary" type="button" onClick={() => void exportData()} disabled={exporting}>
           {exporting ? "Preparing export…" : "Export my data"}
         </button>
-      </section>
+      </section> : null}
 
-      <section className="report-card report-card--danger">
+      {!exportOnly ? <section className="report-card report-card--danger">
         <header><span>DANGER ZONE</span><strong>Permanently delete your account</strong></header>
         <p>
           This removes your profile, projects, published build stories, comments, reactions, and follow
@@ -86,7 +86,7 @@ export function AccountDangerZone({ handle }: { handle: string }) {
         >
           {deleting ? "Deleting…" : "Permanently delete my account"}
         </button>
-      </section>
+      </section> : null}
     </div>
   );
 }

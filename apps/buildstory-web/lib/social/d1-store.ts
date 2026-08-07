@@ -56,6 +56,10 @@ type UserRow = {
   story_count: number;
 };
 
+const PUBLIC_STORY_COUNT_SQL = `(SELECT COUNT(*) FROM buildstory_reports sr
+  WHERE sr.owner_user_id = u.id AND sr.publication_status = 'published'
+    AND sr.chapter_index = (SELECT MAX(sr2.chapter_index) FROM buildstory_reports sr2 WHERE sr2.project_id = sr.project_id AND sr2.publication_status = 'published')) AS story_count`;
+
 function profileFromRow(row: UserRow): PublicProfile {
   return {
     id: row.id,
@@ -76,7 +80,7 @@ function authorFromRow(row: { id: string; handle: string; display_name: string; 
 async function userById(id: string): Promise<UserRow | null> {
   const row = await (await database())
     .prepare(
-      "SELECT id, handle, display_name, avatar_url, bio, role, status, follower_count, following_count, story_count FROM buildstory_users WHERE id = ? AND status = 'active' AND deleted_at IS NULL",
+      `SELECT u.id, u.handle, u.display_name, u.avatar_url, u.bio, u.role, u.status, u.follower_count, u.following_count, ${PUBLIC_STORY_COUNT_SQL} FROM buildstory_users u WHERE u.id = ? AND u.status = 'active' AND u.deleted_at IS NULL`,
     )
     .bind(id)
     .first<UserRow>();
@@ -91,7 +95,7 @@ export async function getProfile(userId: string): Promise<PublicProfile | null> 
 export async function getProfileByHandle(handle: string): Promise<PublicProfile | null> {
   const row = await (await database())
     .prepare(
-      "SELECT id, handle, display_name, avatar_url, bio, role, status, follower_count, following_count, story_count FROM buildstory_users WHERE handle_lower = ? AND status = 'active' AND deleted_at IS NULL",
+      `SELECT u.id, u.handle, u.display_name, u.avatar_url, u.bio, u.role, u.status, u.follower_count, u.following_count, ${PUBLIC_STORY_COUNT_SQL} FROM buildstory_users u WHERE u.handle_lower = ? AND u.status = 'active' AND u.deleted_at IS NULL`,
     )
     .bind(handle.toLocaleLowerCase("en-US"))
     .first<UserRow>();
@@ -184,7 +188,7 @@ export async function getFollowState(targetUserId: string, viewerUserId: string 
 }
 
 const PROFILE_COLUMNS_PREFIXED =
-  "u.id, u.handle, u.display_name, u.avatar_url, u.bio, u.role, u.status, u.follower_count, u.following_count, u.story_count";
+  `u.id, u.handle, u.display_name, u.avatar_url, u.bio, u.role, u.status, u.follower_count, u.following_count, ${PUBLIC_STORY_COUNT_SQL}`;
 
 export async function listFollowers(userId: string, limit = 50): Promise<PublicProfile[]> {
   const bounded = Math.min(Math.max(1, Math.trunc(limit)), 100);
@@ -210,6 +214,28 @@ export async function listFollowing(userId: string, limit = 50): Promise<PublicP
        ORDER BY f.created_at DESC LIMIT ?`,
     )
     .bind(userId, bounded)
+    .all<UserRow>();
+  return rows.results.map(profileFromRow);
+}
+
+function escapeLikePattern(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
+}
+
+/** Public boundary: matches only against public profile fields (handle, display name), never private account data. */
+export async function searchProfiles(query: string, limit = 20): Promise<PublicProfile[]> {
+  const bounded = Math.min(Math.max(1, Math.trunc(limit)), 50);
+  const trimmed = query.trim().slice(0, 200);
+  if (trimmed.length < 2) return [];
+  const pattern = `%${escapeLikePattern(trimmed)}%`;
+  const rows = await (await database())
+    .prepare(
+      `SELECT u.id, u.handle, u.display_name, u.avatar_url, u.bio, u.role, u.status, u.follower_count, u.following_count, ${PUBLIC_STORY_COUNT_SQL}
+       FROM buildstory_users u
+       WHERE u.status = 'active' AND u.deleted_at IS NULL AND (u.handle LIKE ? ESCAPE '\\' OR u.display_name LIKE ? ESCAPE '\\')
+       ORDER BY u.follower_count DESC LIMIT ?`,
+    )
+    .bind(pattern, pattern, bounded)
     .all<UserRow>();
   return rows.results.map(profileFromRow);
 }
@@ -318,6 +344,7 @@ type CommentRow = {
   author_handle: string;
   author_display_name: string;
   author_avatar_url: string | null;
+  upvote_count: number;
 };
 
 function commentFromRow(row: CommentRow): CommentRecord {
@@ -335,6 +362,7 @@ function commentFromRow(row: CommentRow): CommentRecord {
     status: row.status as CommentStatus,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    upvoteCount: Number(row.upvote_count ?? 0),
   };
 }
 
@@ -343,7 +371,8 @@ export async function listComments(reportId: string, limit = 100, cursor?: strin
   const rows = await (await database())
     .prepare(
       `SELECT c.id, c.report_id, c.parent_comment_id, CASE WHEN c.status = 'visible' THEN c.body ELSE NULL END AS body, c.status, c.created_at, c.updated_at,
-               u.id AS author_id, u.handle AS author_handle, u.display_name AS author_display_name, u.avatar_url AS author_avatar_url
+               u.id AS author_id, u.handle AS author_handle, u.display_name AS author_display_name, u.avatar_url AS author_avatar_url,
+               (SELECT COUNT(*) FROM buildstory_comment_upvotes cu WHERE cu.comment_id = c.id) AS upvote_count
        FROM buildstory_comments c JOIN buildstory_users u ON u.id = c.author_user_id
        WHERE c.report_id = ? AND (? IS NULL OR c.created_at > ?)
        ORDER BY c.created_at ASC LIMIT ?`,
@@ -448,6 +477,7 @@ export async function createComment(
     author: authorFromRow({ id: author.id, handle: author.handle, display_name: author.display_name, avatar_url: author.avatar_url }),
     body: sanitized.value,
     status: "visible",
+    upvoteCount: 0,
     createdAt: now,
     updatedAt: now,
   };
@@ -475,6 +505,46 @@ export async function deleteComment(
     .prepare("UPDATE buildstory_comments SET status = 'deleted', body = '', updated_at = ? WHERE id = ?")
     .bind(now, commentId)
     .run();
+}
+
+export async function getCommentViewerState(reportId: string, viewerUserId: string | null) {
+  if (!viewerUserId) return { upvotedCommentIds: [], removableCommentIds: [] };
+  const db = await database();
+  const rows = await db.prepare(
+    `SELECT c.id,
+            EXISTS(SELECT 1 FROM buildstory_comment_upvotes cu WHERE cu.comment_id = c.id AND cu.user_id = ?) AS viewer_upvoted,
+            CASE WHEN c.author_user_id = ? OR EXISTS(SELECT 1 FROM buildstory_users u WHERE u.id = ? AND u.role IN ('moderator', 'admin')) THEN 1 ELSE 0 END AS viewer_can_remove
+     FROM buildstory_comments c WHERE c.report_id = ?`,
+  ).bind(viewerUserId, viewerUserId, viewerUserId, reportId).all<{ id: string; viewer_upvoted: number; viewer_can_remove: number }>();
+  return {
+    upvotedCommentIds: rows.results.filter((row) => Number(row.viewer_upvoted) === 1).map((row) => row.id),
+    removableCommentIds: rows.results.filter((row) => Number(row.viewer_can_remove) === 1).map((row) => row.id),
+  };
+}
+
+export async function setCommentUpvote(commentId: string, userId: string, enabled: boolean) {
+  const db = await database();
+  const comment = await db.prepare(
+    `SELECT c.report_id, c.author_user_id, c.status, r.publication_status
+     FROM buildstory_comments c JOIN buildstory_reports r ON r.id = c.report_id WHERE c.id = ?`,
+  ).bind(commentId).first<{ report_id: string; author_user_id: string; status: string; publication_status: string }>();
+  if (!comment || comment.status !== "visible" || comment.publication_status !== "published") {
+    throw new SocialError("not_found", "Comment not found.", 404);
+  }
+  const now = new Date().toISOString();
+  if (enabled) {
+    const result = await db.prepare(
+      "INSERT OR IGNORE INTO buildstory_comment_upvotes (id, comment_id, user_id, created_at) VALUES (?, ?, ?, ?)",
+    ).bind(`cup_${crypto.randomUUID().replaceAll("-", "")}`, commentId, userId, now).run();
+    if (changes(result) === 1) {
+      await createNotification(db, { userId: comment.author_user_id, kind: "comment_upvote", actorUserId: userId, reportId: comment.report_id, commentId });
+    }
+  } else {
+    await db.prepare("DELETE FROM buildstory_comment_upvotes WHERE comment_id = ? AND user_id = ?").bind(commentId, userId).run();
+  }
+  const count = await db.prepare("SELECT COUNT(*) AS count FROM buildstory_comment_upvotes WHERE comment_id = ?").bind(commentId).first<{ count: number }>();
+  const viewerUpvote = await db.prepare("SELECT 1 AS present FROM buildstory_comment_upvotes WHERE comment_id = ? AND user_id = ?").bind(commentId, userId).first();
+  return { upvoteCount: Number(count?.count ?? 0), viewerHasUpvoted: Boolean(viewerUpvote) };
 }
 
 // ---------------------------------------------------------------------------
@@ -595,6 +665,7 @@ export async function markNotificationsRead(userId: string, notificationIds?: st
 type FeedRow = {
   id: string;
   publication_slug: string;
+  chapter_index: number | null;
   editorial_tagline: string;
   published_at: string;
   owner_id: string;
@@ -605,11 +676,19 @@ type FeedRow = {
   comment_count: number;
 };
 
+/**
+ * Each published chapter is its own row now (see db/schema.ts's chapterIndex
+ * comment), so a project publishing a new chapter naturally surfaces as a new
+ * feed entry for followers - no separate fan-out needed. Each entry links to
+ * its own chapter's path (not necessarily the project's current canonical
+ * one); /u/:handle/:slug/:chapter redirects to the canonical path itself if
+ * that chapter happens to still be the latest.
+ */
 export async function getActivityFeed(viewerUserId: string, limit = 30, cursor?: string): Promise<FeedEntry[]> {
   const bounded = Math.min(Math.max(1, Math.trunc(limit)), 100);
   const rows = await (await database())
     .prepare(
-      `SELECT r.id, r.publication_slug, r.editorial_tagline, r.published_at,
+      `SELECT r.id, r.publication_slug, r.chapter_index, r.editorial_tagline, r.published_at,
               u.id AS owner_id, u.handle AS owner_handle, u.display_name AS owner_display_name, u.avatar_url AS owner_avatar_url,
               (SELECT COUNT(*) FROM buildstory_reactions WHERE report_id = r.id) AS reaction_total,
               (SELECT COUNT(*) FROM buildstory_comments WHERE report_id = r.id AND status = 'visible') AS comment_count
@@ -625,6 +704,7 @@ export async function getActivityFeed(viewerUserId: string, limit = 30, cursor?:
   return rows.results.map((row) => ({
     reportId: row.id,
     slug: row.publication_slug,
+    chapterIndex: row.chapter_index ?? 1,
     tagline: row.editorial_tagline,
     publishedAt: row.published_at,
     author: authorFromRow({ id: row.owner_id, handle: row.owner_handle, display_name: row.owner_display_name, avatar_url: row.owner_avatar_url }),

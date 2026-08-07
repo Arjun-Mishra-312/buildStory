@@ -18,6 +18,8 @@ const managedEnvironment = [
   "AUTH_SECRET",
   "AUTH_GOOGLE_ID",
   "AUTH_GOOGLE_SECRET",
+  "AUTH_GITHUB_ID",
+  "AUTH_GITHUB_SECRET",
   "BUILDSTORY_PUBLIC_ORIGIN",
   "BUILDSTORY_ALLOWED_HOSTS",
   "BUILDSTORY_STORE",
@@ -61,6 +63,46 @@ test("production configuration accepts only the durable, hosted safety posture",
       BUILDSTORY_LOG_LEVEL: "info",
     },
     () => assert.deepEqual(productionRuntimeIssues(), []),
+  );
+});
+
+test("production configuration accepts a matched GitHub pair alongside Google, and flags a half-set pair", () => {
+  withEnvironment(
+    {
+      NODE_ENV: "production",
+      AUTH_SECRET: "x".repeat(48),
+      AUTH_GOOGLE_ID: "google-client-id",
+      AUTH_GOOGLE_SECRET: "google-client-secret",
+      AUTH_GITHUB_ID: "github-client-id",
+      AUTH_GITHUB_SECRET: "github-client-secret",
+      BUILDSTORY_PUBLIC_ORIGIN: "https://buildstory.example.com",
+      BUILDSTORY_ALLOWED_HOSTS: "buildstory.example.com",
+      BUILDSTORY_STORE: "d1",
+      BUILDSTORY_DEV_AUTH_BYPASS: "false",
+      BUILDSTORY_LOCAL_API_ENABLED: "false",
+      BUILDSTORY_LOG_LEVEL: "info",
+    },
+    () => assert.deepEqual(productionRuntimeIssues(), []),
+  );
+  withEnvironment(
+    {
+      NODE_ENV: "production",
+      AUTH_SECRET: "x".repeat(48),
+      AUTH_GOOGLE_ID: "google-client-id",
+      AUTH_GOOGLE_SECRET: "google-client-secret",
+      AUTH_GITHUB_ID: "github-client-id",
+      AUTH_GITHUB_SECRET: undefined,
+      BUILDSTORY_PUBLIC_ORIGIN: "https://buildstory.example.com",
+      BUILDSTORY_ALLOWED_HOSTS: "buildstory.example.com",
+      BUILDSTORY_STORE: "d1",
+      BUILDSTORY_DEV_AUTH_BYPASS: "false",
+      BUILDSTORY_LOCAL_API_ENABLED: "false",
+      BUILDSTORY_LOG_LEVEL: "info",
+    },
+    () => {
+      const variables = new Set(productionRuntimeIssues().map((issue) => issue.variable));
+      assert.equal(variables.has("AUTH_GITHUB_SECRET"), true, "a half-set GitHub pair is flagged even though Google alone is valid");
+    },
   );
 });
 

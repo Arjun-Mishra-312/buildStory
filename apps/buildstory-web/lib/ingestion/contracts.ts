@@ -17,6 +17,25 @@ export type PublicationStatus =
   | "draft_changes"
   | "published";
 
+export const STORY_CATEGORIES = [
+  "web-apps",
+  "developer-tools",
+  "saas",
+  "ai-ml",
+  "design-tools",
+  "automation",
+  "data-analytics",
+  "productivity",
+  "games",
+  "other",
+] as const;
+
+export type StoryCategory = (typeof STORY_CATEGORIES)[number];
+
+export function isStoryCategory(value: unknown): value is StoryCategory {
+  return typeof value === "string" && (STORY_CATEGORIES as readonly string[]).includes(value);
+}
+
 export type PublicFieldKey =
   | "tagline"
   | "description"
@@ -41,7 +60,9 @@ export type PublicFieldKey =
   | "storyGrowthEdge"
   | "decisionPatterns"
   | "standoutTraits"
-  | "growthEdge";
+  | "growthEdge"
+  | "artifactLinks"
+  | "artifactMedia";
 
 export type BuilderProfileDimension = "planning" | "steering" | "execution" | "engineering" | "productInstinct";
 
@@ -52,6 +73,8 @@ export type UserRecord = {
   displayName: string;
   avatarUrl: string | null;
   role: "member" | "moderator" | "admin";
+  /** Null until the user spends their one allowed handle change. */
+  handleChangedAt: string | null;
 };
 
 export type ProjectRecord = {
@@ -205,6 +228,22 @@ export type LocalReportSummary = {
   warningCount: number;
 };
 
+export type ReportMediaKind = "cover" | "screenshot";
+export type ReportMediaRecord = {
+  id: string;
+  reportId: string;
+  ownerUserId: string;
+  r2Key: string;
+  contentType: string;
+  byteSize: number;
+  kind: ReportMediaKind;
+  sortOrder: number;
+  url: string;
+};
+
+/** Per-report cap on uploaded cover/screenshot images, enforced identically by both store backends. */
+export const MAX_MEDIA_PER_REPORT = 5;
+
 export type GeneratedReport = {
   id: string;
   creatorId: string;
@@ -221,11 +260,20 @@ export type GeneratedReport = {
     description: string;
     reflection: string;
   };
+  category: StoryCategory | null;
+  /** Creator-supplied links to the actual artifact, gated by the artifactLinks PublicFieldKey when published. */
+  artifact: {
+    projectUrl: string | null;
+    repoUrl: string | null;
+    videoUrl: string | null;
+  };
   publication: {
     status: PublicationStatus;
     slug: string;
     publishedAt: string | null;
     publicUrl: string | null;
+    /** Null until this report is first published; see db/schema.ts's chapterIndex comment. */
+    chapterIndex: number | null;
   };
   /** Null when the source scan never opted into the narrative-evidence flow - a normal state, not an error. */
   narrative: NarrativeRecord | null;

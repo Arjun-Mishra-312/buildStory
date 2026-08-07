@@ -7,6 +7,7 @@ import { recomputeLeaderboard } from "../lib/leaderboard/d1-store";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  MEDIA?: R2Bucket;
   BUILDSTORY_ALLOWED_HOSTS?: string;
   IMAGES: {
     input(stream: ReadableStream): {
@@ -96,7 +97,7 @@ async function secured(response: Response, request: Request) {
     const scriptHashes = await inlineScriptHashes(html);
     headers.set(
       "content-security-policy",
-      `default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self' data:; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: https:; object-src 'none'; script-src 'self'${scriptHashes ? ` ${scriptHashes}` : ""}; style-src 'self' 'unsafe-inline'`,
+      `default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self' data:; form-action 'self'; frame-ancestors 'none'; frame-src https://www.youtube-nocookie.com https://player.vimeo.com https://www.loom.com; img-src 'self' data: https:; object-src 'none'; script-src 'self'${scriptHashes ? ` ${scriptHashes}` : ""}; style-src 'self' 'unsafe-inline'`,
     );
     return new Response(html, {
       status: response.status,

@@ -2,6 +2,7 @@ import { getD1 } from "@/db";
 import {
   ANTI_GAMING_MAX_COMMITS_PER_DAY,
   LEADERBOARD_STALE_MS,
+  VERIFIED_REPO_SCORE_MULTIPLIER,
   type LeaderboardEntry,
   type LeaderboardPeriod,
 } from "./contracts";
@@ -29,7 +30,10 @@ export async function recomputeLeaderboard(period: LeaderboardPeriod): Promise<v
                 ranked.score, ranked.active_days, ranked.story_count, ?
          FROM (
            SELECT p.owner_user_id AS user_id,
-                  SUM(MIN(p.latest_commit_count, p.latest_active_days * ?)) AS score,
+                  SUM(CAST(ROUND(
+                    MIN(p.latest_commit_count, p.latest_active_days * ?) *
+                    CASE WHEN p.verified_repo_at IS NOT NULL THEN ? ELSE 1.0 END
+                  ) AS INTEGER)) AS score,
                   SUM(p.latest_active_days) AS active_days,
                   COUNT(DISTINCT p.id) AS story_count
            FROM buildstory_projects p
@@ -40,7 +44,7 @@ export async function recomputeLeaderboard(period: LeaderboardPeriod): Promise<v
            GROUP BY p.owner_user_id
          ) AS ranked`,
       )
-      .bind(period, period, now, ANTI_GAMING_MAX_COMMITS_PER_DAY),
+      .bind(period, period, now, ANTI_GAMING_MAX_COMMITS_PER_DAY, VERIFIED_REPO_SCORE_MULTIPLIER),
     db
       .prepare(
         `INSERT INTO buildstory_leaderboard_runs (period, computed_at) VALUES (?, ?)

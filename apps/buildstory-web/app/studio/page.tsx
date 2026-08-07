@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { EditorialIllustration } from "@/components/editorial-illustration";
 import { requireCreator } from "@/lib/auth/runtime";
 import { listUploadSessions, statusLabel } from "@/lib/ingestion/store";
 
@@ -22,20 +23,20 @@ export default async function StudioPage() {
           <p>Your private build queue, reports, and publication state in one place.</p>
         </div>
         <Link className="button button--primary" href="/studio/connect">
-          Connect a local project <span aria-hidden="true">â†’</span>
+          Create a story <span aria-hidden="true">↗</span>
         </Link>
       </header>
 
       <section className="dashboard-metrics" aria-label="Workspace summary">
         <article><span>READY REPORTS</span><strong>{ready.length}</strong><small>{ready.length ? "Ready to review" : "Connect your first"}</small></article>
         <article><span>IN THE QUEUE</span><strong>{processing.length}</strong><small>generation jobs</small></article>
-        <article><span>SCANNER TRUST</span><strong>1Ã—</strong><small>single-use upload tokens</small></article>
+        <article><span>SCANNER TRUST</span><strong>1×</strong><small>single-use upload tokens</small></article>
         <article><span>PUBLIC ACCESS</span><strong>Open</strong><small>no viewer sign-in</small></article>
       </section>
 
       <div className="dashboard-grid">
         <section className="dashboard-projects">
-          <header><span>YOUR PROJECTS</span><Link href="/studio/connect">Add project +</Link></header>
+          <header><span>YOUR PROJECTS</span><Link href="/studio/connect">Create story +</Link></header>
           {ready.length ? ready.map((session) => (
             <Link
               className="dashboard-project-card"
@@ -54,14 +55,17 @@ export default async function StudioPage() {
                   <div><dt>Snapshot</dt><dd>Validated</dd></div>
                 </dl>
               </div>
-              <span className="dashboard-project-card__arrow" aria-hidden="true">â†—</span>
+              <span className="dashboard-project-card__arrow" aria-hidden="true">↗</span>
             </Link>
           )) : (
             <div className="dashboard-empty">
-              <span>NO PRIVATE REPORTS YET</span>
-              <h2>Your first project begins on your machine.</h2>
-              <p>Create a connection code here, then run the local scanner against the repository you choose.</p>
-              <Link className="button button--secondary" href="/studio/connect">Open scanner connection</Link>
+              <div className="dashboard-empty__art"><EditorialIllustration kind="studio-first-story" /></div>
+              <div className="dashboard-empty__copy">
+                <span>NO PRIVATE REPORTS YET</span>
+                <h2>Your first project begins on your machine.</h2>
+                <p>Create a connection code here, then run the local scanner against the repository you choose.</p>
+                <Link className="button button--secondary" href="/studio/connect">Start story capture</Link>
+              </div>
             </div>
           )}
         </section>

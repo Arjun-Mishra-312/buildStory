@@ -1,4 +1,4 @@
-import type { ContentReportReasonCode, ContentReportStatus, ContentReportTargetType, ReactionKind } from "./contracts";
+import type { CommentViewerState, ContentReportReasonCode, ContentReportStatus, ContentReportTargetType, ReactionKind } from "./contracts";
 
 function shouldUseDurableStore() {
   return (
@@ -18,6 +18,10 @@ export async function getProfile(userId: string) {
 
 export async function getProfileByHandle(handle: string) {
   return (await backend()).getProfileByHandle(handle);
+}
+
+export async function searchProfiles(query: string, limit?: number) {
+  return (await backend()).searchProfiles(query, limit);
 }
 
 export async function followUser(followerUserId: string, followeeUserId: string) {
@@ -63,6 +67,14 @@ export async function createComment(
 
 export async function deleteComment(commentId: string, requestingUserId: string, requestingRole: string) {
   return (await backend()).deleteComment(commentId, requestingUserId, requestingRole);
+}
+
+export async function getCommentViewerState(reportId: string, viewerUserId: string | null): Promise<CommentViewerState> {
+  return (await backend()).getCommentViewerState(reportId, viewerUserId);
+}
+
+export async function setCommentUpvote(commentId: string, userId: string, enabled: boolean) {
+  return (await backend()).setCommentUpvote(commentId, userId, enabled);
 }
 
 export async function listNotifications(userId: string, limit?: number, cursor?: string) {

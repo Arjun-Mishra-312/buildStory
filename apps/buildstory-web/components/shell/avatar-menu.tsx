@@ -17,7 +17,7 @@ export function AvatarMenu({ viewer }: { viewer: Viewer }) {
       <div className="avatar-menu__panel">
         <Link href="/u/me">Your profile</Link>
         <Link href="/studio">Your stories</Link>
-        <Link href="/studio/connect">Connect scanner</Link>
+        <Link href="/studio/connect">Create story</Link>
         <Link href="/studio/settings">Settings</Link>
         <form action={signOutAction}><button type="submit">Sign out</button></form>
       </div>

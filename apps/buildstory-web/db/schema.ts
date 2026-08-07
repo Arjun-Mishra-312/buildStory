@@ -22,6 +22,8 @@ export const users = sqliteTable(
     displayName: text("display_name").notNull(),
     avatarUrl: text("avatar_url"),
     bio: text("bio"),
+    /** Null until the user spends their one allowed handle change; set on that change. */
+    handleChangedAt: text("handle_changed_at"),
     role: text("role").notNull().default("member"),
     status: text("status").notNull().default("active"),
     followerCount: integer("follower_count").notNull().default(0),
@@ -37,6 +39,34 @@ export const users = sqliteTable(
   (table) => [
     uniqueIndex("idx_buildstory_users_auth_subject").on(table.authSubject),
     uniqueIndex("idx_buildstory_users_handle_lower").on(table.handleLower),
+  ],
+);
+
+/**
+ * Complete registry of every (provider, subject) a user can sign in with,
+ * including their original one (which is also, redundantly but harmlessly,
+ * captured by users.authSubject - that field is never migrated away from,
+ * since it's the existing join key for every upload session and report).
+ * A second provider is only ever auto-linked into an existing row here when
+ * both sides assert a verified email for the same address - see auth.ts's
+ * resolveCreatorId. Anything else requires explicit linking from Settings.
+ */
+export const userIdentities = sqliteTable(
+  "buildstory_user_identities",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    subject: text("subject").notNull(),
+    /** The verified email asserted by this provider at link time - audit trail only, not re-checked on every sign-in. */
+    email: text("email").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_buildstory_user_identities_provider_subject").on(table.provider, table.subject),
+    index("idx_buildstory_user_identities_user").on(table.userId),
   ],
 );
 
@@ -65,6 +95,13 @@ export const projects = sqliteTable(
     latestSessionCount: integer("latest_session_count").notNull().default(0),
     latestCommitCount: integer("latest_commit_count").notNull().default(0),
     latestActiveDays: integer("latest_active_days").notNull().default(0),
+    /**
+     * Set only after the signed-in owner's linked GitHub account is confirmed
+     * (by numeric GitHub user id, via the GitHub API) to own the exact public
+     * repository this project's repositoryFingerprint was computed from - see
+     * lib/repository-fingerprint.ts. Null means unverified, not "false".
+     */
+    verifiedRepoAt: text("verified_repo_at"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
     deletedAt: text("deleted_at"),
@@ -138,11 +175,29 @@ export const reports = sqliteTable(
     editorialTagline: text("editorial_tagline").notNull(),
     editorialDescription: text("editorial_description").notNull(),
     editorialReflection: text("editorial_reflection").notNull(),
+    category: text("category"),
     publicationStatus: text("publication_status").notNull(),
     publicationSlug: text("publication_slug").notNull(),
     publicationPath: text("publication_path"),
     publishedAt: text("published_at"),
     publicUrl: text("public_url"),
+    /** Creator-supplied links to the actual artifact, not scanner-derived. Gated by the artifactLinks PublicFieldKey like every other public field. */
+    artifactProjectUrl: text("artifact_project_url"),
+    artifactRepoUrl: text("artifact_repo_url"),
+    artifactVideoUrl: text("artifact_video_url"),
+    /**
+     * Null until this report is published for the first time; assigned once, from
+     * 1 + the highest chapter_index any report of this project has ever held, and
+     * never reused or reassigned after that (even across unpublish/republish). A
+     * project can have several simultaneously-published reports now (one per
+     * chapter) - see idx_buildstory_reports_published_path below, which is scoped
+     * per report, not per project. Exactly one of a project's published reports
+     * holds the canonical (extensionless) publication_path at a time: the one
+     * with the highest chapter_index; older ones are rewritten to a
+     * chapter-suffixed path when superseded. Existing published rows are
+     * backfilled to 1 by this column's migration.
+     */
+    chapterIndex: integer("chapter_index"),
     updatedAt: text("updated_at").notNull(),
   },
   (table) => [
@@ -154,11 +209,39 @@ export const reports = sqliteTable(
     uniqueIndex("idx_buildstory_reports_published_path")
       .on(table.publicationPath)
       .where(sql`${table.publicationStatus} = 'published'`),
-    uniqueIndex("idx_buildstory_reports_published_project")
-      .on(table.projectId)
-      .where(sql`${table.publicationStatus} = 'published'`),
+    index("idx_buildstory_reports_project_chapter").on(table.projectId, table.chapterIndex),
     index("idx_buildstory_reports_legacy_slug").on(table.publicationSlug),
     index("idx_buildstory_reports_published").on(table.publishedAt),
+  ],
+);
+
+/**
+ * Creator-uploaded cover/screenshot images for a report's public artifact
+ * section. r2Key is an unguessable, server-generated object key
+ * (media/<reportId>/<uuid>.<ext>) - never derived from user input. Deleting
+ * the row does not delete the R2 object; callers must do both (see
+ * lib/account/*-store.ts deleteAccount and the media DELETE route).
+ */
+export const reportMedia = sqliteTable(
+  "buildstory_report_media",
+  {
+    id: text("id").primaryKey(),
+    reportId: text("report_id")
+      .notNull()
+      .references(() => reports.id, { onDelete: "cascade" }),
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    r2Key: text("r2_key").notNull(),
+    contentType: text("content_type").notNull(),
+    byteSize: integer("byte_size").notNull(),
+    kind: text("kind").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_buildstory_report_media_report").on(table.reportId, table.sortOrder),
+    index("idx_buildstory_report_media_owner").on(table.ownerUserId),
   ],
 );
 
@@ -327,6 +410,62 @@ export const comments = sqliteTable(
   (table) => [
     index("idx_buildstory_comments_report_created").on(table.reportId, table.createdAt),
     index("idx_buildstory_comments_parent").on(table.parentCommentId),
+  ],
+);
+
+export const commentUpvotes = sqliteTable(
+  "buildstory_comment_upvotes",
+  {
+    id: text("id").primaryKey(),
+    commentId: text("comment_id")
+      .notNull()
+      .references(() => comments.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_buildstory_comment_upvotes_comment_user").on(table.commentId, table.userId),
+    index("idx_buildstory_comment_upvotes_comment_created").on(table.commentId, table.createdAt),
+  ],
+);
+
+/** Public-only discovery index. Private snapshot values never enter this table. */
+export const publicStoryIndex = sqliteTable(
+  "buildstory_public_story_index",
+  {
+    reportId: text("report_id")
+      .primaryKey()
+      .references(() => reports.id, { onDelete: "cascade" }),
+    storyJson: text("story_json").notNull().default("{}"),
+    category: text("category").notNull(),
+    searchText: text("search_text").notNull(),
+    hasLiveDemo: integer("has_live_demo").notNull().default(0),
+    coverUrl: text("cover_url"),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_buildstory_public_story_index_category").on(table.category),
+    index("idx_buildstory_public_story_index_demo").on(table.hasLiveDemo),
+  ],
+);
+
+export const publicStoryFacets = sqliteTable(
+  "buildstory_public_story_facets",
+  {
+    id: text("id").primaryKey(),
+    reportId: text("report_id")
+      .notNull()
+      .references(() => reports.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    facetKey: text("facet_key").notNull(),
+    label: text("label").notNull(),
+    weight: integer("weight").notNull().default(1),
+  },
+  (table) => [
+    uniqueIndex("idx_buildstory_public_story_facets_report_kind_key").on(table.reportId, table.kind, table.facetKey),
+    index("idx_buildstory_public_story_facets_kind_key").on(table.kind, table.facetKey),
   ],
 );
 

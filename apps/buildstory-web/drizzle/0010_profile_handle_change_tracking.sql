@@ -1,0 +1,1 @@
+ALTER TABLE `buildstory_users` ADD `handle_changed_at` text;

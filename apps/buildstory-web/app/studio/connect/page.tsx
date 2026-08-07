@@ -5,7 +5,7 @@ import { requireCreator } from "@/lib/auth/runtime";
 import { isHostedCliEnabled, isLocalApiEnabled } from "@/lib/ingestion/local-api";
 import { listUploadSessions } from "@/lib/ingestion/store";
 
-export const metadata: Metadata = { title: "Connect local scanner" };
+export const metadata: Metadata = { title: "Create story" };
 
 export default async function ConnectScannerPage() {
   const creator = await requireCreator("/studio/connect");
@@ -14,13 +14,13 @@ export default async function ConnectScannerPage() {
     <main className="creator-page connect-page">
       <header className="creator-page__heading creator-page__heading--compact">
         <div>
-          <span className="section-index">( SCANNER CONNECTION )</span>
-          <h1>Private evidence crosses one narrow bridge.</h1>
+          <span className="section-index">( CREATE STORY )</span>
+          <h1>Turn a build into a story.</h1>
           <p>Create an account-bound session, connect the installed CLI to this loopback server, then separately consent to scan and upload one strict snapshot.</p>
         </div>
       </header>
       <div className="mock-boundary-banner">
-        <strong>Real localhost handoff Â· explicit local consent.</strong>
+        <strong>Real localhost handoff · explicit local consent.</strong>
         <span>The CLI contacts only the displayed loopback API. Local development uses disposable memory; production records require the configured durable D1 provider.</span>
       </div>
       <OllamaModelStatus />

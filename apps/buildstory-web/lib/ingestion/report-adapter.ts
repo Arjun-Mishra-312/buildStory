@@ -22,6 +22,26 @@ function durationMinutes(startedAt: string, endedAt: string) {
   return Math.max(0, Math.round(duration / 60_000));
 }
 
+function observedActivityWindow(snapshot: ScannerProjectSnapshot) {
+  if (snapshot.sessions.length === 0) {
+    return { startedAt: snapshot.timeWindow.start, endedAt: snapshot.timeWindow.end };
+  }
+  return {
+    startedAt: snapshot.sessions.reduce(
+      (earliest, session) => session.startedAt < earliest ? session.startedAt : earliest,
+      snapshot.sessions[0]!.startedAt,
+    ),
+    endedAt: snapshot.sessions.reduce(
+      (latest, session) => session.endedAt > latest ? session.endedAt : latest,
+      snapshot.sessions[0]!.endedAt,
+    ),
+  };
+}
+
+function isSyntheticModel(name: string) {
+  return name.trim().toLocaleLowerCase("en-US") === "<synthetic>";
+}
+
 /**
  * Turns the strict content-free scanner transport into the private report input
  * already consumed by the validated UI. No source snapshot field is invented,
@@ -33,6 +53,8 @@ export function reportSnapshotFromScanner(
   owner: ReportOwner,
 ): ProjectSnapshot {
   const repositoryName = snapshot.repository.displayName;
+  const activityWindow = observedActivityWindow(snapshot);
+  const reportModels = snapshot.usage.models.filter((model) => !isSyntheticModel(model.name));
 
   return {
     schemaVersion: "1.0",
@@ -59,15 +81,15 @@ export function reportSnapshotFromScanner(
       framework: null,
       packageManager: null,
       fileCount: null,
-      initialCommitAt: snapshot.timeWindow.start,
+      initialCommitAt: activityWindow.startedAt,
       currentRevision:
         snapshot.repository.headCommit?.slice(0, 12) ??
         snapshot.repository.fingerprint.slice("sha256:".length, 12 + "sha256:".length),
       isPrivate: true,
     },
     timeWindow: {
-      startedAt: snapshot.timeWindow.start,
-      endedAt: snapshot.timeWindow.end,
+      startedAt: activityWindow.startedAt,
+      endedAt: activityWindow.endedAt,
       activeDays: activeDays(snapshot),
       timezone: snapshot.timeWindow.timezone,
     },
@@ -78,12 +100,13 @@ export function reportSnapshotFromScanner(
       durationMinutes: durationMinutes(session.startedAt, session.endedAt),
       intent: session.summary,
       outcome: `Session status: ${session.status}. ${session.turns} turns and ${session.toolCalls} tool calls were counted; message and tool bodies were discarded locally.`,
-      modelIds: session.modelRefs,
+      modelIds: session.modelRefs.filter((model) => !isSyntheticModel(model)),
       toolIds: session.toolRefs,
       touchedAreas: [],
+      ...(session.subagentInvocations !== undefined ? { subagentInvocations: session.subagentInvocations } : {}),
     })),
     usage: {
-      models: snapshot.usage.models.map((model) => ({
+      models: reportModels.map((model) => ({
         id: `${model.provider}:${model.name}`,
         label: model.name,
         provider: model.provider,

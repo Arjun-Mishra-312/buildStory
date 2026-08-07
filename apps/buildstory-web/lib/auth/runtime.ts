@@ -1,24 +1,30 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 
-export type AuthRuntimeMode = "google" | "development-bypass" | "disabled";
+export type AuthRuntimeMode = "oauth" | "development-bypass" | "disabled";
 
 export type CreatorSession = {
   creatorId: string;
   name: string;
   email: string;
   image: string | null;
-  mode: "google" | "development-bypass";
+  mode: "oauth" | "development-bypass";
 };
 
+function authSecretConfigured() {
+  return Boolean(process.env.AUTH_SECRET && process.env.AUTH_SECRET.length >= 32);
+}
+
+export function isGoogleOAuthConfigured(): boolean {
+  return Boolean(authSecretConfigured() && process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET);
+}
+
+export function isGithubOAuthConfigured(): boolean {
+  return Boolean(authSecretConfigured() && process.env.AUTH_GITHUB_ID && process.env.AUTH_GITHUB_SECRET);
+}
+
 export function getAuthRuntimeMode(): AuthRuntimeMode {
-  const googleReady = Boolean(
-    process.env.AUTH_SECRET &&
-      process.env.AUTH_SECRET.length >= 32 &&
-      process.env.AUTH_GOOGLE_ID &&
-      process.env.AUTH_GOOGLE_SECRET,
-  );
-  if (googleReady) return "google";
+  if (isGoogleOAuthConfigured() || isGithubOAuthConfigured()) return "oauth";
 
   const devBypass =
     process.env.NODE_ENV !== "production" &&
@@ -46,7 +52,7 @@ export async function getCreatorSession(): Promise<CreatorSession | null> {
     name: session.user.name ?? session.user.email,
     email: session.user.email,
     image: session.user.image ?? null,
-    mode: "google",
+    mode: "oauth",
   };
 }
 

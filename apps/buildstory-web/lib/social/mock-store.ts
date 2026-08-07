@@ -39,6 +39,7 @@ type StoredReport = {
   publicationSlug: string;
   editorialTagline: string;
   publishedAt: string | null;
+  chapterIndex: number | null;
 };
 
 type StoredComment = {
@@ -67,8 +68,9 @@ type SocialMockStore = {
   users: Map<string, StoredUser>;
   reports: Map<string, StoredReport>;
   follows: Set<string>; // `${followerUserId}:${followeeUserId}`
-  reactions: Map<string, ReactionKind>; // `${reportId}:${userId}`
+  reactions: Map<string, { kind: ReactionKind; createdAt: string }>; // `${reportId}:${userId}`
   comments: Map<string, StoredComment>;
+  commentUpvotes: Map<string, string>; // `${commentId}:${userId}` -> createdAt
   notifications: Map<string, StoredNotification>;
   contentReports: Map<string, ContentReportRecord>;
 };
@@ -81,8 +83,9 @@ const store: SocialMockStore =
     users: new Map<string, StoredUser>(),
     reports: new Map<string, StoredReport>(),
     follows: new Set<string>(),
-    reactions: new Map<string, ReactionKind>(),
+    reactions: new Map<string, { kind: ReactionKind; createdAt: string }>(),
     comments: new Map<string, StoredComment>(),
+    commentUpvotes: new Map<string, string>(),
     notifications: new Map<string, StoredNotification>(),
     contentReports: new Map<string, ContentReportRecord>(),
   });
@@ -99,6 +102,10 @@ function reactionKey(reportId: string, userId: string) {
   return `${reportId}:${userId}`;
 }
 
+function commentUpvoteKey(commentId: string, userId: string) {
+  return `${commentId}:${userId}`;
+}
+
 function authorFor(userId: string): CommentAuthor {
   const user = store.users.get(userId);
   return user
@@ -107,6 +114,11 @@ function authorFor(userId: string): CommentAuthor {
 }
 
 function profileFor(user: StoredUser): PublicProfile {
+  const storyCount = new Set(
+    Array.from(store.reports.values())
+      .filter((report) => report.ownerUserId === user.id && report.publicationStatus === "published")
+      .map((report) => report.publicationSlug),
+  ).size;
   return {
     id: user.id,
     handle: user.handle,
@@ -115,7 +127,7 @@ function profileFor(user: StoredUser): PublicProfile {
     bio: user.bio,
     followerCount: user.followerCount,
     followingCount: user.followingCount,
-    storyCount: user.storyCount,
+    storyCount,
   };
 }
 
@@ -150,6 +162,7 @@ export function registerReport(report: {
   publicationSlug: string;
   editorialTagline: string;
   publishedAt: string | null;
+  chapterIndex: number | null;
 }) {
   store.reports.set(report.id, { ...report });
 }
@@ -163,6 +176,18 @@ export function getProfileByHandle(handle: string): PublicProfile | null {
   const lower = handle.toLocaleLowerCase("en-US");
   const user = Array.from(store.users.values()).find((candidate) => candidate.handle.toLocaleLowerCase("en-US") === lower);
   return user ? profileFor(user) : null;
+}
+
+/** Public boundary: matches only against public profile fields (handle, display name), never private account data. */
+export function searchProfiles(query: string, limit = 20): PublicProfile[] {
+  const bounded = Math.min(Math.max(1, Math.trunc(limit)), 50);
+  const needle = query.trim().slice(0, 200).toLocaleLowerCase("en-US");
+  if (needle.length < 2) return [];
+  return Array.from(store.users.values())
+    .filter((user) => user.handle.toLocaleLowerCase("en-US").includes(needle) || user.displayName.toLocaleLowerCase("en-US").includes(needle))
+    .sort((left, right) => right.followerCount - left.followerCount)
+    .slice(0, bounded)
+    .map(profileFor);
 }
 
 // ---------------------------------------------------------------------------
@@ -238,12 +263,12 @@ function emptyReactionCounts(): Record<ReactionKind, number> {
 function reactionSummaryFor(reportId: string, viewerUserId: string | null): ReactionSummary {
   const counts = emptyReactionCounts();
   let total = 0;
-  for (const [key, kind] of store.reactions.entries()) {
+  for (const [key, reaction] of store.reactions.entries()) {
     if (!key.startsWith(`${reportId}:`)) continue;
-    counts[kind] += 1;
+    counts[reaction.kind] += 1;
     total += 1;
   }
-  const viewerReaction = viewerUserId ? store.reactions.get(reactionKey(reportId, viewerUserId)) ?? null : null;
+  const viewerReaction = viewerUserId ? store.reactions.get(reactionKey(reportId, viewerUserId))?.kind ?? null : null;
   return { counts, total, viewerReaction };
 }
 
@@ -258,12 +283,12 @@ export function setReaction(reportId: string, userId: string, kind: ReactionKind
   }
   const key = reactionKey(reportId, userId);
   const existing = store.reactions.get(key);
-  if (existing === kind) {
+  if (existing?.kind === kind) {
     store.reactions.delete(key);
     return reactionSummaryFor(reportId, userId);
   }
   const isNew = existing === undefined;
-  store.reactions.set(key, kind);
+  store.reactions.set(key, { kind, createdAt: existing?.createdAt ?? new Date().toISOString() });
   if (isNew && report.ownerUserId) {
     createNotification({ userId: report.ownerUserId, kind: "reaction", actorUserId: userId, reportId, commentId: null });
   }
@@ -284,6 +309,7 @@ function commentRecordFor(comment: StoredComment): CommentRecord {
     status: comment.status,
     createdAt: comment.createdAt,
     updatedAt: comment.updatedAt,
+    upvoteCount: Array.from(store.commentUpvotes.keys()).filter((key) => key.startsWith(`${comment.id}:`)).length,
   };
 }
 
@@ -373,6 +399,37 @@ export function deleteComment(commentId: string, requestingUserId: string, reque
   comment.status = "deleted";
   comment.body = "";
   comment.updatedAt = new Date().toISOString();
+}
+
+export function getCommentViewerState(reportId: string, viewerUserId: string | null) {
+  if (!viewerUserId) return { upvotedCommentIds: [], removableCommentIds: [] };
+  const comments = Array.from(store.comments.values()).filter((comment) => comment.reportId === reportId);
+  return {
+    upvotedCommentIds: comments.filter((comment) => store.commentUpvotes.has(commentUpvoteKey(comment.id, viewerUserId))).map((comment) => comment.id),
+    removableCommentIds: comments.filter((comment) => comment.authorUserId === viewerUserId || ["moderator", "admin"].includes(store.users.get(viewerUserId)?.role ?? "")).map((comment) => comment.id),
+  };
+}
+
+export function setCommentUpvote(commentId: string, userId: string, enabled: boolean) {
+  const comment = store.comments.get(commentId);
+  if (!comment || comment.status !== "visible") throw new SocialError("not_found", "Comment not found.", 404);
+  const report = store.reports.get(comment.reportId);
+  if (!report || report.publicationStatus !== "published") throw new SocialError("not_found", "Story not found.", 404);
+  const key = commentUpvoteKey(commentId, userId);
+  if (enabled) {
+    const isNew = !store.commentUpvotes.has(key);
+    if (isNew) store.commentUpvotes.set(key, new Date().toISOString());
+    if (isNew) {
+      const owner = store.comments.get(commentId)?.authorUserId;
+      if (owner) createNotification({ userId: owner, kind: "comment_upvote", actorUserId: userId, reportId: comment.reportId, commentId });
+    }
+  } else {
+    store.commentUpvotes.delete(key);
+  }
+  return {
+    upvoteCount: Array.from(store.commentUpvotes.keys()).filter((item) => item.startsWith(`${commentId}:`)).length,
+    viewerHasUpvoted: store.commentUpvotes.has(key),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -478,6 +535,7 @@ export function getActivityFeed(viewerUserId: string, limit = 30, cursor?: strin
       return {
         reportId: report.id,
         slug: report.publicationSlug,
+        chapterIndex: report.chapterIndex ?? 1,
         tagline: report.editorialTagline,
         publishedAt: report.publishedAt ?? "",
         author: owner ? authorFor(owner.id) : { id: report.ownerUserId!, handle: "unknown", displayName: "Unknown", avatarUrl: null },
@@ -538,6 +596,7 @@ export function resolveContentReport(reportId: string, status: ContentReportStat
 export function getAccountSocialData(userId: string): {
   commentsAuthored: Array<{ id: string; reportId: string; parentCommentId: string | null; body: string; createdAt: string }>;
   reactionsGiven: Array<{ reportId: string; kind: ReactionKind; createdAt: string }>;
+  commentUpvotesGiven: Array<{ commentId: string; reportId: string; createdAt: string }>;
   following: string[];
   followers: string[];
 } {
@@ -553,7 +612,11 @@ export function getAccountSocialData(userId: string): {
   // Reactions don't carry their own creation timestamp separate from the map value in this store, so a placeholder is used for the export's shape.
   const reactionsGiven = Array.from(store.reactions.entries())
     .filter(([key]) => key.endsWith(`:${userId}`))
-    .map(([key, kind]) => ({ reportId: key.split(":")[0]!, kind, createdAt: "" }));
+    .map(([key, reaction]) => ({ reportId: key.split(":")[0]!, kind: reaction.kind, createdAt: reaction.createdAt }));
+  const commentUpvotesGiven = Array.from(store.commentUpvotes.entries())
+    .filter(([key]) => key.endsWith(`:${userId}`))
+    .map(([key, createdAt]) => { const commentId = key.split(":")[0]!; const comment = store.comments.get(commentId); return { commentId, reportId: comment?.reportId ?? "", createdAt }; })
+    .filter((item) => Boolean(item.reportId));
   const following = Array.from(store.follows)
     .filter((key) => key.startsWith(`${userId}:`))
     .map((key) => store.users.get(key.split(":")[1]!)?.handle)
@@ -562,7 +625,7 @@ export function getAccountSocialData(userId: string): {
     .filter((key) => key.endsWith(`:${userId}`))
     .map((key) => store.users.get(key.split(":")[0]!)?.handle)
     .filter((handle): handle is string => Boolean(handle));
-  return { commentsAuthored, reactionsGiven, following, followers };
+  return { commentsAuthored, reactionsGiven, commentUpvotesGiven, following, followers };
 }
 
 // ---------------------------------------------------------------------------
@@ -583,6 +646,10 @@ export function deleteAccountSocialData(userId: string): void {
   for (const [commentId, comment] of store.comments) {
     if (comment.authorUserId === userId) store.comments.delete(commentId);
   }
+  for (const key of store.commentUpvotes.keys()) {
+    const [commentId, voterId] = key.split(":");
+    if (voterId === userId || !store.comments.has(commentId!)) store.commentUpvotes.delete(key);
+  }
   for (const [notificationId, notification] of store.notifications) {
     if (notification.userId === userId || notification.actorUserId === userId) {
       store.notifications.delete(notificationId);
@@ -592,4 +659,16 @@ export function deleteAccountSocialData(userId: string): void {
     if (report.reporterUserId === userId) store.contentReports.delete(reportId);
   }
   store.users.delete(userId);
+}
+
+/** Current public activity used by Explore's deterministic 30-day trending order. */
+export function getTrendingScoreForReport(reportId: string, now = Date.now()) {
+  const cutoff = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const reactions = Array.from(store.reactions.entries()).filter(([key, reaction]) => key.startsWith(`${reportId}:`) && reaction.createdAt >= cutoff).length;
+  const comments = Array.from(store.comments.values()).filter((comment) => comment.reportId === reportId && comment.status === "visible" && comment.createdAt >= cutoff).length;
+  const upvotes = Array.from(store.commentUpvotes.entries()).filter(([key, createdAt]) => {
+    const comment = store.comments.get(key.split(":")[0]!);
+    return Boolean(comment && comment.reportId === reportId && comment.status === "visible" && createdAt >= cutoff);
+  }).length;
+  return reactions + comments + upvotes;
 }

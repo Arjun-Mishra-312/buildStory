@@ -46,9 +46,15 @@ export type CommentRecord = {
   status: CommentStatus;
   createdAt: string;
   updatedAt: string;
+  upvoteCount: number;
 };
 
-export type NotificationKind = "follow" | "reaction" | "comment" | "comment_reply";
+export type NotificationKind = "follow" | "reaction" | "comment" | "comment_reply" | "comment_upvote";
+
+export type CommentViewerState = {
+  upvotedCommentIds: string[];
+  removableCommentIds: string[];
+};
 
 export type NotificationRecord = {
   id: string;
@@ -64,6 +70,8 @@ export type NotificationRecord = {
 export type FeedEntry = {
   reportId: string;
   slug: string;
+  /** 1-based chapter number this feed entry represents; the link target, not necessarily the project's current latest. */
+  chapterIndex: number;
   tagline: string;
   publishedAt: string;
   author: CommentAuthor;

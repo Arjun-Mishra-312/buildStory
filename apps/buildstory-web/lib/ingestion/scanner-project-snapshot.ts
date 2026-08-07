@@ -244,6 +244,7 @@ export interface UsageSummary {
   models: Array<{
     provider: string;
     name: string;
+    /** Legacy 1.6 wire key; scanner 0.6.4 normalizes this to model-response calls. */
     turnCount: number;
     sessionCount: number;
     /** Absent on a snapshot from a scanner older than 1.6.0 - treat the same as null. */

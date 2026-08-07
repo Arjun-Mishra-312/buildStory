@@ -85,6 +85,10 @@ export function OllamaModelStatus() {
 
   useEffect(() => {
     const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      setError("The local model check timed out. You can continue with Automatic and retry when Ollama is running.");
+      controller.abort();
+    }, 8_000);
     const navigatorWithHints = navigator as Navigator & { deviceMemory?: number };
     const params = new URLSearchParams();
     if (typeof navigatorWithHints.deviceMemory === "number") {
@@ -104,6 +108,7 @@ export function OllamaModelStatus() {
         if (!response.ok || !body || !("available" in body)) {
           throw new Error((body && "error" in body ? body.error?.message : undefined) ?? "Could not check the local model runtime.");
         }
+        setError(null);
         setDiscovery(body);
       })
       .catch((cause) => {
@@ -111,7 +116,7 @@ export function OllamaModelStatus() {
         setError(cause instanceof Error ? cause.message : "Could not check the local model runtime.");
       });
 
-    return () => controller.abort();
+    return () => { window.clearTimeout(timeout); controller.abort(); };
   }, [refreshToken]);
 
   const installedModels = discovery?.models.filter((model) => !model.remote) ?? [];
@@ -155,7 +160,7 @@ export function OllamaModelStatus() {
         <small>Local is the default. Cloud is an explicit opt-in and may be gated separately later.</small>
       </div>
 
-      {!discovery && !error ? <p className="ollama-model-status__muted">Checking Ollama at localhost…</p> : null}
+      {!discovery && !error ? <p className="ollama-model-status__muted" role="status">Checking the local model runtime… (up to 8 seconds)</p> : null}
       {error ? <p className="ollama-model-status__error" role="alert">{error}</p> : null}
       {discovery && !discovery.available ? (
         <div className="ollama-model-status__offline">

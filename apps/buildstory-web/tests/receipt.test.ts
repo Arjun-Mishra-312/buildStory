@@ -1,0 +1,60 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import test from "node:test";
+import { buildStoryFromSnapshot } from "../lib/build-story";
+import { reportSnapshotFromScanner } from "../lib/ingestion/report-adapter";
+import type { ScannerProjectSnapshot } from "../lib/ingestion/scanner-project-snapshot";
+import { ReceiptCard } from "../components/receipt-card";
+
+async function receiptFixture() {
+  const raw = JSON.parse(
+    await readFile(path.resolve(process.cwd(), "tests/fixtures/scanner-project-snapshot.json"), "utf8"),
+  ) as ScannerProjectSnapshot;
+  raw.usage.models.push({ provider: "anthropic", name: "<synthetic>", turnCount: 10, sessionCount: 1, tokenUsage: null, costMicroUsd: null });
+  raw.sessions[0]!.modelRefs.push("<synthetic>");
+  const snapshot = reportSnapshotFromScanner(raw, { id: "project-receipt", slug: "project-receipt" }, {
+    id: "creator-receipt",
+    name: "Receipt Tester",
+    handle: "receipt-tester",
+    role: "Builder",
+  });
+  assert.equal(snapshot.usage.models.some((model) => model.label === "<synthetic>"), false);
+  assert.equal(snapshot.sessions[0]!.modelIds.includes("<synthetic>"), false);
+  assert.equal(snapshot.timeWindow.startedAt, "2026-08-03T11:30:00.000Z");
+  assert.equal(snapshot.timeWindow.endedAt, "2026-08-03T12:00:00.000Z");
+  snapshot.sessions[0]!.subagentInvocations = 14;
+  snapshot.usage.models = [
+    { id: "openai:gpt-5.6-sol", label: "gpt-5.6-sol", provider: "openai", requests: 1, tokenUsage: null, costMicroUsd: 1 },
+    { id: "anthropic:claude-sonnet-5", label: "claude-sonnet-5", provider: "anthropic", requests: 1, tokenUsage: null, costMicroUsd: 1 },
+    { id: "zai:glm-5.2", label: "glm-5.2", provider: "zai", requests: 1, tokenUsage: null, costMicroUsd: null },
+  ];
+  snapshot.usage.cost = {
+    totalMicroUsd: 2,
+    pricedTokens: 2,
+    unpricedTokens: 42,
+    pricingTableVersion: "test-rate-card",
+  };
+  return snapshot;
+}
+
+test("receipt uses deterministic cost shares and keeps unpriced models outside the denominator", async () => {
+  const story = buildStoryFromSnapshot(await receiptFixture());
+  assert.equal(story.dateRange, "Aug 3 — Aug 3, 2026");
+  assert.equal(story.sessionCount, 1);
+  assert.equal(story.subagentCount, 14);
+  assert.deepEqual(story.models.map((model) => [model.label, model.share]), [
+    ["gpt-5.6-sol", 50],
+    ["claude-sonnet-5", 50],
+    ["glm-5.2", null],
+  ]);
+
+  const html = renderToStaticMarkup(createElement(ReceiptCard, { story }));
+  assert.match(html, /1 sessions/);
+  assert.match(html, /14 subagent runs/);
+  assert.match(html, /model calls/);
+  assert.match(html, /API-equivalent spend/);
+  assert.match(html, /unpriced models are excluded from the cost-share denominator/);
+});

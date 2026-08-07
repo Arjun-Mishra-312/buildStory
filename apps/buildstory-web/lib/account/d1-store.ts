@@ -1,4 +1,6 @@
 import { getD1 } from "@/db";
+import { getR2, MediaStorageUnavailableError } from "@/db/r2";
+import { mediaPublicUrl } from "@/lib/media/url";
 import { AccountError, type AccountExport } from "./contracts";
 
 async function database() {
@@ -18,7 +20,7 @@ export async function exportAccountData(userId: string): Promise<AccountExport> 
     .first<{ id: string; handle: string; display_name: string; email: string; bio: string | null; created_at: string }>();
   if (!user) throw new AccountError("not_found", "Account not found.", 404);
 
-  const [projects, reports, comments, reactions, following, followers] = await Promise.all([
+  const [projects, reports, comments, reactions, commentUpvotes, following, followers, media] = await Promise.all([
     db
       .prepare("SELECT id, slug, name, latest_commit_count, latest_active_days FROM buildstory_projects WHERE owner_user_id = ? LIMIT 500")
       .bind(userId)
@@ -48,6 +50,10 @@ export async function exportAccountData(userId: string): Promise<AccountExport> 
       .bind(userId)
       .all<{ report_id: string; kind: string; created_at: string }>(),
     db
+      .prepare("SELECT u.comment_id, c.report_id, u.created_at FROM buildstory_comment_upvotes u JOIN buildstory_comments c ON c.id = u.comment_id WHERE u.user_id = ? LIMIT 500")
+      .bind(userId)
+      .all<{ comment_id: string; report_id: string; created_at: string }>(),
+    db
       .prepare(
         "SELECT u.handle FROM buildstory_follows f JOIN buildstory_users u ON u.id = f.followee_user_id WHERE f.follower_user_id = ? LIMIT 500",
       )
@@ -59,6 +65,10 @@ export async function exportAccountData(userId: string): Promise<AccountExport> 
       )
       .bind(userId)
       .all<{ handle: string }>(),
+    db
+      .prepare("SELECT id, report_id, r2_key, kind, created_at FROM buildstory_report_media WHERE owner_user_id = ? LIMIT 500")
+      .bind(userId)
+      .all<{ id: string; report_id: string; r2_key: string; kind: string; created_at: string }>(),
   ]);
 
   return {
@@ -95,8 +105,16 @@ export async function exportAccountData(userId: string): Promise<AccountExport> 
       createdAt: row.created_at,
     })),
     reactionsGiven: reactions.results.map((row) => ({ reportId: row.report_id, kind: row.kind, createdAt: row.created_at })),
+    commentUpvotesGiven: commentUpvotes.results.map((row) => ({ commentId: row.comment_id, reportId: row.report_id, createdAt: row.created_at })),
     following: following.results.map((row) => row.handle),
     followers: followers.results.map((row) => row.handle),
+    media: media.results.map((row) => ({
+      id: row.id,
+      reportId: row.report_id,
+      url: mediaPublicUrl(row.r2_key),
+      kind: row.kind,
+      createdAt: row.created_at,
+    })),
   };
 }
 
@@ -121,6 +139,24 @@ export async function deleteAccount(userId: string): Promise<void> {
   const db = await database();
   const user = await db.prepare("SELECT id FROM buildstory_users WHERE id = ?").bind(userId).first();
   if (!user) throw new AccountError("not_found", "Account not found.", 404);
+
+  // R2 objects have no FK to the D1 row that references them, so cascading the
+  // buildstory_reports delete below only removes the *metadata* row - the underlying
+  // blob would otherwise survive account deletion, which is the one outcome this
+  // product's entire privacy pitch cannot afford. Delete the objects first.
+  const mediaRows = await db
+    .prepare("SELECT r2_key FROM buildstory_report_media WHERE owner_user_id = ?")
+    .bind(userId)
+    .all<{ r2_key: string }>();
+  if (mediaRows.results.length > 0) {
+    try {
+      const bucket = await getR2();
+      await bucket.delete(mediaRows.results.map((row) => row.r2_key));
+    } catch (error) {
+      if (!(error instanceof MediaStorageUnavailableError)) throw error;
+      // R2 not configured (e.g. local dev without the binding) - nothing to clean up.
+    }
+  }
 
   await db.batch([
     db.prepare("DELETE FROM buildstory_reports WHERE owner_user_id = ?").bind(userId),

@@ -5,7 +5,7 @@ import { ProjectWorkbench } from "@/components/project-workbench";
 import { requireCreator } from "@/lib/auth/runtime";
 import { buildStoryFromSnapshot } from "@/lib/build-story";
 import { deriveNarrativeDisplayStatus } from "@/lib/ingestion/narrative-status";
-import { getReport } from "@/lib/ingestion/store";
+import { getProjectForVerification, getReport, listReportMedia } from "@/lib/ingestion/store";
 
 export const metadata: Metadata = { title: "Review imported report" };
 
@@ -35,7 +35,7 @@ export default async function ImportedReportPage({ params }: PageProps) {
         <span className="section-index">( REPORT NOT FOUND )</span>
         <h1>This private report is not available to this creator.</h1>
         <p>The report may belong to another account, or its configured persistence provider may be unavailable.</p>
-        <Link className="button button--primary" href="/studio/connect">Open scanner connection â†’</Link>
+        <Link className="button button--primary" href="/studio/connect">Create story ↗</Link>
       </section>
     );
   }
@@ -46,26 +46,33 @@ export default async function ImportedReportPage({ params }: PageProps) {
         <span className="section-index">( REPORT GENERATION )</span>
         <h1>Your snapshot is safe; the report is still {report.status}.</h1>
         <p>Return to the connection screen to watch the durable generation status.</p>
-        <Link className="button button--primary" href="/studio/connect">View import status â†’</Link>
+        <Link className="button button--primary" href="/studio/connect">View story progress ↗</Link>
       </section>
     );
   }
 
   const story = buildStoryFromSnapshot(report.snapshot);
   const narrativeStatus = deriveNarrativeDisplayStatus(report.sourceSnapshot, report.narrative);
+  const media = await listReportMedia(report.id).catch(() => []);
+  const projectVerification = await getProjectForVerification(creator.creatorId, report.projectId).catch(() => null);
   return (
     <div className="creator-project-page">
       <div className="mock-boundary-banner mock-boundary-banner--project">
-        <strong>Imported private report Â· sanitized snapshot only.</strong>
+        <strong>Imported private report · sanitized snapshot only.</strong>
         <span>Production stores this report in D1; local development is disposable. Nothing is public until you select fields and publish.</span>
       </div>
       <ProjectWorkbench
         story={story}
         access="creator"
         reportId={report.id}
+        projectId={report.projectId}
         initialPublicationStatus={report.publication.status}
         initialSelectedPublicFields={report.selectedPublicFields}
         initialEditorial={report.editorial}
+        initialCategory={report.category}
+        initialArtifact={report.artifact}
+        initialMedia={media}
+        initialVerifiedRepoAt={projectVerification?.verifiedRepoAt ?? null}
         narrative={report.narrative}
         narrativeStatus={narrativeStatus}
         reviewedEvidence={report.sourceSnapshot?.narrativeEvidence?.excerpts ?? []}

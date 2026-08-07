@@ -6,10 +6,12 @@ import {
   createUploadSession,
   ensureUser,
   getReport,
+  markProjectRepoVerified,
   publishReport,
+  updateReport,
 } from "../lib/ingestion/mock-store";
 import { sha256Digest } from "../lib/ingestion/local-contract";
-import { ANTI_GAMING_MAX_COMMITS_PER_DAY } from "../lib/leaderboard/contracts";
+import { ANTI_GAMING_MAX_COMMITS_PER_DAY, VERIFIED_REPO_SCORE_MULTIPLIER } from "../lib/leaderboard/contracts";
 import { getLeaderboard } from "../lib/leaderboard/mock-store";
 import scannerFixture from "./fixtures/scanner-project-snapshot.json";
 
@@ -35,7 +37,9 @@ async function publishSnapshotForUser(creatorId: string, commits: number) {
   const receipt = await acceptSnapshot(sessionId, claim.uploadGrant.bearerToken, await sha256Digest(raw), snapshot);
   const reportId = receipt.reportEndpoint!.split("/").at(-1)!;
   await getReport(creatorId, reportId); // lazily flips the report to "ready"
+  updateReport(creatorId, reportId, { category: "developer-tools" });
   await publishReport(creatorId, reportId);
+  return reportId;
 }
 
 test("leaderboard: caps a project's commit contribution at activeDays * daily max, not the raw count", async () => {
@@ -71,6 +75,39 @@ test("leaderboard: caps a project's commit contribution at activeDays * daily ma
     gamerEntry!.rank < modestEntry!.rank,
     "capped score still outranks a smaller uncapped score, but never reflects the raw 500 commits",
   );
+});
+
+test("leaderboard: a repo-verified project scores higher than an identical unverified one", async () => {
+  const verifiedCreatorId = "dev:leaderboard-verified";
+  const verifiedUser = ensureUser({
+    creatorId: verifiedCreatorId,
+    name: "Leaderboard Verified",
+    email: "verified@buildstory.local",
+    image: null,
+  });
+  const unverifiedCreatorId = "dev:leaderboard-unverified";
+  const unverifiedUser = ensureUser({
+    creatorId: unverifiedCreatorId,
+    name: "Leaderboard Unverified",
+    email: "unverified@buildstory.local",
+    image: null,
+  });
+
+  const verifiedReportId = await publishSnapshotForUser(verifiedCreatorId, 5);
+  await publishSnapshotForUser(unverifiedCreatorId, 5);
+
+  const verifiedReport = await getReport(verifiedCreatorId, verifiedReportId);
+  markProjectRepoVerified(verifiedCreatorId, verifiedReport.projectId);
+
+  const entries = getLeaderboard("all-time", 100);
+  const verifiedEntry = entries.find((entry) => entry.user.id === verifiedUser.id);
+  const unverifiedEntry = entries.find((entry) => entry.user.id === unverifiedUser.id);
+  assert.ok(verifiedEntry, "verified builder should appear on the leaderboard");
+  assert.ok(unverifiedEntry, "unverified builder should appear on the leaderboard");
+
+  assert.equal(unverifiedEntry!.score, 5);
+  assert.equal(verifiedEntry!.score, Math.round(5 * VERIFIED_REPO_SCORE_MULTIPLIER));
+  assert.ok(verifiedEntry!.score > unverifiedEntry!.score, "verification measurably outranks an identical unverified project");
 });
 
 test("leaderboard: unpublished reports never contribute", async () => {

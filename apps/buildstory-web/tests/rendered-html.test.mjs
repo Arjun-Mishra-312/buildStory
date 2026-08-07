@@ -57,25 +57,26 @@ test("server-renders public routes through the shared shell", async () => {
     assert.match(html, /Skip to content/);
     assert.doesNotMatch(html, /Creator sign in/);
     assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/i);
+    assert.doesNotMatch(html, /(?:Â|â€¦|â†|Ã—|ðŸ)/, `${pathname} contains mojibake`);
   }
 });
 
-test("anonymous visitors see the introduction with section navigation only", async () => {
+test("anonymous visitors see the full primary navigation, including discovery links", async () => {
   const response = await render("/");
   const html = await response.text();
   const primaryNav = html.match(/<nav class="primary-nav"[^>]*>([\s\S]*?)<\/nav>/)?.[1] ?? "";
   assert.match(html, /Every build has/);
   assert.match(primaryNav, /How it works/);
   assert.match(primaryNav, /Manifesto/);
-  assert.doesNotMatch(primaryNav, />Explore</);
-  assert.doesNotMatch(primaryNav, />Leaderboard</);
+  assert.match(primaryNav, />Explore</);
+  assert.match(primaryNav, />Leaderboard</);
 });
 
 test("ships site-specific social metadata", async () => {
   const response = await render("/");
   const html = await response.text();
   assert.match(html, /Buildstory/);
-  assert.match(html, /og\.png/);
+  assert.match(html, /og\.jpg/);
   assert.match(html, /summary_large_image/);
 });
 

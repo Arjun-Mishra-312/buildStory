@@ -1,6 +1,11 @@
 import { listProjectStatsForLeaderboard } from "@/lib/ingestion/mock-store";
 import { getProfile } from "@/lib/social/mock-store";
-import { ANTI_GAMING_MAX_COMMITS_PER_DAY, type LeaderboardEntry, type LeaderboardPeriod } from "./contracts";
+import {
+  ANTI_GAMING_MAX_COMMITS_PER_DAY,
+  VERIFIED_REPO_SCORE_MULTIPLIER,
+  type LeaderboardEntry,
+  type LeaderboardPeriod,
+} from "./contracts";
 
 /** Mirrors d1-store's recomputeLeaderboard, computed in-memory instead of via SQL window functions. */
 export function getLeaderboard(_period: LeaderboardPeriod, limit = 50): LeaderboardEntry[] {
@@ -11,8 +16,9 @@ export function getLeaderboard(_period: LeaderboardPeriod, limit = 50): Leaderbo
       project.latestCommitCount,
       project.latestActiveDays * ANTI_GAMING_MAX_COMMITS_PER_DAY,
     );
+    const boosted = Math.round(cappedCommits * (project.verifiedRepoAt ? VERIFIED_REPO_SCORE_MULTIPLIER : 1));
     const existing = totals.get(project.ownerUserId) ?? { score: 0, activeDays: 0, storyCount: 0 };
-    existing.score += cappedCommits;
+    existing.score += boosted;
     existing.activeDays += project.latestActiveDays;
     existing.storyCount += 1;
     totals.set(project.ownerUserId, existing);

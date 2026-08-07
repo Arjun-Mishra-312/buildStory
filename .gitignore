@@ -20,3 +20,10 @@
 **/.vercel/
 *.log
 .DS_Store
+
+# Downloaded provider credentials. The Google Cloud Console names OAuth client
+# downloads `client_secret_<client-id>.apps.googleusercontent.com.json`; these
+# carry a live client secret and belong in the Worker secret store, never Git.
+client_secret_*.json
+**/client_secret_*.json
+*-service-account*.json

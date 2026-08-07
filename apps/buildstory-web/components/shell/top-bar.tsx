@@ -18,8 +18,8 @@ export function TopBar({ viewer }: { viewer: Viewer | null }) {
       <div className="site-header__inner">
         <BrandMark />
         <nav className="primary-nav" aria-label="Primary navigation">
-          {viewer ? <NavLink href="/explore">Explore</NavLink> : null}
-          {viewer ? <NavLink href="/leaderboard">Leaderboard</NavLink> : null}
+          <NavLink href="/explore">Explore</NavLink>
+          <NavLink href="/leaderboard">Leaderboard</NavLink>
           <NavLink href="/about#how-it-works">How it works</NavLink>
           <NavLink href="/about#manifesto">Manifesto</NavLink>
         </nav>
@@ -27,8 +27,8 @@ export function TopBar({ viewer }: { viewer: Viewer | null }) {
           <details className="site-mobile-menu">
             <summary>Menu</summary>
             <nav aria-label="Mobile primary navigation">
-              {viewer ? <NavLink href="/explore">Explore</NavLink> : null}
-              {viewer ? <NavLink href="/leaderboard">Leaderboard</NavLink> : null}
+              <NavLink href="/explore">Explore</NavLink>
+              <NavLink href="/leaderboard">Leaderboard</NavLink>
               <NavLink href="/about#how-it-works">How it works</NavLink>
               <NavLink href="/about#manifesto">Manifesto</NavLink>
               {viewer ? <NavLink href="/studio">Studio</NavLink> : <NavLink href={`/signin?callbackUrl=${encodeURIComponent(callback)}`}>Sign in</NavLink>}

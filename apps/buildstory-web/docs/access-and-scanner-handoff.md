@@ -26,11 +26,11 @@ the binding or migration. The scanner remains a separate local package.
 2. A creator opens `/signin` and authenticates with Google through Auth.js.
 3. The creator opens **Connect scanner**. The server creates a 15-minute upload
    session bound to that creator and returns a human-readable device code.
-4. The creator runs `buildstory connect ... --api-base-url
+4. The creator runs `buildstory-scan connect ... --api-base-url
    http://localhost:PORT/`. Connect reads no repository and posts only the
    strict device request to `/api/v1/cli/connect` without cookies.
 5. The scanner receives and privately stores a bearer valid for ten minutes and
-   one successful PUT. The creator separately runs `buildstory scan-upload
+   one successful PUT. The creator separately runs `buildstory-scan scan-upload
    --repo . --consent local-scan --upload-consent local-dashboard`.
 6. The scanner produces a redacted `ProjectSnapshot 1.0.0` locally and uploads
    the exact canonical JSON bytes with their digest. The server stores only the

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { EditorialIllustration } from "@/components/editorial-illustration";
 import { ANTI_GAMING_MAX_COMMITS_PER_DAY } from "@/lib/leaderboard/contracts";
 import { getLeaderboard } from "@/lib/leaderboard/store";
 
@@ -34,6 +35,7 @@ export default async function LeaderboardPage() {
         </header>
         {entries.length === 0 ? (
           <div className={`leaderboard-empty ${unavailable ? "leaderboard-empty--error" : ""}`} role={unavailable ? "alert" : "status"}>
+            {!unavailable ? <div className="leaderboard-empty__art"><EditorialIllustration kind="leaderboard-first-rank" /></div> : null}
             <strong>{unavailable ? "Leaderboard temporarily unavailable." : "No published, ranked builders yet."}</strong>
             <p>{unavailable ? "The story store did not respond. Try again in a moment." : "Publish a build story and verified activity will appear here."}</p>
             {unavailable ? <a href="/leaderboard">Try again</a> : null}

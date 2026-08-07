@@ -56,6 +56,10 @@ export function productionRuntimeIssues(): RuntimeIssue[] {
   if (!validHttpsOrigin(process.env.BUILDSTORY_PUBLIC_ORIGIN)) {
     add("invalid_https_origin", "BUILDSTORY_PUBLIC_ORIGIN");
   }
+  // GitHub sign-in is optional, but a half-set pair silently disables it - worth catching in prod.
+  if (Boolean(process.env.AUTH_GITHUB_ID) !== Boolean(process.env.AUTH_GITHUB_SECRET)) {
+    add("incomplete_pair", process.env.AUTH_GITHUB_ID ? "AUTH_GITHUB_SECRET" : "AUTH_GITHUB_ID");
+  }
   const hosts = allowedHosts();
   if (hosts.size === 0) {
     add("missing_value", "BUILDSTORY_ALLOWED_HOSTS");

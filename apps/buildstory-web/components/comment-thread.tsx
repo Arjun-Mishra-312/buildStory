@@ -2,172 +2,80 @@
 
 import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import { ReportDialog } from "./report-dialog";
 
 type CommentAuthor = { id: string; handle: string; displayName: string; avatarUrl: string | null };
-type Comment = {
-  id: string;
-  parentCommentId: string | null;
-  author: CommentAuthor;
-  body: string;
-  status: "visible" | "deleted" | "hidden";
-  createdAt: string;
-};
+type Comment = { id: string; parentCommentId: string | null; author: CommentAuthor; body: string; status: "visible" | "deleted" | "hidden"; createdAt: string; upvoteCount: number };
+type ViewerState = { upvotedCommentIds: string[]; removableCommentIds: string[] };
+const relativeTime = (value: string) => { const delta = Math.max(0, Date.now() - new Date(value).getTime()); const minutes = Math.floor(delta / 60000); if (minutes < 1) return "just now"; if (minutes < 60) return `${minutes}m ago`; const hours = Math.floor(minutes / 60); if (hours < 24) return `${hours}h ago`; const days = Math.floor(hours / 24); return `${days}d ago`; };
 
 export function CommentThread({ storyId }: { storyId: string }) {
   const router = useRouter();
   const [comments, setComments] = useState<Comment[]>([]);
+  const [viewer, setViewer] = useState<ViewerState>({ upvotedCommentIds: [], removableCommentIds: [] });
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     try {
-      const response = await fetch(`/api/stories/${encodeURIComponent(storyId)}/comments`, { cache: "no-store" });
-      if (response.ok) {
-        const data = (await response.json()) as { comments: Comment[] };
-        setComments(data.comments);
-      } else {
-        setError("Comments are temporarily unavailable.");
-      }
-    } catch {
-      setError("Comments are temporarily unavailable.");
-    }
+      const [commentsResponse, viewerResponse] = await Promise.all([
+        fetch(`/api/stories/${encodeURIComponent(storyId)}/comments`, { cache: "no-store" }),
+        fetch(`/api/stories/${encodeURIComponent(storyId)}/comments/viewer-state`, { cache: "no-store" }),
+      ]);
+      if (!commentsResponse.ok) throw new Error("comments");
+      setComments(((await commentsResponse.json()) as { comments: Comment[] }).comments);
+      if (viewerResponse.ok) setViewer((await viewerResponse.json()) as ViewerState);
+      setError(null);
+    } catch { setError("Comments are temporarily unavailable."); }
+    finally { setLoading(false); }
   }, [storyId]);
 
-  useEffect(() => {
-    void (async () => {
-      await load();
-    })();
-  }, [load]);
-
-  function goToSignIn() {
-    router.push(`/signin?callbackUrl=${encodeURIComponent(window.location.pathname)}`);
-  }
+  useEffect(() => { void load(); }, [load]);
+  const goToSignIn = () => router.push(`/signin?callbackUrl=${encodeURIComponent(window.location.pathname)}`);
 
   async function submit(body: string, parentCommentId: string | null) {
     if (!body.trim() || busy) return;
-    setBusy(true);
-    setError(null);
+    setBusy(true); setError(null);
     try {
-      const response = await fetch(`/api/stories/${encodeURIComponent(storyId)}/comments`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ body, parentCommentId }),
-      });
+      const response = await fetch(`/api/stories/${encodeURIComponent(storyId)}/comments`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ body, parentCommentId }) });
       if (response.status === 401) return goToSignIn();
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
-        setError(payload?.error?.message ?? "Could not post that comment.");
-        return;
-      }
-      if (parentCommentId) {
-        setReplyDraft("");
-        setReplyTo(null);
-      } else {
-        setDraft("");
-      }
+      if (!response.ok) { const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null; setError(payload?.error?.message ?? "Could not post that comment."); return; }
+      if (parentCommentId) { setReplyDraft(""); setReplyTo(null); } else setDraft("");
       await load();
-    } finally {
-      setBusy(false);
-    }
+    } catch { setError("Could not post that comment. Try again."); }
+    finally { setBusy(false); }
+  }
+
+  async function toggleUpvote(comment: Comment) {
+    const enabled = !viewer.upvotedCommentIds.includes(comment.id);
+    const previous = viewer;
+    setViewer((current) => ({ ...current, upvotedCommentIds: enabled ? [...current.upvotedCommentIds, comment.id] : current.upvotedCommentIds.filter((id) => id !== comment.id) }));
+    setComments((current) => current.map((item) => item.id === comment.id ? { ...item, upvoteCount: Math.max(0, item.upvoteCount + (enabled ? 1 : -1)) } : item));
+    try {
+      const response = await fetch(`/api/stories/${encodeURIComponent(storyId)}/comments/${encodeURIComponent(comment.id)}/upvote`, { method: enabled ? "PUT" : "DELETE" });
+      if (response.status === 401) return goToSignIn();
+      if (!response.ok) throw new Error("upvote");
+      const result = (await response.json()) as { upvoteCount: number; viewerHasUpvoted: boolean };
+      setComments((current) => current.map((item) => item.id === comment.id ? { ...item, upvoteCount: result.upvoteCount } : item));
+    } catch { setViewer(previous); setComments((current) => current.map((item) => item.id === comment.id ? { ...item, upvoteCount: comment.upvoteCount } : item)); setError("That upvote could not be saved."); }
   }
 
   async function remove(commentId: string) {
     if (busy) return;
     setBusy(true);
-    try {
-      const response = await fetch(`/api/stories/${encodeURIComponent(storyId)}/comments/${commentId}`, { method: "DELETE" });
-      if (response.status === 401) return goToSignIn();
-      if (response.ok) await load();
-      else setError("That comment could not be removed.");
-    } catch {
-      setError("That comment could not be removed.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function onSubmitTop(event: FormEvent) {
-    event.preventDefault();
-    void submit(draft, null);
-  }
-
-  function onSubmitReply(event: FormEvent, parentId: string) {
-    event.preventDefault();
-    void submit(replyDraft, parentId);
+    try { const response = await fetch(`/api/stories/${encodeURIComponent(storyId)}/comments/${encodeURIComponent(commentId)}`, { method: "DELETE" }); if (response.status === 401) return goToSignIn(); if (response.ok) await load(); else setError("That comment could not be removed."); }
+    catch { setError("That comment could not be removed."); }
+    finally { setBusy(false); }
   }
 
   const topLevel = comments.filter((comment) => comment.parentCommentId === null);
   const repliesFor = (parentId: string) => comments.filter((comment) => comment.parentCommentId === parentId);
+  const form = (value: string, setValue: (next: string) => void, parent: string | null) => <form onSubmit={(event: FormEvent) => { event.preventDefault(); void submit(value, parent); }} className="comment-thread__form"><textarea value={value} onChange={(event) => setValue(event.target.value)} placeholder={parent ? "Add a thoughtful reply…" : "Share a thought about this build…"} rows={parent ? 2 : 3} maxLength={1000} aria-label={parent ? "Reply" : "Comment"} /><div className="comment-thread__form-footer"><span>{value.length}/1,000</span><button type="submit" className="button button--primary button--small" disabled={busy || !value.trim()}>{busy ? "Posting…" : parent ? "Post reply" : "Post comment"}</button></div></form>;
+  const renderComment = (comment: Comment, reply = false) => { const upvoted = viewer.upvotedCommentIds.includes(comment.id); return <article className={`comment-card${reply ? " comment-card--reply" : ""}`} key={comment.id}><div className="comment-card__avatar">{comment.author.displayName.slice(0, 1).toUpperCase()}</div><div className="comment-card__body"><header><div><strong>{comment.status === "deleted" ? "Deleted comment" : comment.author.displayName}</strong><span>@{comment.author.handle} · {relativeTime(comment.createdAt)}</span></div>{comment.status !== "deleted" ? <details className="comment-card__menu"><summary aria-label="Comment actions">•••</summary><div><ReportDialog targetType="comment" targetId={comment.id} />{viewer.removableCommentIds.includes(comment.id) ? <button type="button" onClick={() => void remove(comment.id)}>Remove</button> : null}</div></details> : null}</header><p>{comment.status === "deleted" ? "This comment was removed." : comment.body}</p>{comment.status !== "deleted" ? <div className="comment-card__actions"><button type="button" onClick={() => void toggleUpvote(comment)} aria-pressed={upvoted} className={upvoted ? "is-active" : ""}>Upvote <strong>{comment.upvoteCount}</strong></button>{!reply ? <button type="button" onClick={() => setReplyTo(replyTo === comment.id ? null : comment.id)}>Reply</button> : null}</div> : null}</div></article>; };
 
-  return (
-    <section className="comment-thread">
-      <h2>Comments</h2>
-      <form onSubmit={onSubmitTop} className="comment-thread__form">
-        <textarea
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="Share a thought about this build…"
-          rows={3}
-          maxLength={1_000}
-        />
-        <button type="submit" className="button button--primary button--small" disabled={busy || !draft.trim()}>
-          Post comment
-        </button>
-      </form>
-      {error ? <p className="comment-thread__error">{error}</p> : null}
-
-      <ul className="comment-thread__list">
-        {topLevel.map((comment) => (
-          <li key={comment.id}>
-            <div className="comment">
-              <strong>{comment.status === "deleted" ? "" : comment.author.displayName}</strong>
-              <p>{comment.status === "deleted" ? "[deleted]" : comment.body}</p>
-              {comment.status !== "deleted" ? (
-                <div className="comment__actions">
-                  <button type="button" onClick={() => setReplyTo(replyTo === comment.id ? null : comment.id)}>
-                    Reply
-                  </button>
-                  <button type="button" onClick={() => void remove(comment.id)}>
-                    Remove
-                  </button>
-                </div>
-              ) : null}
-            </div>
-            {replyTo === comment.id ? (
-              <form onSubmit={(event) => onSubmitReply(event, comment.id)} className="comment-thread__form comment-thread__form--reply">
-                <textarea
-                  value={replyDraft}
-                  onChange={(event) => setReplyDraft(event.target.value)}
-                  placeholder={`Reply to ${comment.author.displayName}…`}
-                  rows={2}
-                  maxLength={1_000}
-                />
-                <button type="submit" className="button button--secondary button--small" disabled={busy || !replyDraft.trim()}>
-                  Post reply
-                </button>
-              </form>
-            ) : null}
-            <ul className="comment-thread__replies">
-              {repliesFor(comment.id).map((reply) => (
-                <li key={reply.id} className="comment">
-                  <strong>{reply.status === "deleted" ? "" : reply.author.displayName}</strong>
-                  <p>{reply.status === "deleted" ? "[deleted]" : reply.body}</p>
-                  {reply.status !== "deleted" ? (
-                    <div className="comment__actions">
-                      <button type="button" onClick={() => void remove(reply.id)}>
-                        Remove
-                      </button>
-                    </div>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
+  return <section className="comment-thread"><div className="comment-thread__heading"><div><span className="section-index">( COMMUNITY NOTES )</span><h2>Comments <small>{comments.length}</small></h2></div><span>One thoughtful thread at a time.</span></div>{form(draft, setDraft, null)}{error ? <p className="comment-thread__error" role="alert">{error}</p> : null}{loading ? <div className="comment-thread__skeleton" aria-label="Loading comments"><i /><i /><i /></div> : !topLevel.length ? <div className="comment-thread__empty"><strong>Start the conversation</strong><span>Share what stood out in this build.</span></div> : <div className="comment-thread__list">{topLevel.map((comment) => <div key={comment.id}>{renderComment(comment)}{replyTo === comment.id ? <div className="comment-thread__reply-form">{form(replyDraft, setReplyDraft, comment.id)}</div> : null}<div className="comment-thread__replies">{repliesFor(comment.id).map((reply) => renderComment(reply, true))}</div></div>)}</div>}</section>;
 }

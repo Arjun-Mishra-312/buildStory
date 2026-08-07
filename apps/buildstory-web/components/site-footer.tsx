@@ -9,7 +9,10 @@ export function SiteFooter() {
         <p>Software is more interesting with the decisions left in.</p>
         <div className="site-footer__links">
           <Link href="/explore">Explore</Link>
+          <Link href="/leaderboard">Leaderboard</Link>
           <Link href="/p/orbit-notes">Example story</Link>
+          <Link href="/terms">Terms</Link>
+          <Link href="/privacy">Privacy</Link>
           <a href="mailto:hello@buildstory.community">Say hello</a>
         </div>
       </div>

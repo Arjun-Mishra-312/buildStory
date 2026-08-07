@@ -76,6 +76,30 @@ test("public story projection exposes only safe fallback metadata and strips ses
   assert.ok(projection.storyPack!.sources.every((source) => !("sessionRef" in source) && !("excerptRef" in source)));
 });
 
+test("artifact links and media are gated by the artifactLinks/artifactMedia PublicFieldKeys, and only well-formed https URLs cross the boundary", () => {
+  const privateSnapshot = reportSnapshotFromScanner(
+    snapshot,
+    { id: "project_test", slug: "test-project" },
+    { id: "usr_test", name: "Test Builder", handle: "test", role: "Builder" },
+  );
+  const artifact = {
+    projectUrl: "https://example.com/app",
+    repoUrl: "https://github.com/example/app",
+    videoUrl: "javascript:alert(1)",
+    media: [{ id: "med_1", url: "https://media.buildstory.dev/media/rpt_1/a.png", kind: "cover" as const }],
+  };
+
+  const hidden = publicBuildStoryFromSnapshot(privateSnapshot, ["tagline"], undefined, artifact);
+  assert.deepEqual(hidden.artifactLinks, { projectUrl: null, repoUrl: null, videoUrl: null });
+  assert.deepEqual(hidden.artifactMedia, []);
+
+  const shown = publicBuildStoryFromSnapshot(privateSnapshot, ["artifactLinks", "artifactMedia"], undefined, artifact);
+  assert.equal(shown.artifactLinks.projectUrl, "https://example.com/app");
+  assert.equal(shown.artifactLinks.repoUrl, "https://github.com/example/app");
+  assert.equal(shown.artifactLinks.videoUrl, null, "a non-https URL never crosses the publication boundary even when selected");
+  assert.deepEqual(shown.artifactMedia, artifact.media);
+});
+
 test("production upload validation rejects legacy scanner contracts", () => {
   const previous = process.env.NODE_ENV;
   Reflect.set(process.env, "NODE_ENV", "production");

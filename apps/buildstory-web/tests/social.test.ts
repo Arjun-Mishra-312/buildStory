@@ -3,6 +3,7 @@ import test from "node:test";
 import { SocialError } from "../lib/social/contracts";
 import {
   createComment,
+  getCommentViewerState,
   deleteComment,
   followUser,
   getActivityFeed,
@@ -15,6 +16,7 @@ import {
   registerProfile,
   registerReport,
   setReaction,
+  setCommentUpvote,
   unfollowUser,
 } from "../lib/social/mock-store";
 
@@ -34,6 +36,7 @@ function seedReport(id: string, ownerUserId: string, publicationStatus = "publis
     publicationSlug: id,
     editorialTagline: `${id} tagline`,
     publishedAt: publicationStatus === "published" ? new Date().toISOString() : null,
+    chapterIndex: publicationStatus === "published" ? 1 : null,
   });
 }
 
@@ -151,6 +154,24 @@ test("comments: soft delete by author or moderator, refused for anyone else", ()
   assert.equal(deleted?.body, "");
 });
 
+test("comment upvotes: one per viewer, notify the author once, and never self-notify", () => {
+  const owner = seedUser("owner_upvote");
+  const voter = seedUser("voter_upvote");
+  seedReport("rpt_comments_upvote", owner);
+  const comment = createComment("rpt_comments_upvote", owner, "A note worth voting on.", null);
+  const first = setCommentUpvote(comment.id, voter, true);
+  assert.deepEqual(first, { upvoteCount: 1, viewerHasUpvoted: true });
+  assert.equal(getUnreadNotificationCount(owner), 1, "comment authors receive one upvote notification");
+  const second = setCommentUpvote(comment.id, voter, true);
+  assert.deepEqual(second, { upvoteCount: 1, viewerHasUpvoted: true });
+  const state = getCommentViewerState("rpt_comments_upvote", voter);
+  assert.deepEqual(state.upvotedCommentIds, [comment.id]);
+  assert.deepEqual(setCommentUpvote(comment.id, voter, false), { upvoteCount: 0, viewerHasUpvoted: false });
+  const ownComment = createComment("rpt_comments_upvote", voter, "My own note.", null);
+  setCommentUpvote(ownComment.id, voter, true);
+  assert.equal(getUnreadNotificationCount(voter), 0, "self-upvotes do not notify");
+});
+
 test("notifications: repeated reactions on the same story collapse into one unread row", () => {
   const owner = seedUser("owner5");
   const fanA = seedUser("fanA5");
@@ -178,6 +199,7 @@ test("activity feed: only shows published stories from people the viewer follows
     publicationSlug: "feed-old",
     editorialTagline: "Old story",
     publishedAt: "2026-01-01T00:00:00.000Z",
+    chapterIndex: 1,
   });
   registerReport({
     id: "rpt_feed_new",
@@ -186,6 +208,7 @@ test("activity feed: only shows published stories from people the viewer follows
     publicationSlug: "feed-new",
     editorialTagline: "New story",
     publishedAt: "2026-06-01T00:00:00.000Z",
+    chapterIndex: 1,
   });
   registerReport({
     id: "rpt_feed_unpublished",
@@ -194,6 +217,7 @@ test("activity feed: only shows published stories from people the viewer follows
     publicationSlug: "feed-draft",
     editorialTagline: "Draft story",
     publishedAt: null,
+    chapterIndex: null,
   });
   seedReport("rpt_feed_stranger", stranger);
 

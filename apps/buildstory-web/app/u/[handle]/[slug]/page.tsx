@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ProjectWorkbench } from "@/components/project-workbench";
-import { getPublishedStory } from "@/lib/ingestion/store";
+import { getPublicProjectVerification, getPublishedStory, listPublishedChapters } from "@/lib/ingestion/store";
 
 type PageProps = { params: Promise<{ handle: string; slug: string }> };
 export const dynamic = "force-dynamic";
@@ -9,7 +9,23 @@ export const dynamic = "force-dynamic";
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { handle, slug } = await params;
   const story = await getPublishedStory(handle, slug).catch(() => null);
-  return { title: story ? `${story.name} — Build Story` : "Build Story not found", description: story?.tagline };
+  const title = story ? `${story.name} — Build Story` : "Build Story not found";
+  const description = story?.tagline;
+  const ogImage = `/api/og/story/${encodeURIComponent(handle)}/${encodeURIComponent(slug)}`;
+  const pageUrl = `/u/${encodeURIComponent(handle)}/${encodeURIComponent(slug)}`;
+  const imageAlt = story ? `${story.name} — Build Story` : "Buildstory — Every build has a story.";
+  return {
+    title,
+    description,
+    openGraph: {
+      type: "article",
+      title,
+      description,
+      url: pageUrl,
+      images: [{ url: ogImage, width: 1200, height: 630, alt: imageAlt }],
+    },
+    twitter: { card: "summary_large_image", title, description, images: [ogImage] },
+  };
 }
 
 export default async function PublishedStoryPage({ params }: PageProps) {
@@ -24,5 +40,16 @@ export default async function PublishedStoryPage({ params }: PageProps) {
     throw error;
   }
   if (!story) notFound();
-  return <ProjectWorkbench story={story} access="public" />;
+  const chapters = await listPublishedChapters(handle, slug).catch(() => []);
+  const currentChapterIndex = chapters.at(-1)?.chapterIndex ?? 1;
+  const verifiedRepoAt = await getPublicProjectVerification(handle, slug).catch(() => null);
+  return (
+    <ProjectWorkbench
+      story={story}
+      access="public"
+      chapters={chapters}
+      currentChapterIndex={currentChapterIndex}
+      initialVerifiedRepoAt={verifiedRepoAt}
+    />
+  );
 }

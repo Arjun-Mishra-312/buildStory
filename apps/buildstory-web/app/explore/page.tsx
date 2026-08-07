@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { ExploreFeed } from "@/components/explore-feed";
-import { listPublishedStories } from "@/lib/ingestion/store";
+import { explorePublishedStories } from "@/lib/ingestion/store";
 
 export const metadata: Metadata = {
   title: "Explore build stories",
@@ -10,19 +10,22 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
+const PAGE_SIZE = 30;
+
 async function loadStories() {
   try {
-    return { stories: await listPublishedStories(30), unavailable: false };
+    const result = await explorePublishedStories({ limit: PAGE_SIZE, sort: "newest" });
+    return { ...result, unavailable: false };
   } catch {
     // A durable-store outage should degrade the feed to empty, not crash
     // the whole page; the rest of Buildstory (nav, marketing chrome) still
     // has nothing to do with story storage and should keep working.
-    return { stories: [], unavailable: true };
+    return { stories: [], nextCursor: null, resultCount: 0, facets: { categories: [], tools: [], models: [], liveDemoCount: 0 }, unavailable: true };
   }
 }
 
 export default async function ExplorePage() {
-  const { stories, unavailable } = await loadStories();
+  const { stories, nextCursor, unavailable, resultCount, facets } = await loadStories();
   return (
     <section className="explore-page section-wrap">
         <header className="explore-heading">
@@ -35,7 +38,7 @@ export default async function ExplorePage() {
             enough process left in to learn from.
           </p>
         </header>
-        <ExploreFeed projects={stories} unavailable={unavailable} />
+        <ExploreFeed projects={stories} initialCursor={nextCursor} resultCount={resultCount} initialFacets={facets} unavailable={unavailable} />
     </section>
   );
 }
