@@ -28,7 +28,7 @@ npm run build:buildstory
 npm run package:scanner
 ```
 
-`verify:product` runs the web lint, typecheck, build, rendered-route/security tests, and the scanner build/privacy/package/CLI tests. `package:scanner` writes a packed archive to `artifacts`; it does not publish to npm. The scanner publishes as `@buildstory/scanner` and installs one binary, `buildstory-scan`.
+`verify:product` runs the web lint, typecheck, build, rendered-route/security tests, and the scanner build/privacy/package/CLI tests. `package:scanner` writes a packed archive to `artifacts`; it does not publish to npm. The scanner publishes as `buildstory-scan` and installs one binary of the same name.
 
 Narrative generation is local-first. A new dashboard connection defaults to local Ollama generation: redacted excerpts may be used in memory to write the report, but the uploaded snapshot carries only the generated prose and deterministic metrics. Cloud narrative mode is an explicit dashboard choice and requires reviewing the redacted excerpts before they are uploaded. Off mode uploads metrics/profile facts without prose. No mode uses non-loopback network access during scanning except the single explicitly pinned upload origin.
 

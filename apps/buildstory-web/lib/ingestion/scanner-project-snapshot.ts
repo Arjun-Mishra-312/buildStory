@@ -1,5 +1,5 @@
 /**
- * Portable mirror of @buildstory/scanner's ProjectSnapshot 1.2.0 contract.
+ * Portable mirror of buildstory-scan's ProjectSnapshot 1.2.0 contract.
  *
  * This is the only snapshot shape accepted at the scanner HTTP boundary. The
  * product-facing report model in lib/project-snapshot.ts is derived from this

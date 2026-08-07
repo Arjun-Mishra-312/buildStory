@@ -69,7 +69,7 @@ export type AggregateTokenUsage = {
 
 /**
  * Estimated $ cost, priced from a static, versioned table of known model
- * families (see @buildstory/scanner's session-pricing.ts). totalMicroUsd is
+ * families (see buildstory-scan's session-pricing.ts). totalMicroUsd is
  * null only when zero models in the window are in that table - tokens are
  * still shown, a price is never guessed.
  */

@@ -141,7 +141,7 @@ function resolveValidator(value: unknown): {
   return { validate: validateSchemaCurrent, versionLabel: PROJECT_SNAPSHOT_SCHEMA_VERSION };
 }
 
-/** Human-facing label for a provider id. Mirrors @buildstory/scanner's scanner.ts providerLabel exactly. */
+/** Human-facing label for a provider id. Mirrors buildstory-scan's scanner.ts providerLabel exactly. */
 function providerLabel(provider: ScannerProjectSnapshot["sessions"][number]["provider"]) {
   if (provider === "claude-code") return "Claude Code";
   if (provider === "gemini-antigravity") return "Gemini Antigravity";
@@ -151,7 +151,7 @@ function providerLabel(provider: ScannerProjectSnapshot["sessions"][number]["pro
 
 /**
  * Assumption strings the scanner emits for a snapshot. Mirrors
- * @buildstory/scanner's scanner.ts assumptionsForProviders exactly -
+ * buildstory-scan's scanner.ts assumptionsForProviders exactly -
  * generic assumptions first, then provider-specific ones appended only for
  * providers actually present in sourceSelection.providers, in provider order
  * (which the scanner always emits sorted).
