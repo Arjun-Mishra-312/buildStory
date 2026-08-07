@@ -43,7 +43,7 @@ export async function generateMetadata(): Promise<Metadata> {
       title: "Every build has a story.",
       description:
         "Private-first build reports and public stories for people making software with AI.",
-      images: [{ url: socialImage, width: 1200, height: 630, alt: "Buildstory — Every build has a story." }],
+      images: [{ url: socialImage, width: 1200, height: 630, alt: "Buildstory — Every build has a story.", type: "image/jpeg" }],
     },
     twitter: {
       card: "summary_large_image",

@@ -1852,6 +1852,10 @@ html[data-theme="dark"] .closing-cta {
   font-size: 9px;
 }
 
+.build-story__hero-share {
+  margin-top: 14px;
+}
+
 .build-story__cover {
   position: relative;
   min-height: 480px;

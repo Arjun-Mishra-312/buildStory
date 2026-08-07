@@ -110,7 +110,16 @@ async function secured(response: Response, request: Request) {
     "content-security-policy",
     "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self' data:; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: https:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'",
   );
-  return new Response(response.body, {
+  // Re-wrapping a Response from its streamed .body (rather than a materialized
+  // buffer) makes the edge serve it with Transfer-Encoding: chunked and no
+  // Content-Length - fine for most clients, but some social-card crawlers
+  // (LinkedIn's in particular) are known to stall indefinitely fetching a
+  // chunked image with no declared length. Every non-text response here is
+  // small (OG/share cards are tens of KB; R2-proxied media is capped at 5MB),
+  // so buffering to get an accurate Content-Length is cheap and worth it.
+  const buffer = await response.arrayBuffer();
+  headers.set("content-length", String(buffer.byteLength));
+  return new Response(buffer, {
     status: response.status,
     statusText: response.statusText,
     headers,

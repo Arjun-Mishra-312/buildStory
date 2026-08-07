@@ -759,6 +759,15 @@ export function ProjectWorkbench({
                   {displayArtifactLinks.videoUrl ? <a className="button button--text" href={displayArtifactLinks.videoUrl} target="_blank" rel="noopener noreferrer nofollow">Watch demo <span aria-hidden="true">↗</span></a> : null}
                   {displayArtifactLinks.repoUrl && verifiedRepoAt ? <span className="verified-chip" title={`Verified ${new Date(verifiedRepoAt).toLocaleDateString()}`}><span aria-hidden="true">✓</span> Verified owner</span> : null}
                 </div>
+                {access === "public" ? (
+                  <div className="build-story__hero-share">
+                    <ShareButton
+                      path={`/u/${story.owner.handle}/${story.slug}`}
+                      title={story.name}
+                      downloadPath={`/api/share/story/${story.owner.handle}/${story.slug}`}
+                    />
+                  </div>
+                ) : null}
               </div>
               <div className="build-story__cover">
                 {coverMedia ? <>
@@ -895,11 +904,6 @@ export function ProjectWorkbench({
             <div className="section-wrap community-section">
               <div className="community-section__actions">
                 <SocialActions storyId={story.reportId ?? story.id} ownerHandle={story.owner.handle} />
-                <ShareButton
-                  path={`/u/${story.owner.handle}/${story.slug}`}
-                  title={story.name}
-                  downloadPath={`/api/share/story/${story.owner.handle}/${story.slug}`}
-                />
               </div>
               <CommentThread storyId={story.reportId ?? story.id} />
             </div>
