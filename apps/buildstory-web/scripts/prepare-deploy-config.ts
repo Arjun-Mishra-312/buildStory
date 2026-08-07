@@ -108,6 +108,10 @@ for (const name of FORBIDDEN_VARS) {
 generated.vars = vars;
 
 generated.routes = required(source.routes, "wrangler.deploy.jsonc must declare routes before deploy.");
+// Both default to true once a workers.dev route exists, so carry them explicitly
+// rather than letting a wrangler default decide how many origins serve the app.
+generated.workers_dev = source.workers_dev ?? false;
+generated.preview_urls = source.preview_urls ?? false;
 generated.triggers = required(source.triggers, "wrangler.deploy.jsonc must declare cron triggers; worker/index.ts's scheduled handler drives leaderboards and lease recovery.");
 
 // The host the CLI pins, the host allowlist, and the route must agree, or the

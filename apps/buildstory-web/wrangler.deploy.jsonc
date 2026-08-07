@@ -93,6 +93,15 @@
   // so the route, the origin the CLI pins, and the host allowlist cannot drift.
   "routes": [{ "pattern": "buildstory.dev/*", "zone_name": "buildstory.dev" }],
 
+  // buildstory.dev is the only hostname this deployment answers on. A
+  // workers.dev URL would be a second public origin that worker/index.ts's
+  // allowlist rejects with 421 for everything except /api/health and
+  // /api/ready - not a breach, but a surface with no purpose. preview_urls is
+  // pinned too because wrangler turns it on by default whenever workers_dev is
+  // enabled, so leaving it unset makes the guarantee depend on a default.
+  "workers_dev": false,
+  "preview_urls": false,
+
   "triggers": {
     "crons": ["0 * * * *", "*/5 * * * *"]
   },
