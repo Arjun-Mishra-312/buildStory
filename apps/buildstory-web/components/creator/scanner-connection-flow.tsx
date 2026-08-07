@@ -13,6 +13,8 @@ const orderedStatuses = [
   "report_ready",
 ] as const;
 
+const INSTALL_COMMAND = "npm install --global buildstory-scan";
+
 type CreateResponse = {
   session: UploadSessionView;
   deviceAuthorization: DeviceAuthorization;
@@ -29,7 +31,7 @@ export function ScannerConnectionFlow({
   const [session, setSession] = useState<UploadSessionView | null>(null);
   const [authorization, setAuthorization] = useState<DeviceAuthorization | null>(null);
   const [starting, setStarting] = useState(false);
-  const [copied, setCopied] = useState<"connect" | "upload" | null>(null);
+  const [copied, setCopied] = useState<"install" | "connect" | "upload" | null>(null);
   const [withEvidence, setWithEvidence] = useState(false);
   const [narrativeMode, setNarrativeMode] = useState<"local" | "cloud" | "off">("local");
   const [error, setError] = useState<string | null>(null);
@@ -87,7 +89,7 @@ export function ScannerConnectionFlow({
     }
   }
 
-  async function copyCommand(command: string, stage: "connect" | "upload") {
+  async function copyCommand(command: string, stage: "install" | "connect" | "upload") {
     await navigator.clipboard.writeText(command);
     setCopied(stage);
     window.setTimeout(() => setCopied(null), 1_500);
@@ -98,6 +100,24 @@ export function ScannerConnectionFlow({
 
   return (
     <div className="scanner-flow">
+      <section className="scanner-install">
+        <div className="scanner-install__copy">
+          <div className="scanner-step-label"><span>1×</span> ONE-TIME SETUP</div>
+          <h2>Install the BuildStory scanner.</h2>
+          <p>
+            Run this once before creating your first story. If you already installed
+            <code> buildstory-scan</code>, you can skip this step.
+          </p>
+        </div>
+        <div className="scanner-install__command">
+          <button type="button" className="scanner-command scanner-command--install" onClick={() => copyCommand(INSTALL_COMMAND, "install")}>
+            <code><span>$</span> {INSTALL_COMMAND}</code>
+            <small>{copied === "install" ? "Copied" : "Copy install"}</small>
+          </button>
+          <small>Requires Node.js 22.5 or newer. You can run it from any folder.</small>
+        </div>
+      </section>
+
       <section className="scanner-flow__setup">
         <div className="scanner-step-label"><span>01</span> PROJECT DETAILS</div>
         <h2>Start a guided story capture.</h2>
@@ -154,7 +174,7 @@ export function ScannerConnectionFlow({
             <div className="scanner-token-note">
               <strong>Connect does not scan. Scan-upload requires separate consent.</strong>
               <p>The CLI stores the short-lived grant locally, sends no browser cookie, and can PUT one strict ProjectSnapshot. The consumed bearer may only read status/report until it expires.</p>
-              <p>After upload, run <code>buildstory status</code> or watch the owner-bound dashboard status here.</p>
+              <p>After upload, run <code>buildstory-scan status</code> or watch the owner-bound dashboard status here.</p>
             </div>
           </>
         ) : (

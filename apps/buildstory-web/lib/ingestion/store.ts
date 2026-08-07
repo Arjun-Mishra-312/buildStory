@@ -9,7 +9,12 @@ import type { NarrativeMode } from "./scanner-project-snapshot";
 
 type CreatorIdentity = { creatorId: string; name: string; email: string; image: string | null };
 
-function shouldUseDurableStore() {
+/**
+ * Exported so UI copy can describe storage truthfully without re-deriving the
+ * rule. A page that hardcodes "local development is disposable" is wrong the
+ * moment it renders on a hosted deployment.
+ */
+export function shouldUseDurableStore() {
   return (
     process.env.NODE_ENV === "production" ||
     process.env.BUILDSTORY_STORE === "d1"

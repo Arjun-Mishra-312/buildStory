@@ -72,7 +72,16 @@ function formatBytes(value: number | null) {
   return `${Math.round(value / 1024)} KB`;
 }
 
-export function OllamaModelStatus() {
+/**
+ * `discoveryAvailable` mirrors the server's isLocalApiEnabled(). Model discovery
+ * asks the SERVER to reach http://127.0.0.1:11434, which only means the
+ * creator's machine when the server is that machine. On a hosted Worker the
+ * route can only ever 404, so the component skips the request entirely rather
+ * than showing an error for a thing that was never going to work. Narrative
+ * generation itself is unaffected: buildstory-scan talks to Ollama directly
+ * from the creator's machine at scan time.
+ */
+export function OllamaModelStatus({ discoveryAvailable = true }: { discoveryAvailable?: boolean }) {
   const [discovery, setDiscovery] = useState<Discovery | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
@@ -84,6 +93,7 @@ export function OllamaModelStatus() {
   );
 
   useEffect(() => {
+    if (!discoveryAvailable) return;
     const controller = new AbortController();
     const timeout = window.setTimeout(() => {
       setError("The local model check timed out. You can continue with Automatic and retry when Ollama is running.");
@@ -117,7 +127,7 @@ export function OllamaModelStatus() {
       });
 
     return () => { window.clearTimeout(timeout); controller.abort(); };
-  }, [refreshToken]);
+  }, [refreshToken, discoveryAvailable]);
 
   const installedModels = discovery?.models.filter((model) => !model.remote) ?? [];
   const systemSummary = discovery
@@ -134,13 +144,15 @@ export function OllamaModelStatus() {
           <span className="section-index">( LOCAL NARRATIVE MODEL )</span>
           <h2>Keep the story model on this machine.</h2>
         </div>
-        <button className="button button--secondary button--small" type="button" onClick={() => {
-          setError(null);
-          setDiscovery(null);
-          setRefreshToken((value) => value + 1);
-        }}>
-          Refresh model list
-        </button>
+        {discoveryAvailable ? (
+          <button className="button button--secondary button--small" type="button" onClick={() => {
+            setError(null);
+            setDiscovery(null);
+            setRefreshToken((value) => value + 1);
+          }}>
+            Refresh model list
+          </button>
+        ) : null}
       </header>
 
       <div className="ollama-model-status__choice">
@@ -160,7 +172,12 @@ export function OllamaModelStatus() {
         <small>Local is the default. Cloud is an explicit opt-in and may be gated separately later.</small>
       </div>
 
-      {!discovery && !error ? <p className="ollama-model-status__muted" role="status">Checking the local model runtime… (up to 8 seconds)</p> : null}
+      {!discoveryAvailable ? (
+        <p className="ollama-model-status__muted" role="status">
+          Model discovery runs only in the local portal — this site cannot reach your machine. Keep <strong>Local</strong> selected and buildstory-scan will detect your installed Ollama models itself when you scan. Leave the model as Automatic unless you want to pin a specific one.
+        </p>
+      ) : null}
+      {discoveryAvailable && !discovery && !error ? <p className="ollama-model-status__muted" role="status">Checking the local model runtime… (up to 8 seconds)</p> : null}
       {error ? <p className="ollama-model-status__error" role="alert">{error}</p> : null}
       {discovery && !discovery.available ? (
         <div className="ollama-model-status__offline">

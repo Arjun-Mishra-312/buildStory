@@ -20,5 +20,8 @@
     "verify:product": "npm run verify:buildstory && npm run test:scanner",
     "package:scanner": "npm pack ./packages/buildstory-scanner --pack-destination ./artifacts",
     "check:artifact": "node scripts/check-artifact-freshness.mjs"
+  },
+  "dependencies": {
+    "buildstory-scan": "^0.7.0"
   }
 }

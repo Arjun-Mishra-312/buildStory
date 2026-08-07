@@ -5,7 +5,7 @@ import { ProjectWorkbench } from "@/components/project-workbench";
 import { requireCreator } from "@/lib/auth/runtime";
 import { buildStoryFromSnapshot } from "@/lib/build-story";
 import { deriveNarrativeDisplayStatus } from "@/lib/ingestion/narrative-status";
-import { getProjectForVerification, getReport, listReportMedia } from "@/lib/ingestion/store";
+import { getProjectForVerification, getReport, listReportMedia, shouldUseDurableStore } from "@/lib/ingestion/store";
 
 export const metadata: Metadata = { title: "Review imported report" };
 
@@ -55,11 +55,19 @@ export default async function ImportedReportPage({ params }: PageProps) {
   const narrativeStatus = deriveNarrativeDisplayStatus(report.sourceSnapshot, report.narrative);
   const media = await listReportMedia(report.id).catch(() => []);
   const projectVerification = await getProjectForVerification(creator.creatorId, report.projectId).catch(() => null);
+  const isDurableStore = shouldUseDurableStore();
   return (
     <div className="creator-project-page">
       <div className="mock-boundary-banner mock-boundary-banner--project">
         <strong>Imported private report · sanitized snapshot only.</strong>
-        <span>Production stores this report in D1; local development is disposable. Nothing is public until you select fields and publish.</span>
+        {/* The disposable-memory caveat is true only of local development; on a
+            hosted deployment the record is durable, and saying otherwise invites
+            a creator to assume their work will vanish. */}
+        <span>
+          {isDurableStore
+            ? "Only the sanitized snapshot is stored, and this report stays private to you. Nothing is public until you select fields and publish."
+            : "Production stores this report in D1; local development is disposable. Nothing is public until you select fields and publish."}
+        </span>
       </div>
       <ProjectWorkbench
         story={story}
