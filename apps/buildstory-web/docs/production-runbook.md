@@ -57,7 +57,10 @@ The scanner accepts a hosted ingestion destination only when explicitly pinned p
      and fails the build if any required name is missing. Without it the Worker
      answers `503 host_allowlist_unconfigured` on every request, because
      `worker/index.ts` reads `BUILDSTORY_ALLOWED_HOSTS` before routing anything.
-   - **Secrets** are never committed. Set each once per environment:
+   - **Secrets** are never committed, and **cannot be set until the Worker
+     exists** — `wrangler secret put` fails with "Worker not found" against a
+     name that has never been deployed. On a brand-new environment the order is
+     therefore migrate → deploy → set secrets → verify, not secrets-first:
 
      ```powershell
      npx wrangler secret put AUTH_SECRET -c wrangler.deploy.jsonc
@@ -65,12 +68,18 @@ The scanner accepts a hosted ingestion destination only when explicitly pinned p
      npx wrangler secret put AUTH_GOOGLE_SECRET -c wrangler.deploy.jsonc
      ```
 
+     Between the deploy and these commands the Worker is live but unauthenticated:
+     public pages render, sign-in fails, and `/api/ready` returns 503 for the
+     missing `AUTH_SECRET`. Secrets apply to the running Worker immediately, with
+     no redeploy. To avoid any public window, deploy once with `routes` removed,
+     set the secrets, then restore `routes` and deploy again.
+
      `wrangler secret put` reads the value from stdin, so it never lands in shell
      history. `prepare-deploy-config.ts` throws if any secret name appears in
      `vars`. Never place secret values in `.env.production.example`, Git, command
      history, or CI output.
 3. Ensure `BUILDSTORY_STORE=d1`, `BUILDSTORY_DEV_AUTH_BYPASS=false`, and `BUILDSTORY_LOCAL_API_ENABLED=false` in `vars`.
-4. Apply forward-compatible migrations before routing traffic to code that needs them. Keep the previous application version available until readiness and public-route smoke tests pass.
+4. Apply forward-compatible migrations before routing traffic to code that needs them. Keep the previous application version available until readiness and public-route smoke tests pass. On the first run against a hand-migrated database, pass `--baseline <last-applied-tag>`; see `wrangler.deploy.jsonc` for how the current value was measured.
 5. Configure edge rate limits for Auth.js, creator mutation paths, and `/api/v1/cli/*` (now reachable in production). Do not add CORS allowances for CLI routes.
 6. Deploy only with explicit user/release approval. After deployment, verify health, readiness, Google callback, owner isolation, edit/publish, and a sanitized public projection.
 
