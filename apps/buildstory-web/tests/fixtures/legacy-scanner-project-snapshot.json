@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.6.0",
+  "schemaVersion": "1.2.0",
   "scanId": "scan_0123456789abcdef01234567",
   "generatedAt": "2026-08-03T12:00:00.000Z",
   "sourceSelection": {
@@ -22,9 +22,7 @@
         "read-selected-local-session-metadata",
         "write-local-snapshot"
       ],
-      "deniedActions": [
-        "network-upload"
-      ]
+      "deniedActions": ["network-upload"]
     }
   },
   "repository": {
@@ -61,12 +59,8 @@
       "turns": 3,
       "assistantMessages": 4,
       "toolCalls": 5,
-      "modelRefs": [
-        "example-model"
-      ],
-      "toolRefs": [
-        "shell"
-      ],
+      "modelRefs": ["example-model"],
+      "toolRefs": ["shell"],
       "tokenUsage": {
         "inputTokens": 1000,
         "cachedInputTokens": 200,
@@ -77,27 +71,13 @@
     }
   ],
   "usage": {
-    "tools": [
-      {
-        "name": "shell",
-        "callCount": 5,
-        "sessionCount": 1
-      }
-    ],
+    "tools": [{ "name": "shell", "callCount": 5, "sessionCount": 1 }],
     "models": [
       {
         "provider": "openai",
         "name": "example-model",
         "turnCount": 3,
-        "sessionCount": 1,
-        "tokenUsage": {
-          "inputTokens": 1000,
-          "cachedInputTokens": 200,
-          "outputTokens": 400,
-          "reasoningOutputTokens": 80,
-          "totalTokens": 1400
-        },
-        "costMicroUsd": null
+        "sessionCount": 1
       }
     ],
     "totalToolCalls": 5,
@@ -108,12 +88,6 @@
       "outputTokens": 400,
       "reasoningOutputTokens": 80,
       "totalTokens": 1400
-    },
-    "cost": {
-      "totalMicroUsd": null,
-      "pricedTokens": 0,
-      "unpricedTokens": 1400,
-      "pricingTableVersion": "2026-08-05.1"
     }
   },
   "git": {
@@ -138,9 +112,7 @@
       "title": "Codex session activity",
       "summary": "Codex session with 3 user turns, 4 assistant messages, and 5 tool calls.",
       "occurredAt": "2026-08-03T12:00:00.000Z",
-      "evidenceRefs": [
-        "ev_44444444444444444444"
-      ]
+      "evidenceRefs": ["ev_44444444444444444444"]
     },
     {
       "milestoneId": "mil_55555555555555555555",
@@ -148,9 +120,7 @@
       "title": "Repository activity",
       "summary": "2 commits observed in the selected time window.",
       "occurredAt": "2026-08-03T12:00:00.000Z",
-      "evidenceRefs": [
-        "ev_66666666666666666666"
-      ]
+      "evidenceRefs": ["ev_66666666666666666666"]
     }
   ],
   "evidence": [
@@ -188,14 +158,9 @@
     ]
   },
   "provenance": {
-    "scanner": {
-      "name": "buildstory",
-      "version": "0.4.0"
-    },
+    "scanner": { "name": "buildstory", "version": "0.4.0" },
     "collectionMode": "local-read-only",
-    "sessionFormats": [
-      "codex-jsonl"
-    ],
+    "sessionFormats": ["codex-jsonl"],
     "deterministicSerialization": "lexicographic-json",
     "repositoryCommands": [
       "git-config",

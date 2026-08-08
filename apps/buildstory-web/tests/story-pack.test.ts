@@ -6,8 +6,14 @@ import { validateProjectSnapshot } from "../lib/ingestion/validation";
 import { defaultStoryPack, normalizeStoryPack, validateStoryPackComponent } from "../lib/narrative/story-pack";
 import type { ScannerProjectSnapshot } from "../lib/ingestion/scanner-project-snapshot";
 import scannerFixture from "./fixtures/scanner-project-snapshot.json";
+import legacyScannerFixture from "./fixtures/legacy-scanner-project-snapshot.json";
 
 const snapshot = scannerFixture as unknown as ScannerProjectSnapshot;
+// Deliberately schemaVersion 1.2.0, kept only for the legacy-rejection test
+// below. The shared `snapshot` fixture above must stay on the CURRENT schema:
+// tests/d1-runtime-smoke.mjs uploads it through the real API in CI and needs
+// it to actually validate, which a fixture crafted to be rejected cannot do.
+const legacySnapshot = legacyScannerFixture as unknown as ScannerProjectSnapshot;
 
 test("story-pack component validation rejects malformed structure, enums, cardinality, and provenance", () => {
   const pack = defaultStoryPack(snapshot);
@@ -104,7 +110,7 @@ test("production upload validation rejects legacy scanner contracts", () => {
   const previous = process.env.NODE_ENV;
   Reflect.set(process.env, "NODE_ENV", "production");
   try {
-    const result = validateProjectSnapshot(snapshot);
+    const result = validateProjectSnapshot(legacySnapshot);
     assert.equal(result.ok, false);
     if (!result.ok) assert.match(result.errors[0] ?? "", /Production uploads require ProjectSnapshot 1\.6\.0/);
   } finally {

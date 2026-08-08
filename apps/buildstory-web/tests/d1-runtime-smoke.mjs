@@ -23,7 +23,11 @@ const createdResponse = await fetch(new URL("api/creator/upload-sessions", base)
     "content-type": "application/json",
     origin: base.origin,
   },
-  body: JSON.stringify({ projectLabel: "D1 runtime smoke" }),
+  // Explicit "off": this test exercises D1 storage/job mechanics, not narrative
+  // generation. The default mode needs either a local Ollama or a real cloud
+  // LLM key, neither available here, and the job would sit in "processing"
+  // forever waiting on a dependency this test was never meant to need.
+  body: JSON.stringify({ projectLabel: "D1 runtime smoke", narrativeMode: "off" }),
 });
 await assertStatus(createdResponse, 201);
 const created = await createdResponse.json();
@@ -121,6 +125,20 @@ const unsafePatchResponse = await fetch(new URL(`api/creator/reports/${reportId}
 await assertStatus(unsafePatchResponse, 422);
 const unsafePatchText = await unsafePatchResponse.text();
 assert.doesNotMatch(unsafePatchText, /sk-proj|abcdefghijklmnopqrstuvwxyz123456/i);
+
+// Publish requires a category (STORY_CATEGORIES in lib/ingestion/contracts.ts);
+// the rejected patch above never set one, since it's specifically testing that
+// unsafe editorial content is refused, not exercising a real edit.
+const categoryPatchResponse = await fetch(new URL(`api/creator/reports/${reportId}`, base), {
+  method: "PATCH",
+  redirect: "error",
+  headers: {
+    "content-type": "application/json",
+    origin: base.origin,
+  },
+  body: JSON.stringify({ category: "developer-tools" }),
+});
+await assertStatus(categoryPatchResponse, 200);
 
 const publishResponse = await fetch(new URL(`api/creator/reports/${reportId}/publish`, base), {
   method: "POST",

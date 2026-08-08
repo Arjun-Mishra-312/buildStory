@@ -60,14 +60,47 @@ jobs:
 
       - name: Run local end-to-end smoke
         env:
-          BUILDSTORY_DEV_AUTH_BYPASS: "true"
-          BUILDSTORY_LOCAL_API_ENABLED: "true"
-          BUILDSTORY_STORE: memory
-          BUILDSTORY_PUBLIC_ORIGIN: http://127.0.0.1:3000
-          BUILDSTORY_ALLOWED_HOSTS: 127.0.0.1,localhost
           BUILDSTORY_SMOKE_BASE_URL: http://127.0.0.1:3000/
         run: |
-          npm --prefix apps/buildstory-web run dev > /tmp/buildstory-dev.log 2>&1 &
+          # This step never passed on Linux before, for three independent
+          # reasons stacked on top of each other - none were ever caught
+          # because local development in this project has only ever run on
+          # Windows. Each is reproduced and fixed individually against a real
+          # node:22-bookworm container before landing here:
+          #
+          # 1. `vinext dev`'s default hostname is "localhost", which Node
+          #    resolves to ::1 (IPv6) on Linux - `ss -tlnp` after boot shows
+          #    only `[::1]:3000`, nothing on 127.0.0.1. `--hostname 127.0.0.1`
+          #    forces the explicit address so the family can't drift depending
+          #    on which resolver a given HTTP client picks (curl and Node's own
+          #    fetch/undici disagreed on which family "localhost" meant, in
+          #    the SAME container, so probing a hostname is not reliable
+          #    either - only a literal IP is).
+          #
+          # 2. `env:` on this step (the previous approach) never reaches the
+          #    Worker at all. @cloudflare/vite-plugin's local dev runs request
+          #    handling inside a Miniflare/workerd sandbox that does not
+          #    inherit the host Node process's environment - it only reads
+          #    wrangler's own `.dev.vars` convention. Confirmed directly:
+          #    the identical values were visible to a plain `node -e` in the
+          #    same shell, but every route requiring them 401'd until they
+          #    were written to a .dev.vars file instead.
+          #
+          # 3. mock-store.ts simulates realistic async job timing with a
+          #    BUILDSTORY_REPORT_READY_DELAY_MS default of 5000ms, and this
+          #    test checks report status immediately after upload with no
+          #    wait or poll - a race against that delay, not a real
+          #    processing failure. Set to 0 so the very first check lands
+          #    after the transition instead of before it.
+          cat > apps/buildstory-web/.dev.vars <<'VARS'
+          BUILDSTORY_DEV_AUTH_BYPASS=true
+          BUILDSTORY_LOCAL_API_ENABLED=true
+          BUILDSTORY_STORE=memory
+          BUILDSTORY_PUBLIC_ORIGIN=http://127.0.0.1:3000
+          BUILDSTORY_ALLOWED_HOSTS=127.0.0.1,localhost
+          BUILDSTORY_REPORT_READY_DELAY_MS=0
+          VARS
+          (cd apps/buildstory-web && npx vinext dev --hostname 127.0.0.1) > /tmp/buildstory-dev.log 2>&1 &
           server_pid=$!
           trap 'kill $server_pid' EXIT
           for attempt in $(seq 1 60); do
