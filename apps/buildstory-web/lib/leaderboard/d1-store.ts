@@ -62,6 +62,21 @@ async function lastComputedAt(db: D1Database, period: LeaderboardPeriod): Promis
   return row?.computed_at ?? null;
 }
 
+/** Publication and project-stat writes must invalidate a fresh-looking cache too. */
+async function latestSourceUpdatedAt(db: D1Database): Promise<string | null> {
+  const row = await db
+    .prepare(
+      `SELECT MAX(updated_at) AS updated_at
+       FROM (
+         SELECT updated_at FROM buildstory_reports
+         UNION ALL
+         SELECT updated_at FROM buildstory_projects
+       ) AS leaderboard_sources`,
+    )
+    .first<{ updated_at: string | null }>();
+  return row?.updated_at ?? null;
+}
+
 type EntryRow = {
   rank: number;
   score: number;
@@ -73,12 +88,15 @@ type EntryRow = {
   avatar_url: string | null;
 };
 
-/** Bounded lazy fallback: recomputes only if nothing has ever run, or the last run is older than LEADERBOARD_STALE_MS. Never recomputes on every read. */
+/** Bounded lazy fallback: recomputes when the snapshot is old or source data changed since it ran. */
 export async function getLeaderboard(period: LeaderboardPeriod, limit = 50): Promise<LeaderboardEntry[]> {
   const db = await database();
   const bounded = Math.min(Math.max(1, Math.trunc(limit)), 200);
-  const computedAt = await lastComputedAt(db, period);
-  if (!computedAt || Date.now() - Date.parse(computedAt) > LEADERBOARD_STALE_MS) {
+  const [computedAt, sourceUpdatedAt] = await Promise.all([lastComputedAt(db, period), latestSourceUpdatedAt(db)]);
+  const sourceChanged = Boolean(
+    sourceUpdatedAt && (!computedAt || Date.parse(sourceUpdatedAt) > Date.parse(computedAt)),
+  );
+  if (!computedAt || sourceChanged || Date.now() - Date.parse(computedAt) > LEADERBOARD_STALE_MS) {
     const claim = await db.prepare(
       `INSERT INTO buildstory_leaderboard_runs (period, computed_at) VALUES (?, ?)
        ON CONFLICT(period) DO UPDATE SET computed_at = excluded.computed_at

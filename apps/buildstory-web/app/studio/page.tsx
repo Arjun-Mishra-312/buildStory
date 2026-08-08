@@ -1,10 +1,33 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { EditorialIllustration } from "@/components/editorial-illustration";
+import { StoryVisual, type StoryVisualStory } from "@/components/story-visual";
 import { requireCreator } from "@/lib/auth/runtime";
-import { listUploadSessions, statusLabel } from "@/lib/ingestion/store";
+import { buildStoryFromSnapshot } from "@/lib/build-story";
+import { getReport, listReportMedia, listUploadSessions, statusLabel } from "@/lib/ingestion/store";
 
 export const metadata: Metadata = { title: "Creator dashboard" };
+
+type StudioStoryCard = StoryVisualStory & { tagline: string };
+
+async function storyCardForSession(creatorId: string, session: Awaited<ReturnType<typeof listUploadSessions>>[number]): Promise<StudioStoryCard | null> {
+  if (!session.reportId) return null;
+  try {
+    const report = await getReport(creatorId, session.reportId);
+    const story = buildStoryFromSnapshot(report.snapshot);
+    return {
+      name: story.name,
+      stack: story.stack,
+      storyBackgroundId: report.storyBackgroundId,
+      artifactMedia: await listReportMedia(report.id),
+      tagline: report.editorial.tagline,
+    };
+  } catch {
+    // The dashboard can still show the session if a just-created report is not
+    // available during a brief storage or processing transition.
+    return null;
+  }
+}
 
 export default async function StudioPage() {
   const creator = await requireCreator("/studio");
@@ -13,6 +36,10 @@ export default async function StudioPage() {
   const processing = sessions.filter((session) =>
     ["scanner_authorized", "snapshot_received", "queued", "generating"].includes(session.status),
   );
+  const readyCards = await Promise.all(ready.map(async (session) => ({
+    session,
+    story: await storyCardForSession(creator.creatorId, session),
+  })));
 
   return (
     <section className="creator-page dashboard-page">
@@ -37,19 +64,24 @@ export default async function StudioPage() {
       <div className="dashboard-grid">
         <section className="dashboard-projects">
           <header><span>YOUR PROJECTS</span><Link href="/studio/connect">Create story +</Link></header>
-          {ready.length ? ready.map((session) => (
+          {readyCards.length ? readyCards.map(({ session, story }) => (
             <Link
               className="dashboard-project-card"
               href={`/studio/reports/${session.reportId}`}
               key={session.id}
             >
               <div className="dashboard-project-card__cover" aria-hidden="true">
-                <span /><span /><i />
-                <b>ON / 0.1</b>
+                <StoryVisual story={story ?? {
+                  name: session.projectLabel,
+                  stack: [],
+                  storyBackgroundId: "repository-topography",
+                  artifactMedia: [],
+                }} />
               </div>
               <div className="dashboard-project-card__body">
                 <div><span className="status-dot status-dot--shipped" /> REPORT READY</div>
-                <h2>{session.projectLabel}</h2>
+                <h2>{story?.name ?? session.projectLabel}</h2>
+                {story?.tagline ? <p>{story.tagline}</p> : null}
                 <dl>
                   <div><dt>Report</dt><dd>Ready</dd></div>
                   <div><dt>Snapshot</dt><dd>Validated</dd></div>
