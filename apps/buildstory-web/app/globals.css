@@ -4276,12 +4276,50 @@ html[data-theme="dark"] .closing-cta {
   font: 400 20px/1 var(--font-editorial);
 }
 
-.share-dialog__preview {
+.share-dialog__preview-shell {
+  position: relative;
   width: 100%;
   aspect-ratio: 1080 / 1350;
-  object-fit: contain;
+  overflow: hidden;
   border: 1px solid var(--line-strong);
   background: var(--midnight);
+}
+
+.share-dialog__preview {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transition: opacity .16s ease;
+}
+
+.share-dialog__preview.is-stale {
+  opacity: .34;
+}
+
+.share-dialog__preview-placeholder {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(110deg, var(--midnight), color-mix(in srgb, var(--midnight) 80%, var(--cobalt)), var(--midnight));
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s linear infinite;
+}
+
+.share-dialog__preview-status,
+.share-dialog__preview-retry {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--paper) 30%, transparent);
+  color: var(--paper);
+  background: color-mix(in srgb, var(--midnight) 88%, transparent);
+  font: 10px var(--font-code);
+  white-space: nowrap;
+}
+
+.share-dialog__preview-retry {
+  cursor: pointer;
 }
 
 .share-dialog__actions {

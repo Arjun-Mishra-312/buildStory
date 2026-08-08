@@ -109,3 +109,10 @@ export function storyBackgroundOption(id: unknown) {
 export function shareBackgroundOption(id: unknown) {
   return SHARE_BACKGROUND_OPTIONS.find((option) => option.id === id) ?? SHARE_BACKGROUND_OPTIONS[0];
 }
+
+/** Satori/workers-og reliably accepts JPEG/PNG sources but not WebP data URIs.
+ * Browser thumbnails stay WebP; the renderer reads these JPEG equivalents. */
+export function shareRenderBackgroundAsset(id: unknown, theme: BackgroundTheme) {
+  const browserAsset = shareBackgroundOption(id).assets[theme];
+  return browserAsset.replace("/share/", "/share-render/").replace(/\.webp$/, ".jpg");
+}

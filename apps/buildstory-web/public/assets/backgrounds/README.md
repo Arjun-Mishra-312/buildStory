@@ -6,6 +6,10 @@ tool and normalized for production use.
 - `story/`: three 1024×1024 options, each with light and dark artwork.
 - `share/`: five 1080×1350 options, each with light and dark artwork.
 
+`share-render/` contains JPEG equivalents used only by the Worker image
+renderer; Satori does not reliably decode WebP data URIs. Browser selectors
+continue to use the smaller WebP files.
+
 Every pair preserves its composition across themes and changes only its color
 system. Dark assets use midnight/charcoal with paper, coral, and cobalt accents.
 Light assets use warm paper with ink, coral, and cobalt accents.

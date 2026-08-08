@@ -186,8 +186,8 @@ export function buildStoryShareCard(
         // eslint-disable-next-line @next/next/no-img-element
         <img src={options.backgroundDataUri} alt="" style={{ position: "absolute", left: 0, top: 0, width: "100%", height: "100%", objectFit: "cover" }} />
       ) : null}
-      <div style={{ display: "flex", position: "absolute", left: 0, top: 0, width: "78%", height: "100%", backgroundColor: panel, opacity: 0.98 }} />
-      <div style={{ display: "flex", position: "relative", flexDirection: "column", justifyContent: "space-between", width: "78%", height: "100%", padding: "72px 58px 58px" }}>
+      <div style={{ display: "flex", position: "absolute", left: 0, top: 0, width: "70%", height: "100%", backgroundColor: panel }} />
+      <div style={{ display: "flex", position: "relative", flexDirection: "column", justifyContent: "space-between", width: "70%", height: "100%", padding: "72px 54px 58px" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 52 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -195,7 +195,7 @@ export function buildStoryShareCard(
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={checkSealDataUri(palette.coral)} width={40} height={40} alt="" />
             </div>
-            <div style={{ display: "flex", fontFamily: SANS, fontWeight: 700, fontSize: 68, lineHeight: 1.08 }}>{data.name}</div>
+            <div style={{ display: "flex", fontFamily: SANS, fontWeight: 700, fontSize: 62, lineHeight: 1.08 }}>{data.name}</div>
             {data.tagline ? (
               <div style={{ display: "flex", fontFamily: SANS, fontSize: 30, color: palette.muted, lineHeight: 1.35 }}>{data.tagline}</div>
             ) : null}

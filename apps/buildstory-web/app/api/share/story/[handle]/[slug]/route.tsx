@@ -3,7 +3,7 @@ import { getPublishedStory } from "@/lib/ingestion/store";
 import { formatShareCardData } from "@/lib/share-card/format";
 import { renderShareCard } from "@/lib/share-card/render";
 import { buildStoryShareCard } from "@/lib/share-card/story-card";
-import { isBackgroundTheme, isShareBackgroundId, shareBackgroundOption } from "@/lib/background-options";
+import { isBackgroundTheme, isShareBackgroundId, shareRenderBackgroundAsset } from "@/lib/background-options";
 import { loadShareBackgroundDataUri } from "@/lib/share-card/background";
 import { checkRateLimit } from "@/lib/social/rate-limit-dispatch";
 
@@ -29,8 +29,7 @@ export async function GET(request: Request, context: RouteContext) {
       : isShareBackgroundId(story.storyBackgroundId) ? story.storyBackgroundId : "repository-topography";
     const requestedTheme = params.get("theme");
     const theme = isBackgroundTheme(requestedTheme) ? requestedTheme : "dark";
-    const background = shareBackgroundOption(backgroundId);
-    const backgroundDataUri = await loadShareBackgroundDataUri(request, background.assets[theme]);
+    const backgroundDataUri = await loadShareBackgroundDataUri(request, shareRenderBackgroundAsset(backgroundId, theme));
     const image = buildStoryShareCard(formatShareCardData(story), canonicalUrl, { backgroundDataUri, theme });
     const filename = `buildstory-${handle}-${slug}-${backgroundId}-${theme}.png`;
 
@@ -40,6 +39,7 @@ export async function GET(request: Request, context: RouteContext) {
       headers: {
         "cache-control": "public, max-age=3600, stale-while-revalidate=86400",
         "content-disposition": `attachment; filename="${filename}"`,
+        "x-buildstory-background": backgroundDataUri ? "loaded" : "missing",
       },
     });
   } catch (error) {

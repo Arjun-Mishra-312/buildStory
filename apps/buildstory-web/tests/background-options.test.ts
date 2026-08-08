@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { SHARE_BACKGROUND_OPTIONS, STORY_BACKGROUND_OPTIONS } from "../lib/background-options";
+import { SHARE_BACKGROUND_OPTIONS, STORY_BACKGROUND_OPTIONS, shareRenderBackgroundAsset } from "../lib/background-options";
 
 function webpDimensions(asset: Buffer) {
   assert.equal(asset.toString("ascii", 0, 4), "RIFF");
@@ -24,6 +24,13 @@ async function assertAsset(assetUrl: string, expected: { width: number; height: 
   assert.ok(details.size <= 150 * 1024, `${assetUrl} must stay under 150 KB`);
 }
 
+async function assertJpegRenderAsset(assetUrl: string) {
+  const assetPath = path.join(process.cwd(), "public", assetUrl.replace(/^\//, ""));
+  const [asset, details] = await Promise.all([readFile(assetPath), stat(assetPath)]);
+  assert.deepEqual([...asset.subarray(0, 3)], [0xff, 0xd8, 0xff], `${assetUrl} must be a JPEG`);
+  assert.ok(details.size <= 200 * 1024, `${assetUrl} must stay under 200 KB`);
+}
+
 test("story background registry contains three optimized light/dark square pairs", async () => {
   assert.equal(STORY_BACKGROUND_OPTIONS.length, 3);
   assert.equal(new Set(STORY_BACKGROUND_OPTIONS.map((option) => option.id)).size, 3);
@@ -41,6 +48,7 @@ test("share background registry contains five optimized light/dark portrait pair
   for (const option of SHARE_BACKGROUND_OPTIONS) {
     await assertAsset(option.assets.light, { width: 1080, height: 1350 });
     await assertAsset(option.assets.dark, { width: 1080, height: 1350 });
+    await assertJpegRenderAsset(shareRenderBackgroundAsset(option.id, "light"));
+    await assertJpegRenderAsset(shareRenderBackgroundAsset(option.id, "dark"));
   }
 });
-

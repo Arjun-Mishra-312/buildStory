@@ -86,6 +86,11 @@ generated.account_id = required(source.account_id, "wrangler.deploy.jsonc is mis
 generated.compatibility_date = required(source.compatibility_date, "wrangler.deploy.jsonc is missing compatibility_date.");
 generated.compatibility_flags = source.compatibility_flags ?? generated.compatibility_flags;
 
+// Share-card rendering reads generated artwork directly through this binding.
+// Without it, a Worker-side fetch to the public origin re-enters the same
+// Worker and stalls until the subrequest times out.
+generated.assets = { ...(generated.assets as Record<string, unknown> | undefined), binding: "ASSETS" };
+
 generated.d1_databases = (source.d1_databases as Array<Record<string, unknown>>).map((database) => {
   const copy = { ...database };
   // wrangler rejects migrations_dir alongside an explicit deploy config; scripts/migrate-d1.ts owns migrations.

@@ -43,6 +43,8 @@ type ProjectWorkbenchProps = {
 
 const compactNumber = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 const usdFormat = new Intl.NumberFormat("en", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const sourceDateFormat = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", timeZone: "UTC" });
+const verifiedDateFormat = new Intl.DateTimeFormat("en", { month: "numeric", day: "numeric", year: "numeric", timeZone: "UTC" });
 const formatMicroUsd = (microUsd: number) => usdFormat.format(microUsd / 1_000_000);
 
 const fieldOptions: Array<{ id: PublicFieldKey; label: string; detail: string }> = [
@@ -83,7 +85,7 @@ function providerName(provider: string): string {
 }
 
 function StorySourceBadge({ source, privateView, onOpen }: { source: ReportStoryPackV2["sources"][number]; privateView: boolean; onOpen: (ref: string) => void }) {
-  const label = `${providerName(source.provider)} · ${new Date(source.occurredAt).toLocaleDateString("en", { month: "short", day: "numeric" })}`;
+  const label = `${providerName(source.provider)} · ${sourceDateFormat.format(new Date(source.occurredAt))}`;
   return privateView ? (
     <button className="story-pack__source" type="button" onClick={() => onOpen(source.ref)} title="Open evidence metadata">
       {label} · {source.evidenceRefs.length} evidence
@@ -675,7 +677,7 @@ export function ProjectWorkbench({
               {projectId && artifactLinks.repoUrl ? (
                 <div className="project-editor__repo-verify">
                   {verifiedRepoAt ? (
-                    <span className="verified-chip" title={`Verified ${new Date(verifiedRepoAt).toLocaleDateString()}`}>
+                    <span className="verified-chip" title={`Verified ${verifiedDateFormat.format(new Date(verifiedRepoAt))}`}>
                       <span aria-hidden="true">✓</span> Verified repository owner
                     </span>
                   ) : (
@@ -797,7 +799,7 @@ export function ProjectWorkbench({
                   {displayArtifactLinks.projectUrl ? <a className="button button--primary" href={displayArtifactLinks.projectUrl} target="_blank" rel="noopener noreferrer nofollow">View live demo <span aria-hidden="true">↗</span></a> : null}
                   {displayArtifactLinks.repoUrl ? <a className="button button--secondary" href={displayArtifactLinks.repoUrl} target="_blank" rel="noopener noreferrer nofollow">GitHub repository <span aria-hidden="true">↗</span></a> : null}
                   {displayArtifactLinks.videoUrl ? <a className="button button--text" href={displayArtifactLinks.videoUrl} target="_blank" rel="noopener noreferrer nofollow">Watch demo <span aria-hidden="true">↗</span></a> : null}
-                  {displayArtifactLinks.repoUrl && verifiedRepoAt ? <span className="verified-chip" title={`Verified ${new Date(verifiedRepoAt).toLocaleDateString()}`}><span aria-hidden="true">✓</span> Verified owner</span> : null}
+                  {displayArtifactLinks.repoUrl && verifiedRepoAt ? <span className="verified-chip" title={`Verified ${verifiedDateFormat.format(new Date(verifiedRepoAt))}`}><span aria-hidden="true">✓</span> Verified owner</span> : null}
                 </div>
                 {access === "public" ? (
                   <div className="build-story__hero-share">
