@@ -92,6 +92,70 @@ test("chapters: publishing a second chapter keeps the first published at an arch
   assert.equal(storyAfterUnpublish?.reportId, "rpt_chapter_1", "chapter 1 is promoted back to canonical once chapter 2 is unpublished");
 });
 
+test("chapters: publishing a second chapter computes and freezes its delta, and comments roll up across chapters", async () => {
+  const owner = await d1Ingestion.ensureUser(ownerSession);
+  const database = localD1.database;
+  const projectId = "prj_updates_test";
+  const slug = "updates-project";
+  const now = new Date().toISOString();
+
+  database.prepare(
+    `INSERT INTO buildstory_projects (id, owner_user_id, slug, name, repository_fingerprint, fingerprint_basis, first_scan_at, last_scan_at, story_count, latest_session_count, latest_commit_count, latest_active_days, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?)`,
+  ).run(projectId, owner.id, slug, "Updates Project", "sha256:" + "c".repeat(64), "local-path", now, now, orbitNotesSnapshot.git.commits, orbitNotesSnapshot.timeWindow.activeDays, now, now);
+
+  insertReadyReport(database, { reportId: "rpt_upd_chapter_1", projectId, ownerUserId: owner.id, slug, tagline: "Chapter one" });
+  // Chapter 2's snapshot has more commits than chapter 1's, so the delta is observable.
+  const chapter2Snapshot = { ...structuredClone(orbitNotesSnapshot), identity: { ...orbitNotesSnapshot.identity, slug, tagline: "Chapter two" }, git: { ...orbitNotesSnapshot.git, commits: orbitNotesSnapshot.git.commits + 15 } };
+  database.prepare(
+    `INSERT INTO buildstory_upload_sessions (id, creator_id, owner_user_id, project_label, status, created_at, expires_at, status_detail, device_code_hash, device_code_attempts, updated_at)
+     VALUES (?, ?, ?, ?, 'report_ready', ?, ?, ?, ?, 0, ?)`,
+  ).run("rpt_upd_chapter_2_session", ownerSession.creatorId, owner.id, "Chapter two", now, new Date(Date.now() + 86_400_000).toISOString(), "Private report ready for review.", "rpt_upd_chapter_2-device-hash", now);
+  database.prepare(
+    `INSERT INTO buildstory_reports (id, creator_id, owner_user_id, project_id, upload_session_id, status, created_at, ready_at, source_snapshot_json, snapshot_json, selected_public_fields_json, editorial_tagline, editorial_description, editorial_reflection, category, publication_status, publication_slug, publication_path, published_at, public_url, chapter_index, updated_at)
+     VALUES (?, ?, ?, ?, ?, 'ready', ?, ?, ?, ?, ?, ?, ?, ?, 'web-apps', 'not_published', ?, NULL, NULL, NULL, NULL, ?)`,
+  ).run(
+    "rpt_upd_chapter_2", ownerSession.creatorId, owner.id, projectId, "rpt_upd_chapter_2_session", now, now,
+    JSON.stringify(chapter2Snapshot), JSON.stringify(chapter2Snapshot),
+    JSON.stringify(["tagline", "description", "timeWindow", "sessionSummary", "milestones", "modelMix", "gitAggregates", "redactionSummary"]),
+    "Chapter two", "A public story used by the chapters test.", "Testing chapters directly.", slug, now,
+  );
+
+  const published1 = await d1Ingestion.publishReport(ownerSession.creatorId, "rpt_upd_chapter_1");
+  assert.equal(published1.chapterDelta, null, "a project's first chapter has nothing to compare against");
+
+  const published2 = await d1Ingestion.publishReport(ownerSession.creatorId, "rpt_upd_chapter_2");
+  assert.equal(published2.chapterDelta?.fromChapterIndex, 1);
+  assert.equal(published2.chapterDelta?.toChapterIndex, 2);
+  assert.equal(published2.chapterDelta?.build.commits.change, 15, "chapter 2 has 15 more commits than chapter 1");
+
+  const publicStory = await d1Ingestion.getPublishedStory(owner.handle, slug);
+  assert.equal(publicStory?.chapterDelta?.build.commits.change, 15, "the public read path carries the same frozen, gated delta");
+
+  const projects = await d1Ingestion.listProjects(ownerSession.creatorId);
+  const thisProject = projects.find((project) => project.id === projectId);
+  assert.equal(thisProject?.chapterCount, 2);
+  assert.equal(thisProject?.latestChapterIndex, 2);
+
+  const detail = await d1Ingestion.getProjectDetail(ownerSession.creatorId, projectId);
+  assert.equal(detail.reports.length, 2);
+  const chapter2Detail = detail.reports.find((report) => report.reportId === "rpt_upd_chapter_2");
+  assert.equal(chapter2Detail?.chapterDelta?.build.commits.change, 15);
+
+  // Community continuity: a comment posted while chapter 1 was canonical must still
+  // surface once chapter 2 becomes canonical - an update must never reset engagement.
+  const socialD1 = await import("../lib/social/d1-store");
+  const commenter = await d1Ingestion.ensureUser({ creatorId: "dev:commenter", name: "Commenter", email: "commenter@buildstory.local", image: null });
+  await socialD1.createComment("rpt_upd_chapter_1", commenter.id, "Loving the progress on this one.", null);
+
+  const rollupIds = await d1Ingestion.listPublishedReportIdsForProject(projectId);
+  assert.deepEqual(rollupIds, ["rpt_upd_chapter_2", "rpt_upd_chapter_1"], "rollup lists the current chapter first");
+
+  const rolledUpComments = await socialD1.listCommentsForReports(rollupIds);
+  assert.equal(rolledUpComments.length, 1);
+  assert.equal(rolledUpComments[0]?.chapterIndex, 1, "the comment is tagged with the chapter it was actually posted on");
+});
+
 test.after(async () => {
   localD1.close();
   __setD1ForTests(null);

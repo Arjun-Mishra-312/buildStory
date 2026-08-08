@@ -49,11 +49,11 @@ export async function POST(request: Request) {
       !value ||
       typeof value !== "object" ||
       Array.isArray(value) ||
-      Object.keys(value).some((key) => !["projectLabel", "narrativeModel", "narrativeMode"].includes(key))
+      Object.keys(value).some((key) => !["projectLabel", "narrativeModel", "narrativeMode", "projectId"].includes(key))
     ) {
-      return jsonError("invalid_request", "Only projectLabel, narrativeModel, and narrativeMode may be provided.", 422);
+      return jsonError("invalid_request", "Only projectLabel, narrativeModel, narrativeMode, and projectId may be provided.", 422);
     }
-    const body = value as { projectLabel?: unknown; narrativeModel?: unknown; narrativeMode?: unknown };
+    const body = value as { projectLabel?: unknown; narrativeModel?: unknown; narrativeMode?: unknown; projectId?: unknown };
     if (
       body.projectLabel !== undefined &&
       (typeof body.projectLabel !== "string" || body.projectLabel.length > 120)
@@ -63,6 +63,9 @@ export async function POST(request: Request) {
         "projectLabel must be a string of at most 120 characters.",
         422,
       );
+    }
+    if (body.projectId !== undefined && typeof body.projectId !== "string") {
+      return jsonError("invalid_request", "projectId must be a string.", 422);
     }
     if (body.narrativeMode !== undefined && !["local", "cloud", "off"].includes(body.narrativeMode as string)) {
       return jsonError("invalid_narrative_mode", "narrativeMode must be local, cloud, or off.", 422);
@@ -86,6 +89,7 @@ export async function POST(request: Request) {
         ? body.narrativeModel.trim()
         : null;
     const narrativeMode = typeof body.narrativeMode === "string" ? body.narrativeMode as "local" | "cloud" | "off" : "local";
+    const targetProjectId = typeof body.projectId === "string" ? body.projectId : null;
     const user = await ensureUser(creator);
     await checkRateLimit("upload_session", user.id, 20, 60, request);
     const result = await createUploadSession(
@@ -95,6 +99,7 @@ export async function POST(request: Request) {
       user.id,
       narrativeModel,
       narrativeMode,
+      targetProjectId,
     );
     return Response.json(result, {
       status: 201,

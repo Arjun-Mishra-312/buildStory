@@ -247,20 +247,45 @@ export async function searchProfiles(query: string, limit = 20): Promise<PublicP
 async function reportOwnerAndSlug(db: D1Database, reportId: string) {
   return db
     .prepare(
-      "SELECT owner_user_id, publication_slug, publication_status FROM buildstory_reports WHERE id = ?",
+      "SELECT owner_user_id, publication_slug, publication_status, project_id, chapter_index FROM buildstory_reports WHERE id = ?",
     )
     .bind(reportId)
-    .first<{ owner_user_id: string | null; publication_slug: string; publication_status: string }>();
+    .first<{ owner_user_id: string | null; publication_slug: string; publication_status: string; project_id: string; chapter_index: number | null }>();
+}
+
+/**
+ * Every published (or draft_changes - see the publication-boundary "keep the last
+ * published version live" fix) report id for a project, most recent chapter first.
+ * Powers the community rollup: comments/reactions read across every chapter of a
+ * project so an update never resets a creator's engagement to zero, while writes
+ * still target only the current chapter (see setReaction/createComment below).
+ */
+async function publishedReportIdsForProject(db: D1Database, projectId: string): Promise<string[]> {
+  const rows = await db
+    .prepare(
+      `SELECT id FROM buildstory_reports WHERE project_id = ? AND publication_status IN ('published', 'draft_changes')
+       ORDER BY chapter_index DESC`,
+    )
+    .bind(projectId)
+    .all<{ id: string }>();
+  return rows.results.map((row) => row.id);
 }
 
 function emptyReactionCounts(): Record<ReactionKind, number> {
   return Object.fromEntries(REACTION_KINDS.map((kind) => [kind, 0])) as Record<ReactionKind, number>;
 }
 
-async function reactionSummary(db: D1Database, reportId: string, viewerUserId: string | null): Promise<ReactionSummary> {
+async function reactionSummaryForReports(
+  db: D1Database,
+  reportIds: string[],
+  viewerUserId: string | null,
+  preferredReportId?: string,
+): Promise<ReactionSummary> {
+  if (reportIds.length === 0) return { counts: emptyReactionCounts(), total: 0, viewerReaction: null };
+  const placeholders = reportIds.map(() => "?").join(",");
   const rows = await db
-    .prepare("SELECT kind, COUNT(*) AS count FROM buildstory_reactions WHERE report_id = ? GROUP BY kind")
-    .bind(reportId)
+    .prepare(`SELECT kind, COUNT(*) AS count FROM buildstory_reactions WHERE report_id IN (${placeholders}) GROUP BY kind`)
+    .bind(...reportIds)
     .all<{ kind: string; count: number }>();
   const counts = emptyReactionCounts();
   let total = 0;
@@ -270,26 +295,35 @@ async function reactionSummary(db: D1Database, reportId: string, viewerUserId: s
   }
   let viewerReaction: ReactionKind | null = null;
   if (viewerUserId) {
-    const viewerRow = await db
-      .prepare("SELECT kind FROM buildstory_reactions WHERE report_id = ? AND user_id = ?")
-      .bind(reportId, viewerUserId)
-      .first<{ kind: string }>();
-    if (viewerRow && isReactionKind(viewerRow.kind)) viewerReaction = viewerRow.kind;
+    const viewerRows = await db
+      .prepare(`SELECT report_id, kind FROM buildstory_reactions WHERE report_id IN (${placeholders}) AND user_id = ?`)
+      .bind(...reportIds, viewerUserId)
+      .all<{ report_id: string; kind: string }>();
+    const chosen = (preferredReportId ? viewerRows.results.find((row) => row.report_id === preferredReportId) : null)
+      ?? viewerRows.results[0];
+    if (chosen && isReactionKind(chosen.kind)) viewerReaction = chosen.kind;
   }
   return { counts, total, viewerReaction };
 }
 
+/** Single-report reaction summary - kept for callers (e.g. Explore cards) that intentionally show only one chapter's own count. */
 export async function getReactionSummary(reportId: string, viewerUserId: string | null): Promise<ReactionSummary> {
-  return reactionSummary(await database(), reportId, viewerUserId);
+  return reactionSummaryForReports(await database(), [reportId], viewerUserId, reportId);
+}
+
+/** Project-wide rollup: counts and total sum across every published chapter; viewerReaction prefers the given current-chapter id. */
+export async function getReactionSummaryForReports(reportIds: string[], viewerUserId: string | null): Promise<ReactionSummary> {
+  return reactionSummaryForReports(await database(), reportIds, viewerUserId, reportIds[0]);
 }
 
 /** Toggle semantics: reacting again with the same kind removes it; a different kind switches to it. */
 export async function setReaction(reportId: string, userId: string, kind: ReactionKind): Promise<ReactionSummary> {
   const db = await database();
   const report = await reportOwnerAndSlug(db, reportId);
-  if (!report || report.publication_status !== "published") {
+  if (!report || (report.publication_status !== "published" && report.publication_status !== "draft_changes")) {
     throw new SocialError("not_found", "Story not found.", 404);
   }
+  const rollupReportIds = await publishedReportIdsForProject(db, report.project_id);
   const now = new Date().toISOString();
   const existing = await db
     .prepare("SELECT kind FROM buildstory_reactions WHERE report_id = ? AND user_id = ?")
@@ -301,7 +335,7 @@ export async function setReaction(reportId: string, userId: string, kind: Reacti
       .prepare("DELETE FROM buildstory_reactions WHERE report_id = ? AND user_id = ?")
       .bind(reportId, userId)
       .run();
-    return reactionSummary(db, reportId, userId);
+    return reactionSummaryForReports(db, rollupReportIds, userId, reportId);
   }
   if (existing) {
     await db
@@ -325,7 +359,7 @@ export async function setReaction(reportId: string, userId: string, kind: Reacti
       });
     }
   }
-  return reactionSummary(db, reportId, userId);
+  return reactionSummaryForReports(db, rollupReportIds, userId, reportId);
 }
 
 // ---------------------------------------------------------------------------
@@ -335,6 +369,7 @@ export async function setReaction(reportId: string, userId: string, kind: Reacti
 type CommentRow = {
   id: string;
   report_id: string;
+  chapter_index: number | null;
   parent_comment_id: string | null;
   body: string | null;
   status: string;
@@ -351,6 +386,7 @@ function commentFromRow(row: CommentRow): CommentRecord {
   return {
     id: row.id,
     reportId: row.report_id,
+    chapterIndex: row.chapter_index ?? 1,
     parentCommentId: row.parent_comment_id,
     author: authorFromRow({
       id: row.author_id,
@@ -366,18 +402,23 @@ function commentFromRow(row: CommentRow): CommentRecord {
   };
 }
 
-export async function listComments(reportId: string, limit = 100, cursor?: string): Promise<CommentRecord[]> {
+/** Threads replies under their top-level parent - a reply always targets a top-level comment on the same report (enforced in createComment), so this works whether reportIds is one chapter or a whole project's rollup. */
+async function listCommentsForReportIds(reportIds: string[], limit: number, cursor?: string): Promise<CommentRecord[]> {
+  if (reportIds.length === 0) return [];
   const bounded = Math.min(Math.max(1, Math.trunc(limit)), 200);
+  const placeholders = reportIds.map(() => "?").join(",");
   const rows = await (await database())
     .prepare(
-      `SELECT c.id, c.report_id, c.parent_comment_id, CASE WHEN c.status = 'visible' THEN c.body ELSE NULL END AS body, c.status, c.created_at, c.updated_at,
+      `SELECT c.id, c.report_id, r.chapter_index, c.parent_comment_id, CASE WHEN c.status = 'visible' THEN c.body ELSE NULL END AS body, c.status, c.created_at, c.updated_at,
                u.id AS author_id, u.handle AS author_handle, u.display_name AS author_display_name, u.avatar_url AS author_avatar_url,
                (SELECT COUNT(*) FROM buildstory_comment_upvotes cu WHERE cu.comment_id = c.id) AS upvote_count
-       FROM buildstory_comments c JOIN buildstory_users u ON u.id = c.author_user_id
-       WHERE c.report_id = ? AND (? IS NULL OR c.created_at > ?)
+       FROM buildstory_comments c
+       JOIN buildstory_users u ON u.id = c.author_user_id
+       JOIN buildstory_reports r ON r.id = c.report_id
+       WHERE c.report_id IN (${placeholders}) AND (? IS NULL OR c.created_at > ?)
        ORDER BY c.created_at ASC LIMIT ?`,
     )
-    .bind(reportId, cursor ?? null, cursor ?? null, bounded)
+    .bind(...reportIds, cursor ?? null, cursor ?? null, bounded)
     .all<CommentRow>();
   const all = rows.results.map(commentFromRow);
   const topLevel = all.filter((comment) => comment.parentCommentId === null);
@@ -396,6 +437,16 @@ export async function listComments(reportId: string, limit = 100, cursor?: strin
   return ordered;
 }
 
+/** Single-report thread - kept for callers that intentionally show only one chapter's own comments. */
+export async function listComments(reportId: string, limit = 100, cursor?: string): Promise<CommentRecord[]> {
+  return listCommentsForReportIds([reportId], limit, cursor);
+}
+
+/** Project-wide rollup: merges every published chapter's comment thread, oldest first, each comment tagged with its own chapterIndex. */
+export async function listCommentsForReports(reportIds: string[], limit = 100, cursor?: string): Promise<CommentRecord[]> {
+  return listCommentsForReportIds(reportIds, limit, cursor);
+}
+
 export async function createComment(
   reportId: string,
   authorUserId: string,
@@ -404,7 +455,7 @@ export async function createComment(
 ): Promise<CommentRecord> {
   const db = await database();
   const report = await reportOwnerAndSlug(db, reportId);
-  if (!report || report.publication_status !== "published") {
+  if (!report || (report.publication_status !== "published" && report.publication_status !== "draft_changes")) {
     throw new SocialError("not_found", "Story not found.", 404);
   }
   const sanitized = sanitizePublicText(rawBody, MAX_COMMENT_BODY_LENGTH);
@@ -473,6 +524,7 @@ export async function createComment(
   return {
     id,
     reportId,
+    chapterIndex: report.chapter_index ?? 1,
     parentCommentId,
     author: authorFromRow({ id: author.id, handle: author.handle, display_name: author.display_name, avatar_url: author.avatar_url }),
     body: sanitized.value,
@@ -507,19 +559,26 @@ export async function deleteComment(
     .run();
 }
 
-export async function getCommentViewerState(reportId: string, viewerUserId: string | null) {
-  if (!viewerUserId) return { upvotedCommentIds: [], removableCommentIds: [] };
+/** Project-wide rollup variant - matches against every comment across the given chapters. */
+export async function getCommentViewerStateForReports(reportIds: string[], viewerUserId: string | null) {
+  if (!viewerUserId || reportIds.length === 0) return { upvotedCommentIds: [], removableCommentIds: [] };
   const db = await database();
+  const placeholders = reportIds.map(() => "?").join(",");
   const rows = await db.prepare(
     `SELECT c.id,
             EXISTS(SELECT 1 FROM buildstory_comment_upvotes cu WHERE cu.comment_id = c.id AND cu.user_id = ?) AS viewer_upvoted,
             CASE WHEN c.author_user_id = ? OR EXISTS(SELECT 1 FROM buildstory_users u WHERE u.id = ? AND u.role IN ('moderator', 'admin')) THEN 1 ELSE 0 END AS viewer_can_remove
-     FROM buildstory_comments c WHERE c.report_id = ?`,
-  ).bind(viewerUserId, viewerUserId, viewerUserId, reportId).all<{ id: string; viewer_upvoted: number; viewer_can_remove: number }>();
+     FROM buildstory_comments c WHERE c.report_id IN (${placeholders})`,
+  ).bind(viewerUserId, viewerUserId, viewerUserId, ...reportIds).all<{ id: string; viewer_upvoted: number; viewer_can_remove: number }>();
   return {
     upvotedCommentIds: rows.results.filter((row) => Number(row.viewer_upvoted) === 1).map((row) => row.id),
     removableCommentIds: rows.results.filter((row) => Number(row.viewer_can_remove) === 1).map((row) => row.id),
   };
+}
+
+/** Single-report viewer state - kept for callers that intentionally scope to one chapter. */
+export async function getCommentViewerState(reportId: string, viewerUserId: string | null) {
+  return getCommentViewerStateForReports([reportId], viewerUserId);
 }
 
 export async function setCommentUpvote(commentId: string, userId: string, enabled: boolean) {
@@ -528,7 +587,7 @@ export async function setCommentUpvote(commentId: string, userId: string, enable
     `SELECT c.report_id, c.author_user_id, c.status, r.publication_status
      FROM buildstory_comments c JOIN buildstory_reports r ON r.id = c.report_id WHERE c.id = ?`,
   ).bind(commentId).first<{ report_id: string; author_user_id: string; status: string; publication_status: string }>();
-  if (!comment || comment.status !== "visible" || comment.publication_status !== "published") {
+  if (!comment || comment.status !== "visible" || (comment.publication_status !== "published" && comment.publication_status !== "draft_changes")) {
     throw new SocialError("not_found", "Comment not found.", 404);
   }
   const now = new Date().toISOString();
@@ -583,6 +642,18 @@ async function createNotification(
     )
     .bind(id, input.userId, input.kind, input.actorUserId, input.reportId, input.commentId, now, now)
     .run();
+}
+
+/** Called by lib/ingestion/*-store.ts's publishReport when a chapter after the first publishes - the one place ingestion reaches into the social domain, since "who follows this owner" is social-domain data. */
+export async function notifyFollowersOfStoryUpdate(reportId: string, ownerUserId: string): Promise<void> {
+  const db = await database();
+  const followers = await db
+    .prepare("SELECT follower_user_id FROM buildstory_follows WHERE followee_user_id = ?")
+    .bind(ownerUserId)
+    .all<{ follower_user_id: string }>();
+  for (const follower of followers.results) {
+    await createNotification(db, { userId: follower.follower_user_id, kind: "story_update", actorUserId: ownerUserId, reportId, commentId: null });
+  }
 }
 
 type NotificationRow = {

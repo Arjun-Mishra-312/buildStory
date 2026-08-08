@@ -3,9 +3,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ProjectWorkbench } from "@/components/project-workbench";
 import { requireCreator } from "@/lib/auth/runtime";
-import { buildStoryFromSnapshot } from "@/lib/build-story";
+import { buildStoryFromSnapshot, publicBuildStoryFromSnapshot } from "@/lib/build-story";
 import { deriveNarrativeDisplayStatus } from "@/lib/ingestion/narrative-status";
-import { getProjectForVerification, getReport, listReportMedia, shouldUseDurableStore } from "@/lib/ingestion/store";
+import { getProjectDetail, getProjectForVerification, getReport, listReportMedia, shouldUseDurableStore } from "@/lib/ingestion/store";
+import { computeChapterDelta } from "@/lib/story/chapter-delta";
 
 export const metadata: Metadata = { title: "Review imported report" };
 
@@ -56,6 +57,27 @@ export default async function ImportedReportPage({ params }: PageProps) {
   const media = await listReportMedia(report.id).catch(() => []);
   const projectVerification = await getProjectForVerification(creator.creatorId, report.projectId).catch(() => null);
   const isDurableStore = shouldUseDurableStore();
+  // The real publication boundary, computed server-side from the currently-saved
+  // selection so the creator's "Public" tab shows exactly what a reader would see,
+  // not the full private report with the checkboxes ignored.
+  const previewStory = publicBuildStoryFromSnapshot(
+    report.snapshot,
+    report.selectedPublicFields,
+    { tagline: report.editorial.tagline, description: report.editorial.description, reflection: report.editorial.reflection, category: report.category },
+    { ...report.artifact, media },
+    { storyBackgroundId: report.storyBackgroundId },
+  );
+  // Full (ungated) live preview of "what changed" against the project's most recent
+  // published chapter - lets the creator see the delta before they've published
+  // anything, unlike the frozen chapter_delta_json which only exists after publish.
+  const projectDetail = await getProjectDetail(creator.creatorId, report.projectId).catch(() => null);
+  const previousChapter = projectDetail?.reports
+    .filter((candidate) => candidate.chapterIndex !== null && candidate.reportId !== report.id)
+    .sort((left, right) => (right.chapterIndex ?? 0) - (left.chapterIndex ?? 0))[0] ?? null;
+  const previousChapterReport = previousChapter ? await getReport(creator.creatorId, previousChapter.reportId).catch(() => null) : null;
+  const livePreviewDelta = previousChapterReport && previousChapter?.chapterIndex != null
+    ? computeChapterDelta(previousChapterReport.snapshot, report.snapshot, previousChapter.chapterIndex, previousChapter.chapterIndex + 1)
+    : null;
   return (
     <div className="creator-project-page">
       <div className="mock-boundary-banner mock-boundary-banner--project">
@@ -71,6 +93,8 @@ export default async function ImportedReportPage({ params }: PageProps) {
       </div>
       <ProjectWorkbench
         story={story}
+        previewStory={previewStory}
+        livePreviewDelta={livePreviewDelta}
         access="creator"
         reportId={report.id}
         projectId={report.projectId}

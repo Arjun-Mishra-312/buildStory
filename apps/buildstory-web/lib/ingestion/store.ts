@@ -37,6 +37,7 @@ export async function createUploadSession(
   ownerUserId: string | null = null,
   narrativeModel: string | null = null,
   narrativeMode: NarrativeMode = "cloud",
+  targetProjectId: string | null = null,
 ) {
   return (await backend()).createUploadSession(
     creatorId,
@@ -45,7 +46,16 @@ export async function createUploadSession(
     ownerUserId,
     narrativeModel,
     narrativeMode,
+    targetProjectId,
   );
+}
+
+export async function listProjects(creatorId: string) {
+  return (await backend()).listProjects(creatorId);
+}
+
+export async function getProjectDetail(creatorId: string, projectId: string) {
+  return (await backend()).getProjectDetail(creatorId, projectId);
 }
 
 export async function ensureUser(session: CreatorIdentity) {
@@ -203,6 +213,10 @@ export async function getPublicStoryIdentity(slug: string) {
 
 export async function getPublicStoryIdentityByReportId(reportId: string) {
   return (await backend()).getPublicStoryIdentityByReportId(reportId);
+}
+
+export async function listPublishedReportIdsForProject(projectId: string) {
+  return (await backend()).listPublishedReportIdsForProject(projectId);
 }
 
 export async function listPublishedStories(limit?: number, cursor?: string) {

@@ -139,13 +139,28 @@ function safeHttpsUrl(value: string | null | undefined): string | null {
   }
 }
 
+/** The seven story-pack sections, each gated by its own independent PublicFieldKey - never bundled behind "narrative" or each other. */
+const STORY_PACK_FIELD_KEYS = [
+  "storyBuildArc",
+  "storyMoments",
+  "storyTurningPoint",
+  "storyDecisions",
+  "storyLearnings",
+  "storyTraits",
+  "storyGrowthEdge",
+] as const satisfies readonly PublicFieldKey[];
+
+function hasAnyStoryPackField(selected: Set<PublicFieldKey>): boolean {
+  return STORY_PACK_FIELD_KEYS.some((field) => selected.has(field));
+}
+
 function publicStoryPack(
   pack: ReportStoryPackV2,
   selected: Set<PublicFieldKey>,
 ): ReportStoryPackV2 {
   const clean = (value: string, max = 900) => sanitizePublicText(value, max).value;
   const refs = (value: string[]) => [...new Set(value)].slice(0, 4);
-  const includeAll = selected.has("narrative");
+  const hasAnyField = hasAnyStoryPackField(selected);
   return {
     version: "2.0.0",
     sources: pack.sources.map((source) => ({
@@ -156,30 +171,34 @@ function publicStoryPack(
       metrics: source.metrics,
     })),
     hero: {
-      headline: includeAll ? clean(pack.hero.headline, 160) : "Evidence-backed build story",
-      summary: includeAll ? clean(pack.hero.summary, 1_200) : "Selected story components from the validated build record.",
+      headline: hasAnyField ? clean(pack.hero.headline, 160) : "Evidence-backed build story",
+      summary: hasAnyField ? clean(pack.hero.summary, 1_200) : "Selected story components from the validated build record.",
     },
-    buildArc: selected.has("storyBuildArc") || includeAll
+    buildArc: selected.has("storyBuildArc")
       ? pack.buildArc.map((phase) => ({ ...phase, headline: clean(phase.headline, 180), summary: clean(phase.summary), sourceRefs: refs(phase.sourceRefs) }))
       : [],
-    moments: selected.has("storyMoments") || includeAll
+    moments: selected.has("storyMoments")
       ? pack.moments.map((moment) => ({ ...moment, title: clean(moment.title, 180), whatHappened: clean(moment.whatHappened), whyItMattered: clean(moment.whyItMattered), sourceRefs: refs(moment.sourceRefs) }))
       : [],
-    turningPoint: selected.has("storyTurningPoint") || includeAll
+    turningPoint: selected.has("storyTurningPoint")
       ? { quote: clean(pack.turningPoint.quote, 500), sourceRefs: refs(pack.turningPoint.sourceRefs) }
       : { quote: "", sourceRefs: [] },
-    decisions: selected.has("storyDecisions") || includeAll
+    decisions: selected.has("storyDecisions")
       ? pack.decisions.map((item) => ({ ...item, title: clean(item.title, 180), rationale: clean(item.rationale), outcome: clean(item.outcome), sourceRefs: refs(item.sourceRefs) }))
       : [],
-    learnings: selected.has("storyLearnings") || includeAll
+    learnings: selected.has("storyLearnings")
       ? pack.learnings.map((item) => ({ ...item, title: clean(item.title, 180), detail: clean(item.detail), sourceRefs: refs(item.sourceRefs) }))
       : [],
-    standoutTraits: selected.has("storyTraits") || includeAll
+    standoutTraits: selected.has("storyTraits")
       ? pack.standoutTraits.map((item) => ({ ...item, title: clean(item.title, 180), detail: clean(item.detail), sourceRefs: refs(item.sourceRefs) }))
       : [],
-    growthEdge: selected.has("storyGrowthEdge") || selected.has("growthEdge") || includeAll
+    // Empty, not a placeholder sentence: an unselected field must be indistinguishable from
+    // "nothing here" so the public renderer can omit the section entirely, matching every
+    // other gated-off field in this projection (empty arrays, "" strings). A prose placeholder
+    // like "Private by default." would otherwise render as if it were real story content.
+    growthEdge: selected.has("storyGrowthEdge")
       ? { ...pack.growthEdge, title: clean(pack.growthEdge.title, 180), observation: clean(pack.growthEdge.observation), nextStep: clean(pack.growthEdge.nextStep), sourceRefs: refs(pack.growthEdge.sourceRefs) }
-      : { title: "Growth edge", observation: "Private by default.", nextStep: "Enable this field to publish an actionable next step.", sourceRefs: [] },
+      : { title: "", observation: "", nextStep: "", sourceRefs: [] },
   };
 }
 
@@ -257,8 +276,12 @@ export function publicBuildStoryFromSnapshot(
     },
     stack: story.stack,
     receiptId: story.receiptId,
-    profile: selected.has("archetype") || selected.has("profileScores") || selected.has("workPatterns")
-      ? story.profile
+    profile: story.profile
+      ? {
+          scores: selected.has("profileScores") ? story.profile.scores : null,
+          archetype: selected.has("archetype") ? story.profile.archetype : null,
+          workPatterns: selected.has("workPatterns") ? story.profile.workPatterns : null,
+        }
       : null,
     narrative: selected.has("narrative") && story.narrative
       ? {
@@ -277,7 +300,7 @@ export function publicBuildStoryFromSnapshot(
     fallbacksUsed: story.narrative?.fallbacksUsed?.length
       ? [...new Set(story.narrative.fallbacksUsed)].slice(0, 40)
       : [],
-    storyPack: story.narrative?.storyPack && (selected.has("narrative") || ["storyBuildArc", "storyMoments", "storyTurningPoint", "storyDecisions", "storyLearnings", "storyTraits", "storyGrowthEdge"].some((field) => selected.has(field as PublicFieldKey)))
+    storyPack: story.narrative?.storyPack && hasAnyStoryPackField(selected)
       ? publicStoryPack(story.narrative.storyPack, selected)
       : null,
     decisionPatterns: selected.has("decisionPatterns")

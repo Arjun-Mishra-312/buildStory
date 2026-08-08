@@ -35,6 +35,7 @@ type StoredUser = {
 type StoredReport = {
   id: string;
   ownerUserId: string | null;
+  projectId: string;
   publicationStatus: string;
   publicationSlug: string;
   editorialTagline: string;
@@ -158,6 +159,7 @@ export function registerProfile(user: {
 export function registerReport(report: {
   id: string;
   ownerUserId: string | null;
+  projectId: string;
   publicationStatus: string;
   publicationSlug: string;
   editorialTagline: string;
@@ -165,6 +167,14 @@ export function registerReport(report: {
   chapterIndex: number | null;
 }) {
   store.reports.set(report.id, { ...report });
+}
+
+/** Every published (or draft_changes) report id for a project, most recent chapter first - mirrors d1-store.ts's publishedReportIdsForProject. */
+export function publishedReportIdsForProject(projectId: string): string[] {
+  return Array.from(store.reports.values())
+    .filter((report) => report.projectId === projectId && (report.publicationStatus === "published" || report.publicationStatus === "draft_changes"))
+    .sort((left, right) => (right.chapterIndex ?? 0) - (left.chapterIndex ?? 0))
+    .map((report) => report.id);
 }
 
 export function getProfile(userId: string): PublicProfile | null {
@@ -260,39 +270,53 @@ function emptyReactionCounts(): Record<ReactionKind, number> {
   return Object.fromEntries(REACTION_KINDS.map((kind) => [kind, 0])) as Record<ReactionKind, number>;
 }
 
-function reactionSummaryFor(reportId: string, viewerUserId: string | null): ReactionSummary {
+function reactionSummaryForReports(reportIds: string[], viewerUserId: string | null, preferredReportId?: string): ReactionSummary {
   const counts = emptyReactionCounts();
   let total = 0;
+  const reportIdSet = new Set(reportIds);
   for (const [key, reaction] of store.reactions.entries()) {
-    if (!key.startsWith(`${reportId}:`)) continue;
+    const [reportId] = key.split(":");
+    if (!reportId || !reportIdSet.has(reportId)) continue;
     counts[reaction.kind] += 1;
     total += 1;
   }
-  const viewerReaction = viewerUserId ? store.reactions.get(reactionKey(reportId, viewerUserId))?.kind ?? null : null;
+  let viewerReaction: ReactionKind | null = null;
+  if (viewerUserId) {
+    const preferred = preferredReportId ? store.reactions.get(reactionKey(preferredReportId, viewerUserId)) : null;
+    const fallback = preferred ? null : reportIds.map((id) => store.reactions.get(reactionKey(id, viewerUserId))).find((reaction) => reaction);
+    viewerReaction = (preferred ?? fallback)?.kind ?? null;
+  }
   return { counts, total, viewerReaction };
 }
 
+/** Single-report reaction summary - kept for callers that intentionally show only one chapter's own count. */
 export function getReactionSummary(reportId: string, viewerUserId: string | null): ReactionSummary {
-  return reactionSummaryFor(reportId, viewerUserId);
+  return reactionSummaryForReports([reportId], viewerUserId, reportId);
+}
+
+/** Project-wide rollup: counts and total sum across every published chapter; viewerReaction prefers the given current-chapter id. */
+export function getReactionSummaryForReports(reportIds: string[], viewerUserId: string | null): ReactionSummary {
+  return reactionSummaryForReports(reportIds, viewerUserId, reportIds[0]);
 }
 
 export function setReaction(reportId: string, userId: string, kind: ReactionKind): ReactionSummary {
   const report = store.reports.get(reportId);
-  if (!report || report.publicationStatus !== "published") {
+  if (!report || (report.publicationStatus !== "published" && report.publicationStatus !== "draft_changes")) {
     throw new SocialError("not_found", "Story not found.", 404);
   }
+  const rollupReportIds = publishedReportIdsForProject(report.projectId);
   const key = reactionKey(reportId, userId);
   const existing = store.reactions.get(key);
   if (existing?.kind === kind) {
     store.reactions.delete(key);
-    return reactionSummaryFor(reportId, userId);
+    return reactionSummaryForReports(rollupReportIds, userId, reportId);
   }
   const isNew = existing === undefined;
   store.reactions.set(key, { kind, createdAt: existing?.createdAt ?? new Date().toISOString() });
   if (isNew && report.ownerUserId) {
     createNotification({ userId: report.ownerUserId, kind: "reaction", actorUserId: userId, reportId, commentId: null });
   }
-  return reactionSummaryFor(reportId, userId);
+  return reactionSummaryForReports(rollupReportIds, userId, reportId);
 }
 
 // ---------------------------------------------------------------------------
@@ -303,6 +327,7 @@ function commentRecordFor(comment: StoredComment): CommentRecord {
   return {
     id: comment.id,
     reportId: comment.reportId,
+    chapterIndex: store.reports.get(comment.reportId)?.chapterIndex ?? 1,
     parentCommentId: comment.parentCommentId,
     author: authorFor(comment.authorUserId),
     body: comment.status === "visible" ? comment.body : "",
@@ -313,9 +338,11 @@ function commentRecordFor(comment: StoredComment): CommentRecord {
   };
 }
 
-export function listComments(reportId: string, limit = 100, cursor?: string): CommentRecord[] {
+/** Threads replies under their top-level parent - a reply always targets a top-level comment on the same report (enforced in createComment), so this works whether reportIds is one chapter or a whole project's rollup. */
+function listCommentsForReportIds(reportIds: string[], limit: number, cursor?: string): CommentRecord[] {
+  const reportIdSet = new Set(reportIds);
   const all = Array.from(store.comments.values())
-    .filter((comment) => comment.reportId === reportId)
+    .filter((comment) => reportIdSet.has(comment.reportId))
     .filter((comment) => !cursor || comment.createdAt > cursor)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const topLevel = all.filter((comment) => comment.parentCommentId === null);
@@ -334,6 +361,16 @@ export function listComments(reportId: string, limit = 100, cursor?: string): Co
   return ordered.slice(0, Math.min(Math.max(1, Math.trunc(limit)), 200));
 }
 
+/** Single-report thread - kept for callers that intentionally show only one chapter's own comments. */
+export function listComments(reportId: string, limit = 100, cursor?: string): CommentRecord[] {
+  return listCommentsForReportIds([reportId], limit, cursor);
+}
+
+/** Project-wide rollup: merges every published chapter's comment thread, oldest first, each comment tagged with its own chapterIndex. */
+export function listCommentsForReports(reportIds: string[], limit = 100, cursor?: string): CommentRecord[] {
+  return listCommentsForReportIds(reportIds, limit, cursor);
+}
+
 export function createComment(
   reportId: string,
   authorUserId: string,
@@ -341,7 +378,7 @@ export function createComment(
   parentCommentId: string | null,
 ): CommentRecord {
   const report = store.reports.get(reportId);
-  if (!report || report.publicationStatus !== "published") {
+  if (!report || (report.publicationStatus !== "published" && report.publicationStatus !== "draft_changes")) {
     throw new SocialError("not_found", "Story not found.", 404);
   }
   const sanitized = sanitizePublicText(rawBody, MAX_COMMENT_BODY_LENGTH);
@@ -401,20 +438,27 @@ export function deleteComment(commentId: string, requestingUserId: string, reque
   comment.updatedAt = new Date().toISOString();
 }
 
-export function getCommentViewerState(reportId: string, viewerUserId: string | null) {
+/** Project-wide rollup variant - matches against every comment across the given chapters. */
+export function getCommentViewerStateForReports(reportIds: string[], viewerUserId: string | null) {
   if (!viewerUserId) return { upvotedCommentIds: [], removableCommentIds: [] };
-  const comments = Array.from(store.comments.values()).filter((comment) => comment.reportId === reportId);
+  const reportIdSet = new Set(reportIds);
+  const comments = Array.from(store.comments.values()).filter((comment) => reportIdSet.has(comment.reportId));
   return {
     upvotedCommentIds: comments.filter((comment) => store.commentUpvotes.has(commentUpvoteKey(comment.id, viewerUserId))).map((comment) => comment.id),
     removableCommentIds: comments.filter((comment) => comment.authorUserId === viewerUserId || ["moderator", "admin"].includes(store.users.get(viewerUserId)?.role ?? "")).map((comment) => comment.id),
   };
 }
 
+/** Single-report viewer state - kept for callers that intentionally scope to one chapter. */
+export function getCommentViewerState(reportId: string, viewerUserId: string | null) {
+  return getCommentViewerStateForReports([reportId], viewerUserId);
+}
+
 export function setCommentUpvote(commentId: string, userId: string, enabled: boolean) {
   const comment = store.comments.get(commentId);
   if (!comment || comment.status !== "visible") throw new SocialError("not_found", "Comment not found.", 404);
   const report = store.reports.get(comment.reportId);
-  if (!report || report.publicationStatus !== "published") throw new SocialError("not_found", "Story not found.", 404);
+  if (!report || (report.publicationStatus !== "published" && report.publicationStatus !== "draft_changes")) throw new SocialError("not_found", "Story not found.", 404);
   const key = commentUpvoteKey(commentId, userId);
   if (enabled) {
     const isNew = !store.commentUpvotes.has(key);
@@ -471,6 +515,16 @@ function createNotification(input: {
     createdAt: now,
   };
   store.notifications.set(notification.id, notification);
+}
+
+/** Called by lib/ingestion/mock-store.ts's publishReport when a chapter after the first publishes - the one place ingestion reaches into the social domain, since "who follows this owner" is social-domain data. */
+export function notifyFollowersOfStoryUpdate(reportId: string, ownerUserId: string): void {
+  for (const key of store.follows) {
+    const [followerUserId, followeeUserId] = key.split(":");
+    if (followeeUserId === ownerUserId && followerUserId) {
+      createNotification({ userId: followerUserId, kind: "story_update", actorUserId: ownerUserId, reportId, commentId: null });
+    }
+  }
 }
 
 export function listNotifications(userId: string, limit = 30, cursor?: string): NotificationRecord[] {

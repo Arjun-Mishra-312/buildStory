@@ -370,7 +370,7 @@ test("local scanner lifecycle enforces owner, digest, size, and one-use grant bo
   );
 
   updateReport(creatorId, reportId, { selectedPublicFields: ["tagline"], category: "web-apps" });
-  publishReport(creatorId, reportId);
+  await publishReport(creatorId, reportId);
   const published = getPublishedStoryBySlug(privateReport.publication.slug);
   assert.ok(published);
   const publishedJson = JSON.stringify(published);

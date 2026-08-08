@@ -1,6 +1,7 @@
 import type { ProjectSnapshot } from "@/lib/project-snapshot";
 import type { PROJECT_SNAPSHOT_SCHEMA_VERSION, ScannerProjectSnapshot, NarrativeMode, ReportStoryPackV2 } from "./scanner-project-snapshot";
 import type { StoryBackgroundId } from "@/lib/background-options";
+import type { ChapterDelta } from "@/lib/story/chapter-delta";
 
 export type UploadSessionStatus =
   | "awaiting_scanner"
@@ -84,6 +85,42 @@ export type ProjectRecord = {
   slug: string;
   name: string;
   repositoryFingerprint: string;
+};
+
+/** One row of a creator's /studio/projects list - a project, not a single scan. */
+export type ProjectSummary = {
+  id: string;
+  slug: string;
+  name: string;
+  chapterCount: number;
+  latestChapterIndex: number | null;
+  latestPublicationStatus: PublicationStatus;
+  /** The most recently created report for this project - "Continue" / "Review" links target it. */
+  latestReportId: string;
+  latestReportStatus: ReportStatus;
+  lastScanAt: string;
+  publicUrl: string | null;
+};
+
+/** One report row within a project's history, for the project detail page. */
+export type ProjectReportSummary = {
+  reportId: string;
+  status: ReportStatus;
+  chapterIndex: number | null;
+  publicationStatus: PublicationStatus;
+  createdAt: string;
+  publishedAt: string | null;
+  editorialTagline: string;
+  /** The full (ungated) delta against the previous chapter - safe here since this is a creator-only view, never the public projection. */
+  chapterDelta: ChapterDelta | null;
+};
+
+export type ProjectDetail = {
+  id: string;
+  slug: string;
+  name: string;
+  publicUrl: string | null;
+  reports: ProjectReportSummary[];
 };
 
 export type NarrativeStatus = "queued" | "generating" | "ready" | "failed";
@@ -279,6 +316,8 @@ export type GeneratedReport = {
   };
   /** Null when the source scan never opted into the narrative-evidence flow - a normal state, not an error. */
   narrative: NarrativeRecord | null;
+  /** Null for a project's first chapter, or before this report has ever been published. Frozen at publish time. */
+  chapterDelta: ChapterDelta | null;
 };
 
 export type ApiErrorBody = {

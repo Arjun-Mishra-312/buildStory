@@ -10,6 +10,7 @@ import { estimateCostMicroUsd } from "@/lib/narrative/pricing";
 import { NARRATIVE_FIELD_LIMITS, NARRATIVE_PROMPT_VERSION } from "@/lib/narrative/schema";
 import type { ProjectSnapshot } from "@/lib/project-snapshot";
 import { sanitizePublicText } from "@/lib/publication/sanitization";
+import { computeChapterDelta, publicChapterDelta, type ChapterDelta } from "@/lib/story/chapter-delta";
 import { MAX_MEDIA_PER_REPORT } from "./contracts";
 import type {
   DeviceAuthorization,
@@ -17,8 +18,10 @@ import type {
   LocalReportSummary,
   NarrativeRecord,
   NarrativeStatus,
+  ProjectDetail,
   ProjectRecord,
   ProjectScanStats,
+  ProjectSummary,
   PublicationStatus,
   PublicFieldKey,
   ReportMediaKind,
@@ -36,6 +39,7 @@ import { PROJECT_SNAPSHOT_SCHEMA_VERSION } from "./scanner-project-snapshot";
 import { MAX_SNAPSHOT_BYTES, validateProjectSnapshot } from "./validation";
 import { compareExploreRows, decodeExploreCursor, encodeExploreCursor, isAfterExploreCursor } from "./explore-cursor";
 import { DEFAULT_STORY_BACKGROUND_ID, isStoryBackgroundId } from "@/lib/background-options";
+import { notifyFollowersOfStoryUpdate } from "@/lib/social/store";
 
 const DEFAULT_MONTHLY_LLM_CAP_MICRO_USD = 1_000_000; // $1.00/month/user, subsidized default
 
@@ -43,6 +47,7 @@ type SessionRow = {
   id: string;
   creator_id: string;
   owner_user_id: string | null;
+  target_project_id: string | null;
   project_label: string;
   narrative_model: string | null;
   narrative_mode: string | null;
@@ -92,6 +97,7 @@ type ReportRow = {
   artifact_repo_url: string | null;
   artifact_video_url: string | null;
   chapter_index: number | null;
+  chapter_delta_json: string | null;
 };
 
 const PUBLIC_FIELDS: PublicFieldKey[] = [
@@ -309,6 +315,7 @@ function reportFromRow(row: ReportRow, narrative: NarrativeRecord | null = null)
       chapterIndex: row.chapter_index,
     },
     narrative,
+    chapterDelta: row.chapter_delta_json ? parseJson<ChapterDelta>(row.chapter_delta_json, "chapter delta") : null,
   };
 }
 
@@ -1135,10 +1142,18 @@ export async function createUploadSession(
   ownerUserId: string | null = null,
   narrativeModel: string | null = null,
   narrativeMode: "local" | "cloud" | "off" = "cloud",
+  targetProjectId: string | null = null,
 ): Promise<{
   session: UploadSessionView;
   deviceAuthorization: DeviceAuthorization;
 }> {
+  if (targetProjectId) {
+    const project = await (await database())
+      .prepare("SELECT 1 FROM buildstory_projects WHERE id = ? AND owner_user_id = ?")
+      .bind(targetProjectId, ownerUserId)
+      .first();
+    if (!project) throw new D1IngestionError("not_found", "Project not found.", 404);
+  }
   const createdAt = new Date();
   const expiresAt = new Date(createdAt.getTime() + 15 * 60_000);
   const id = makeId("upl");
@@ -1150,14 +1165,15 @@ export async function createUploadSession(
   await (await database())
     .prepare(
       `INSERT INTO buildstory_upload_sessions (
-        id, creator_id, owner_user_id, project_label, narrative_model, narrative_mode, status, created_at, expires_at,
+        id, creator_id, owner_user_id, target_project_id, project_label, narrative_model, narrative_mode, status, created_at, expires_at,
         status_detail, device_code_hash, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 'awaiting_scanner', ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'awaiting_scanner', ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
       creatorId,
       ownerUserId,
+      targetProjectId,
       label,
       narrativeModel,
       narrativeMode,
@@ -1350,6 +1366,22 @@ export async function acceptSnapshot(
       409,
     );
   }
+  if (row.target_project_id) {
+    const targetProject = await (await database())
+      .prepare("SELECT owner_user_id, repository_fingerprint, name FROM buildstory_projects WHERE id = ?")
+      .bind(row.target_project_id)
+      .first<{ owner_user_id: string; repository_fingerprint: string; name: string }>();
+    if (!targetProject || targetProject.owner_user_id !== user.id) {
+      throw new D1IngestionError("not_found", "Project not found.", 404);
+    }
+    if (targetProject.repository_fingerprint !== validated.snapshot.repository.fingerprint) {
+      throw new D1IngestionError(
+        "project_fingerprint_mismatch",
+        `This scan is from a different repository than "${targetProject.name}".`,
+        422,
+      );
+    }
+  }
   const snapshotSessions = validated.snapshot.sessions;
   const activeDayCount = new Set(snapshotSessions.map((session) => session.startedAt.slice(0, 10))).size;
   const project = await ensureProject(
@@ -1377,6 +1409,41 @@ export async function acceptSnapshot(
     role: user.bio ?? "AI-assisted software builder",
   });
   const db = await database();
+
+  // Carry forward the previous chapter's editorial choices - without this, every
+  // update would silently reset to DEFAULT_PUBLIC_FIELDS/no category/no artifact
+  // links, discarding everything the creator set up on the prior chapter. Only
+  // carry tagline/description if the creator actually rewrote them away from the
+  // scanner's own defaults; otherwise the freshly regenerated text is a better
+  // default than an old chapter's stale auto-generated copy.
+  const previousReportRow = await db
+    .prepare(
+      `SELECT selected_public_fields_json, editorial_tagline, editorial_description, editorial_reflection, category,
+              story_background_id, artifact_project_url, artifact_repo_url, artifact_video_url, snapshot_json
+       FROM buildstory_reports WHERE project_id = ? ORDER BY created_at DESC LIMIT 1`,
+    )
+    .bind(project.id)
+    .first<{
+      selected_public_fields_json: string; editorial_tagline: string; editorial_description: string; editorial_reflection: string;
+      category: string | null; story_background_id: string; artifact_project_url: string | null; artifact_repo_url: string | null;
+      artifact_video_url: string | null; snapshot_json: string;
+    }>();
+  const previousSnapshotIdentity = previousReportRow ? parseJson<ProjectSnapshot>(previousReportRow.snapshot_json, "report snapshot").identity : null;
+  const carryForwardTagline = previousReportRow && previousSnapshotIdentity && previousReportRow.editorial_tagline !== previousSnapshotIdentity.tagline
+    ? previousReportRow.editorial_tagline
+    : reportSnapshot.identity.tagline;
+  const carryForwardDescription = previousReportRow && previousSnapshotIdentity && previousReportRow.editorial_description !== previousSnapshotIdentity.description
+    ? previousReportRow.editorial_description
+    : reportSnapshot.identity.description;
+  const carryForwardFields = previousReportRow ? previousReportRow.selected_public_fields_json : JSON.stringify(DEFAULT_PUBLIC_FIELDS);
+  const carryForwardReflection = previousReportRow?.editorial_reflection ?? "";
+  const carryForwardCategory = previousReportRow?.category ?? null;
+  const carryForwardBackground = previousReportRow?.story_background_id ?? DEFAULT_STORY_BACKGROUND_ID;
+  const carryForwardArtifact = {
+    projectUrl: previousReportRow?.artifact_project_url ?? null,
+    repoUrl: previousReportRow?.artifact_repo_url ?? null,
+    videoUrl: previousReportRow?.artifact_video_url ?? null,
+  };
   const results = await db.batch([
     db
       .prepare(
@@ -1384,9 +1451,10 @@ export async function acceptSnapshot(
           id, creator_id, owner_user_id, project_id, upload_session_id, status, created_at,
           source_snapshot_json, snapshot_json, selected_public_fields_json,
           editorial_tagline, editorial_description, editorial_reflection, category,
+          story_background_id, artifact_project_url, artifact_repo_url, artifact_video_url,
           publication_status, publication_slug, updated_at
         )
-        SELECT ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, '', NULL, 'not_published', ?, ?
+        SELECT ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'not_published', ?, ?
         WHERE EXISTS (
           SELECT 1 FROM buildstory_upload_sessions
           WHERE id = ? AND upload_token_hash = ? AND upload_token_consumed_at IS NULL
@@ -1402,9 +1470,15 @@ export async function acceptSnapshot(
         acceptedAt,
         JSON.stringify(validated.snapshot),
         JSON.stringify(reportSnapshot),
-        JSON.stringify(DEFAULT_PUBLIC_FIELDS),
-        reportSnapshot.identity.tagline,
-        reportSnapshot.identity.description,
+        carryForwardFields,
+        carryForwardTagline,
+        carryForwardDescription,
+        carryForwardReflection,
+        carryForwardCategory,
+        carryForwardBackground,
+        carryForwardArtifact.projectUrl,
+        carryForwardArtifact.repoUrl,
+        carryForwardArtifact.videoUrl,
         reportSnapshot.identity.slug,
         acceptedAt,
         sessionId,
@@ -1844,28 +1918,50 @@ export async function publishReport(
   }
   const thisPath = becomesCanonical ? canonicalPath : `${canonicalPath}/${chapterIndex}`;
   const thisUrl = becomesCanonical ? canonicalUrl : `${canonicalUrl}/${chapterIndex}`;
+
+  // Compute the chapter's delta against the immediately-preceding chapter, once, at
+  // publish time - never re-derived on a public read, same rationale as story_json.
+  let chapterDeltaJson: string | null = null;
+  if (chapterIndex > 1) {
+    const previousChapter = await db
+      .prepare("SELECT snapshot_json FROM buildstory_reports WHERE project_id = ? AND chapter_index = ?")
+      .bind(report.projectId, chapterIndex - 1)
+      .first<{ snapshot_json: string }>();
+    if (previousChapter) {
+      const previousSnapshot = parseJson<ProjectSnapshot>(previousChapter.snapshot_json, "report snapshot");
+      chapterDeltaJson = JSON.stringify(computeChapterDelta(previousSnapshot, report.snapshot, chapterIndex - 1, chapterIndex));
+    }
+  }
+
   const publicStory = publicBuildStoryFromSnapshot(
     report.snapshot,
     report.selectedPublicFields,
-    { reflection: report.editorial.reflection, category: report.category },
+    { tagline: report.editorial.tagline, description: report.editorial.description, reflection: report.editorial.reflection, category: report.category },
     { ...report.artifact, media: await listReportMedia(reportId) },
     { storyBackgroundId: report.storyBackgroundId },
   );
   const publicCoverUrl = publicStory.artifactMedia.find((item) => item.kind === "cover")?.url ?? publicStory.artifactMedia[0]?.url ?? null;
   const publicSearchText = [publicStory.name, publicStory.tagline, publicStory.description, publicStory.owner.name, publicStory.owner.handle, publicStory.category, ...publicStory.stack, ...publicStory.tools.map((tool) => tool.label), ...publicStory.models.map((model) => model.label)].join(" ").slice(0, 12_000);
+  // Gated at publish time and frozen into story_json, exactly like every other public
+  // field - a creator who never republishes after toggling a field off must not have
+  // that field's numbers reappear here just because the delta band re-reads live state.
+  const publicStoryWithDelta = {
+    ...publicStory,
+    chapterDelta: chapterDeltaJson ? publicChapterDelta(JSON.parse(chapterDeltaJson) as ChapterDelta, report.selectedPublicFields) : null,
+  };
   statements.push(
     db
       .prepare(
-        `UPDATE buildstory_reports SET publication_status = 'published', publication_path = ?, published_at = ?, public_url = ?, chapter_index = ?, updated_at = ?
+        `UPDATE buildstory_reports SET publication_status = 'published', publication_path = ?, published_at = ?, public_url = ?, chapter_index = ?, chapter_delta_json = ?, updated_at = ?
          WHERE id = ? AND creator_id = ?`,
       )
-      .bind(thisPath, publishedAt, thisUrl, chapterIndex, publishedAt, reportId, creatorId),
+      .bind(thisPath, publishedAt, thisUrl, chapterIndex, chapterDeltaJson, publishedAt, reportId, creatorId),
   );
   statements.push(
     db.prepare(`INSERT INTO buildstory_public_story_index (report_id, story_json, category, search_text, has_live_demo, cover_url, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(report_id) DO UPDATE SET story_json = excluded.story_json, category = excluded.category, search_text = excluded.search_text, has_live_demo = excluded.has_live_demo, cover_url = excluded.cover_url, updated_at = excluded.updated_at`)
-      .bind(reportId, JSON.stringify(publicStory), report.category, publicSearchText, publicStory.artifactLinks.projectUrl ? 1 : 0, publicCoverUrl, publishedAt),
+      .bind(reportId, JSON.stringify(publicStoryWithDelta), report.category, publicSearchText, publicStory.artifactLinks.projectUrl ? 1 : 0, publicCoverUrl, publishedAt),
   );
   statements.push(db.prepare("DELETE FROM buildstory_public_story_facets WHERE report_id = ?").bind(reportId));
   statements.push(db.prepare("INSERT INTO buildstory_public_story_facets (id, report_id, kind, facet_key, label, weight) VALUES (?, ?, 'category', ?, ?, 1)").bind(makeId("facet"), reportId, report.category, report.category));
@@ -1884,6 +1980,9 @@ export async function publishReport(
   } catch {
     throw new D1IngestionError("publication_path_conflict", "That public project path is already in use.", 409);
   }
+  if (chapterIndex > 1) {
+    await notifyFollowersOfStoryUpdate(reportId, owner.id);
+  }
   return getReport(creatorId, reportId);
 }
 
@@ -1896,7 +1995,7 @@ export async function unpublishReport(creatorId: string, reportId: string): Prom
   const db = await database();
   const row = await db
     .prepare(
-      "SELECT project_id, publication_path FROM buildstory_reports WHERE id = ? AND creator_id = ? AND publication_status = 'published'",
+      "SELECT project_id, publication_path FROM buildstory_reports WHERE id = ? AND creator_id = ? AND publication_status IN ('published', 'draft_changes')",
     )
     .bind(reportId, creatorId)
     .first<{ project_id: string; publication_path: string | null }>();
@@ -1918,7 +2017,7 @@ export async function unpublishReport(creatorId: string, reportId: string): Prom
     const next = await db
       .prepare(
         `SELECT id, publication_slug FROM buildstory_reports
-         WHERE project_id = ? AND publication_status = 'published' AND id != ?
+         WHERE project_id = ? AND publication_status IN ('published', 'draft_changes') AND id != ?
          ORDER BY chapter_index DESC LIMIT 1`,
       )
       .bind(row.project_id, reportId)
@@ -1963,6 +2062,92 @@ export async function publicationStatusForProject(
     slug: row.publication_slug,
     publishedAt: row.published_at,
     publicUrl: row.public_url,
+  };
+}
+
+/** Owner-scoped project list for /studio/projects - one row per project, not per scan. */
+export async function listProjects(creatorId: string): Promise<ProjectSummary[]> {
+  const owner = await userByAuthSubject(creatorId);
+  if (!owner) return [];
+  const db = await database();
+  const projectRows = await db
+    .prepare("SELECT id, slug, name FROM buildstory_projects WHERE owner_user_id = ?")
+    .bind(owner.id)
+    .all<{ id: string; slug: string; name: string }>();
+  if (projectRows.results.length === 0) return [];
+  const reportRows = await db
+    .prepare(
+      `SELECT id, project_id, status, created_at, publication_status, public_url, chapter_index
+       FROM buildstory_reports WHERE creator_id = ? ORDER BY created_at DESC`,
+    )
+    .bind(creatorId)
+    .all<{ id: string; project_id: string; status: string; created_at: string; publication_status: string; public_url: string | null; chapter_index: number | null }>();
+  const reportsByProject = new Map<string, typeof reportRows.results>();
+  for (const row of reportRows.results) {
+    const list = reportsByProject.get(row.project_id) ?? [];
+    list.push(row);
+    reportsByProject.set(row.project_id, list);
+  }
+  const summaries: ProjectSummary[] = [];
+  for (const project of projectRows.results) {
+    const reports = reportsByProject.get(project.id) ?? [];
+    const latest = reports[0]; // already ordered by created_at DESC
+    if (!latest) continue;
+    const published = reports
+      .filter((report) => report.chapter_index !== null)
+      .sort((left, right) => (right.chapter_index ?? 0) - (left.chapter_index ?? 0));
+    const canonical = published[0] ?? null;
+    summaries.push({
+      id: project.id,
+      slug: project.slug,
+      name: project.name,
+      chapterCount: published.length,
+      latestChapterIndex: canonical?.chapter_index ?? null,
+      latestPublicationStatus: latest.publication_status as PublicationStatus,
+      latestReportId: latest.id,
+      latestReportStatus: latest.status as ReportStatus,
+      lastScanAt: latest.created_at,
+      publicUrl: canonical?.public_url ?? null,
+    });
+  }
+  return summaries.sort((left, right) => right.lastScanAt.localeCompare(left.lastScanAt));
+}
+
+/** Owner-scoped project detail - every report (chapter or not) belonging to this project. */
+export async function getProjectDetail(creatorId: string, projectId: string): Promise<ProjectDetail> {
+  const owner = await userByAuthSubject(creatorId);
+  if (!owner) throw new D1IngestionError("not_found", "Creator account not found.", 404);
+  const db = await database();
+  const project = await db
+    .prepare("SELECT id, slug, name FROM buildstory_projects WHERE id = ? AND owner_user_id = ?")
+    .bind(projectId, owner.id)
+    .first<{ id: string; slug: string; name: string }>();
+  if (!project) throw new D1IngestionError("not_found", "Project not found.", 404);
+  const reportRows = await db
+    .prepare(
+      `SELECT id, status, chapter_index, publication_status, created_at, published_at, editorial_tagline, public_url, chapter_delta_json
+       FROM buildstory_reports WHERE project_id = ? AND creator_id = ? ORDER BY created_at DESC`,
+    )
+    .bind(projectId, creatorId)
+    .all<{ id: string; status: string; chapter_index: number | null; publication_status: string; created_at: string; published_at: string | null; editorial_tagline: string; public_url: string | null; chapter_delta_json: string | null }>();
+  const canonical = reportRows.results
+    .filter((row) => row.chapter_index !== null)
+    .sort((left, right) => (right.chapter_index ?? 0) - (left.chapter_index ?? 0))[0] ?? null;
+  return {
+    id: project.id,
+    slug: project.slug,
+    name: project.name,
+    publicUrl: canonical?.public_url ?? null,
+    reports: reportRows.results.map((row) => ({
+      reportId: row.id,
+      status: row.status as ReportStatus,
+      chapterIndex: row.chapter_index,
+      publicationStatus: row.publication_status as PublicationStatus,
+      createdAt: row.created_at,
+      publishedAt: row.published_at,
+      chapterDelta: row.chapter_delta_json ? parseJson<ChapterDelta>(row.chapter_delta_json, "chapter delta") : null,
+      editorialTagline: row.editorial_tagline,
+    })),
   };
 }
 
@@ -2046,7 +2231,7 @@ export async function getPublicProjectVerification(handle: string, slug: string)
        FROM buildstory_projects p
        JOIN buildstory_reports r ON r.project_id = p.id
        JOIN buildstory_users u ON u.id = p.owner_user_id
-       WHERE u.handle_lower = ? AND r.publication_slug = ? AND r.publication_status = 'published'
+       WHERE u.handle_lower = ? AND r.publication_slug = ? AND r.publication_status IN ('published', 'draft_changes')
        LIMIT 1`,
     )
     .bind(handle.toLocaleLowerCase("en-US"), slug)
@@ -2054,18 +2239,36 @@ export async function getPublicProjectVerification(handle: string, slug: string)
   return row?.verified_repo_at ?? null;
 }
 
+/**
+ * Reads back the exact projection frozen at the last publish (buildstory_public_story_index.story_json).
+ * A report in `draft_changes` has unsaved edits sitting in its own snapshot_json/selected_public_fields_json/
+ * editorial_* columns - those must never be re-derived for a public read, or every save would leak the
+ * creator's unpublished changes onto the still-live public URL. This is what keeps the last published
+ * version visibly live instead of 404ing the moment a creator saves anything.
+ */
+async function frozenPublicStory(reportId: string): Promise<(PublicBuildStoryViewModel & { reportId: string; chapterDelta: ChapterDelta | null }) | null> {
+  const row = await (await database())
+    .prepare("SELECT story_json FROM buildstory_public_story_index WHERE report_id = ?")
+    .bind(reportId)
+    .first<{ story_json: string }>();
+  if (!row) return null;
+  const parsed = parseJson<PublicBuildStoryViewModel & { chapterDelta?: ChapterDelta | null }>(row.story_json, "public story index");
+  return { ...parsed, reportId, chapterDelta: parsed.chapterDelta ?? null };
+}
+
 /** Public boundary: this query does not select the private source snapshot. */
 export async function getPublishedStoryBySlug(slug: string) {
   const row = await (await database())
     .prepare(
-      `SELECT id AS report_id, snapshot_json, selected_public_fields_json, editorial_tagline, editorial_description, editorial_reflection, category, story_background_id,
-              artifact_project_url, artifact_repo_url, artifact_video_url
+      `SELECT id AS report_id, publication_status, snapshot_json, selected_public_fields_json, editorial_tagline, editorial_description, editorial_reflection, category, story_background_id,
+              artifact_project_url, artifact_repo_url, artifact_video_url, chapter_delta_json
        FROM buildstory_reports
-       WHERE publication_slug = ? AND publication_status = 'published'
+       WHERE publication_slug = ? AND publication_status IN ('published', 'draft_changes')
        ORDER BY chapter_index DESC LIMIT 1`,
     )
     .bind(slug)
     .first<{
+      publication_status: string;
       snapshot_json: string;
       selected_public_fields_json: string;
       editorial_tagline: string;
@@ -2077,8 +2280,10 @@ export async function getPublishedStoryBySlug(slug: string) {
       artifact_project_url: string | null;
       artifact_repo_url: string | null;
       artifact_video_url: string | null;
+      chapter_delta_json: string | null;
     }>();
   if (!row) return null;
+  if (row.publication_status === "draft_changes") return frozenPublicStory(row.report_id);
   const snapshot = parseJson<ProjectSnapshot>(row.snapshot_json, "public report");
   const selected = parseJson<PublicFieldKey[]>(
     row.selected_public_fields_json,
@@ -2099,27 +2304,29 @@ export async function getPublishedStoryBySlug(slug: string) {
   snapshot.identity.visibility = "public";
   const media = await listReportMedia(row.report_id);
   return {
-    ...publicBuildStoryFromSnapshot(snapshot, selected, { reflection: row.editorial_reflection, category: row.category as GeneratedReport["category"] }, {
+    ...publicBuildStoryFromSnapshot(snapshot, selected, { tagline: row.editorial_tagline, description: row.editorial_description, reflection: row.editorial_reflection, category: row.category as GeneratedReport["category"] }, {
       projectUrl: row.artifact_project_url,
       repoUrl: row.artifact_repo_url,
       videoUrl: row.artifact_video_url,
       media,
     }, { storyBackgroundId: isStoryBackgroundId(row.story_background_id) ? row.story_background_id : DEFAULT_STORY_BACKGROUND_ID }),
     reportId: row.report_id,
+    chapterDelta: row.chapter_delta_json ? publicChapterDelta(parseJson<ChapterDelta>(row.chapter_delta_json, "chapter delta"), selected) : null,
   };
 }
 
 export async function getPublishedStory(handle: string, slug: string) {
   const row = await (await database()).prepare(
-    `SELECT r.id AS report_id, r.snapshot_json, r.selected_public_fields_json, r.editorial_tagline, r.editorial_description, r.editorial_reflection, r.category, r.story_background_id,
-            r.artifact_project_url, r.artifact_repo_url, r.artifact_video_url
+    `SELECT r.id AS report_id, r.publication_status, r.snapshot_json, r.selected_public_fields_json, r.editorial_tagline, r.editorial_description, r.editorial_reflection, r.category, r.story_background_id,
+            r.artifact_project_url, r.artifact_repo_url, r.artifact_video_url, r.chapter_delta_json
      FROM buildstory_reports r JOIN buildstory_users u ON u.id = r.owner_user_id
-     WHERE u.handle_lower = ? AND r.publication_slug = ? AND r.publication_path = ? AND r.publication_status = 'published' LIMIT 1`,
+     WHERE u.handle_lower = ? AND r.publication_slug = ? AND r.publication_path = ? AND r.publication_status IN ('published', 'draft_changes') LIMIT 1`,
   ).bind(handle.toLocaleLowerCase("en-US"), slug, `${handle.toLocaleLowerCase("en-US")}/${slug}`).first<{
-    report_id: string; snapshot_json: string; selected_public_fields_json: string; editorial_tagline: string; editorial_description: string; editorial_reflection: string; category: string | null; story_background_id: string;
-    artifact_project_url: string | null; artifact_repo_url: string | null; artifact_video_url: string | null;
+    report_id: string; publication_status: string; snapshot_json: string; selected_public_fields_json: string; editorial_tagline: string; editorial_description: string; editorial_reflection: string; category: string | null; story_background_id: string;
+    artifact_project_url: string | null; artifact_repo_url: string | null; artifact_video_url: string | null; chapter_delta_json: string | null;
   }>();
   if (!row) return null;
+  if (row.publication_status === "draft_changes") return frozenPublicStory(row.report_id);
   const snapshot = parseJson<ProjectSnapshot>(row.snapshot_json, "public report");
   const selected = parseJson<PublicFieldKey[]>(row.selected_public_fields_json, "public field");
   snapshot.identity.tagline = row.editorial_tagline;
@@ -2127,28 +2334,30 @@ export async function getPublishedStory(handle: string, slug: string) {
   snapshot.identity.visibility = "public";
   const media = await listReportMedia(row.report_id);
   return {
-    ...publicBuildStoryFromSnapshot(snapshot, selected, { reflection: row.editorial_reflection, category: row.category as GeneratedReport["category"] }, {
+    ...publicBuildStoryFromSnapshot(snapshot, selected, { tagline: row.editorial_tagline, description: row.editorial_description, reflection: row.editorial_reflection, category: row.category as GeneratedReport["category"] }, {
       projectUrl: row.artifact_project_url,
       repoUrl: row.artifact_repo_url,
       videoUrl: row.artifact_video_url,
       media,
     }, { storyBackgroundId: isStoryBackgroundId(row.story_background_id) ? row.story_background_id : DEFAULT_STORY_BACKGROUND_ID }),
     reportId: row.report_id,
+    chapterDelta: row.chapter_delta_json ? publicChapterDelta(parseJson<ChapterDelta>(row.chapter_delta_json, "chapter delta"), selected) : null,
   };
 }
 
 /** A specific chapter of a project's public story, by its 1-based chapterIndex - used for the archival "<slug>/<n>" path. */
 export async function getPublishedStoryChapter(handle: string, slug: string, chapterIndex: number) {
   const row = await (await database()).prepare(
-    `SELECT r.id AS report_id, r.snapshot_json, r.selected_public_fields_json, r.editorial_tagline, r.editorial_description, r.editorial_reflection, r.category, r.story_background_id,
-            r.artifact_project_url, r.artifact_repo_url, r.artifact_video_url
+    `SELECT r.id AS report_id, r.publication_status, r.snapshot_json, r.selected_public_fields_json, r.editorial_tagline, r.editorial_description, r.editorial_reflection, r.category, r.story_background_id,
+            r.artifact_project_url, r.artifact_repo_url, r.artifact_video_url, r.chapter_delta_json
      FROM buildstory_reports r JOIN buildstory_users u ON u.id = r.owner_user_id
-     WHERE u.handle_lower = ? AND r.publication_slug = ? AND r.publication_status = 'published' AND r.chapter_index = ? LIMIT 1`,
+     WHERE u.handle_lower = ? AND r.publication_slug = ? AND r.publication_status IN ('published', 'draft_changes') AND r.chapter_index = ? LIMIT 1`,
   ).bind(handle.toLocaleLowerCase("en-US"), slug, chapterIndex).first<{
-    report_id: string; snapshot_json: string; selected_public_fields_json: string; editorial_tagline: string; editorial_description: string; editorial_reflection: string; category: string | null; story_background_id: string;
-    artifact_project_url: string | null; artifact_repo_url: string | null; artifact_video_url: string | null;
+    report_id: string; publication_status: string; snapshot_json: string; selected_public_fields_json: string; editorial_tagline: string; editorial_description: string; editorial_reflection: string; category: string | null; story_background_id: string;
+    artifact_project_url: string | null; artifact_repo_url: string | null; artifact_video_url: string | null; chapter_delta_json: string | null;
   }>();
   if (!row) return null;
+  if (row.publication_status === "draft_changes") return frozenPublicStory(row.report_id);
   const snapshot = parseJson<ProjectSnapshot>(row.snapshot_json, "public report");
   const selected = parseJson<PublicFieldKey[]>(row.selected_public_fields_json, "public field");
   snapshot.identity.tagline = row.editorial_tagline;
@@ -2156,13 +2365,14 @@ export async function getPublishedStoryChapter(handle: string, slug: string, cha
   snapshot.identity.visibility = "public";
   const media = await listReportMedia(row.report_id);
   return {
-    ...publicBuildStoryFromSnapshot(snapshot, selected, { reflection: row.editorial_reflection, category: row.category as GeneratedReport["category"] }, {
+    ...publicBuildStoryFromSnapshot(snapshot, selected, { tagline: row.editorial_tagline, description: row.editorial_description, reflection: row.editorial_reflection, category: row.category as GeneratedReport["category"] }, {
       projectUrl: row.artifact_project_url,
       repoUrl: row.artifact_repo_url,
       videoUrl: row.artifact_video_url,
       media,
     }, { storyBackgroundId: isStoryBackgroundId(row.story_background_id) ? row.story_background_id : DEFAULT_STORY_BACKGROUND_ID }),
     reportId: row.report_id,
+    chapterDelta: row.chapter_delta_json ? publicChapterDelta(parseJson<ChapterDelta>(row.chapter_delta_json, "chapter delta"), selected) : null,
   };
 }
 
@@ -2174,6 +2384,17 @@ export type PublishedChapterSummary = {
   commits: number;
   activeDays: number;
   costMicroUsd: number | null;
+  /**
+   * The stored, gated ChapterDelta's own commit/active-day change - null only for
+   * chapter 1, which has no previous chapter to compare against. Sourced from
+   * chapter_delta_json rather than recomputed from adjacent absolute totals, so the
+   * timeline never disagrees with the delta band shown elsewhere on the same page
+   * (and never double-counts an incremental chapter's window - see chapter-delta.ts).
+   */
+  commitsDelta: number | null;
+  activeDaysDelta: number | null;
+  /** The full, already-gated delta against the previous chapter - null for chapter 1. Powers the project changelog. */
+  chapterDelta: ChapterDelta | null;
 };
 
 /** All currently-published chapters of a project, oldest first - powers the timeline nav. */
@@ -2182,28 +2403,38 @@ export async function listPublishedChapters(handle: string, slug: string): Promi
   const canonical = await db
     .prepare(
       `SELECT r.project_id FROM buildstory_reports r JOIN buildstory_users u ON u.id = r.owner_user_id
-       WHERE u.handle_lower = ? AND r.publication_path = ? AND r.publication_status = 'published' LIMIT 1`,
+       WHERE u.handle_lower = ? AND r.publication_path = ? AND r.publication_status IN ('published', 'draft_changes') LIMIT 1`,
     )
     .bind(handle.toLocaleLowerCase("en-US"), `${handle.toLocaleLowerCase("en-US")}/${slug}`)
     .first<{ project_id: string }>();
   if (!canonical) return [];
+  // Reads the frozen, already-gated public projection (buildstory_public_story_index),
+  // never the private snapshot_json - a chapter the creator didn't select gitAggregates/
+  // costEstimate for must show 0/null here too, exactly like everywhere else on the page.
   const rows = await db
     .prepare(
-      `SELECT id, chapter_index, published_at, editorial_tagline, snapshot_json FROM buildstory_reports
-       WHERE project_id = ? AND publication_status = 'published' ORDER BY chapter_index ASC`,
+      `SELECT r.id, r.chapter_index, r.published_at, r.editorial_tagline, i.story_json FROM buildstory_reports r
+       LEFT JOIN buildstory_public_story_index i ON i.report_id = r.id
+       WHERE r.project_id = ? AND r.publication_status IN ('published', 'draft_changes') ORDER BY r.chapter_index ASC`,
     )
     .bind(canonical.project_id)
-    .all<{ id: string; chapter_index: number | null; published_at: string | null; editorial_tagline: string; snapshot_json: string }>();
+    .all<{ id: string; chapter_index: number | null; published_at: string | null; editorial_tagline: string; story_json: string | null }>();
   return rows.results.map((row) => {
-    const snapshot = parseJson<ProjectSnapshot>(row.snapshot_json, "public report");
+    // story_json already carries the gated ChapterDelta baked in at publish time (see
+    // publishReport) - read it straight from there instead of re-deriving, so the
+    // timeline's inline deltas can never disagree with the "what changed" band.
+    const publicStory = row.story_json ? parseJson<PublicBuildStoryViewModel & { chapterDelta?: ChapterDelta | null }>(row.story_json, "public story index") : null;
     return {
       reportId: row.id,
       chapterIndex: row.chapter_index ?? 1,
       publishedAt: row.published_at,
       tagline: row.editorial_tagline,
-      commits: snapshot.git.commits,
-      activeDays: snapshot.timeWindow.activeDays,
-      costMicroUsd: snapshot.usage.cost?.totalMicroUsd ?? null,
+      commits: publicStory?.git.commits ?? 0,
+      activeDays: publicStory?.activeDays ?? 0,
+      costMicroUsd: publicStory?.cost?.totalMicroUsd ?? null,
+      commitsDelta: publicStory?.chapterDelta?.build.commits.change ?? null,
+      activeDaysDelta: publicStory?.chapterDelta?.build.activeDays.change ?? null,
+      chapterDelta: publicStory?.chapterDelta ?? null,
     };
   });
 }
@@ -2211,21 +2442,33 @@ export async function listPublishedChapters(handle: string, slug: string): Promi
 /** IDs only, for social features (reactions/comments) to key off of - never content. */
 export async function getPublicStoryIdentity(
   slug: string,
-): Promise<{ reportId: string; ownerUserId: string | null } | null> {
+): Promise<{ reportId: string; ownerUserId: string | null; projectId: string } | null> {
   const row = await (await database())
     .prepare(
-      "SELECT id, owner_user_id FROM buildstory_reports WHERE publication_slug = ? AND publication_status = 'published' LIMIT 1",
+      "SELECT id, owner_user_id, project_id FROM buildstory_reports WHERE publication_slug = ? AND publication_status IN ('published', 'draft_changes') LIMIT 1",
     )
     .bind(slug)
-    .first<{ id: string; owner_user_id: string | null }>();
-  return row ? { reportId: row.id, ownerUserId: row.owner_user_id } : null;
+    .first<{ id: string; owner_user_id: string | null; project_id: string }>();
+  return row ? { reportId: row.id, ownerUserId: row.owner_user_id, projectId: row.project_id } : null;
 }
 
 export async function getPublicStoryIdentityByReportId(reportId: string) {
   const row = await (await database()).prepare(
-    "SELECT id, owner_user_id FROM buildstory_reports WHERE id = ? AND publication_status = 'published' LIMIT 1",
-  ).bind(reportId).first<{ id: string; owner_user_id: string | null }>();
-  return row ? { reportId: row.id, ownerUserId: row.owner_user_id } : null;
+    "SELECT id, owner_user_id, project_id FROM buildstory_reports WHERE id = ? AND publication_status IN ('published', 'draft_changes') LIMIT 1",
+  ).bind(reportId).first<{ id: string; owner_user_id: string | null; project_id: string }>();
+  return row ? { reportId: row.id, ownerUserId: row.owner_user_id, projectId: row.project_id } : null;
+}
+
+/** Every published (or draft_changes) report id for a project, most recent chapter first - for the comment/reaction rollup. */
+export async function listPublishedReportIdsForProject(projectId: string): Promise<string[]> {
+  const rows = await (await database())
+    .prepare(
+      `SELECT id FROM buildstory_reports WHERE project_id = ? AND publication_status IN ('published', 'draft_changes')
+       ORDER BY chapter_index DESC`,
+    )
+    .bind(projectId)
+    .all<{ id: string }>();
+  return rows.results.map((row) => row.id);
 }
 
 /**
@@ -2240,10 +2483,21 @@ export async function getPublicStoryIdentityByReportId(reportId: string) {
  * Detail views (getPublishedStory, getPublishedStoryChapter) are unaffected; they
  * already resolve one specific report by its own path or chapter number.
  */
-function latestChapterOnly(outerAlias = "buildstory_reports"): string {
+/**
+ * `includeDraftChanges` must match the caller's own outer status filter, not just widen
+ * blindly: a caller that still filters its outer WHERE to publication_status = 'published'
+ * (listPublishedStories, listStoriesByOwner, searchPublishedStories - they re-derive live
+ * from snapshot_json, so a widened outer filter would leak a draft's unsaved edits) must
+ * keep computing "latest" against published-only rows too, or a project whose newest chapter
+ * is mid-edit would suppress its still-fully-published previous chapter from every listing.
+ * Callers that read the frozen buildstory_public_story_index (explorePublishedStories) can
+ * safely widen both, since draft_changes rows there are always served their last-frozen JSON.
+ */
+function latestChapterOnly(outerAlias = "buildstory_reports", includeDraftChanges = false): string {
+  const statuses = includeDraftChanges ? "'published', 'draft_changes'" : "'published'";
   return `${outerAlias}.chapter_index = (
     SELECT MAX(r2.chapter_index) FROM buildstory_reports r2
-    WHERE r2.project_id = ${outerAlias}.project_id AND r2.publication_status = 'published'
+    WHERE r2.project_id = ${outerAlias}.project_id AND r2.publication_status IN (${statuses})
   )`;
 }
 
@@ -2318,7 +2572,7 @@ export async function explorePublishedStories(query: {
     `SELECT r.id AS report_id, i.story_json, i.search_text, r.published_at
      FROM buildstory_public_story_index i
      JOIN buildstory_reports r ON r.id = i.report_id
-     WHERE r.publication_status = 'published' AND ${latestChapterOnly("r")}`,
+     WHERE r.publication_status IN ('published', 'draft_changes') AND ${latestChapterOnly("r", true)}`,
   ).all<{ report_id: string; story_json: string; search_text: string; published_at: string | null }>();
   const [reactionRows, commentRows, upvoteRows] = await Promise.all([
     db.prepare("SELECT report_id, COUNT(*) AS count FROM buildstory_reactions WHERE created_at >= ? GROUP BY report_id").bind(cutoff).all<{ report_id: string; count: number }>(),

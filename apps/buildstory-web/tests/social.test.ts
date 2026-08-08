@@ -32,6 +32,7 @@ function seedReport(id: string, ownerUserId: string, publicationStatus = "publis
   registerReport({
     id,
     ownerUserId,
+    projectId: `prj_${id}`,
     publicationStatus,
     publicationSlug: id,
     editorialTagline: `${id} tagline`,
@@ -195,6 +196,7 @@ test("activity feed: only shows published stories from people the viewer follows
   registerReport({
     id: "rpt_feed_old",
     ownerUserId: followed,
+    projectId: "prj_feed_old",
     publicationStatus: "published",
     publicationSlug: "feed-old",
     editorialTagline: "Old story",
@@ -204,6 +206,7 @@ test("activity feed: only shows published stories from people the viewer follows
   registerReport({
     id: "rpt_feed_new",
     ownerUserId: followed,
+    projectId: "prj_feed_new",
     publicationStatus: "published",
     publicationSlug: "feed-new",
     editorialTagline: "New story",
@@ -213,6 +216,7 @@ test("activity feed: only shows published stories from people the viewer follows
   registerReport({
     id: "rpt_feed_unpublished",
     ownerUserId: followed,
+    projectId: "prj_feed_unpublished",
     publicationStatus: "not_published",
     publicationSlug: "feed-draft",
     editorialTagline: "Draft story",

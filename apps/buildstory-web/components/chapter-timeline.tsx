@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ChapterDelta } from "@/lib/story/chapter-delta";
 
 export type ChapterSummary = {
   reportId: string;
@@ -8,15 +9,18 @@ export type ChapterSummary = {
   commits: number;
   activeDays: number;
   costMicroUsd: number | null;
+  /** The stored, gated ChapterDelta's own change - null for chapter 1. See lib/story/chapter-delta.ts. */
+  commitsDelta: number | null;
+  activeDaysDelta: number | null;
+  /** The full, already-gated delta against the previous chapter - null for chapter 1. Powers the project changelog. */
+  chapterDelta: ChapterDelta | null;
 };
 
 const dateFormat = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 const usdFormat = new Intl.NumberFormat("en", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-function delta(current: number, previous: number, unit = ""): string | null {
-  const diff = current - previous;
-  if (diff === 0) return null;
-  return `${diff > 0 ? "+" : ""}${diff}${unit}`;
+function signed(value: number, unit = ""): string {
+  return `${value > 0 ? "+" : ""}${value}${unit}`;
 }
 
 export function ChapterTimeline({
@@ -37,10 +41,12 @@ export function ChapterTimeline({
     <nav className="chapter-timeline section-wrap" aria-label="Build chapters">
       <span className="section-index">( {chapters.length} CHAPTERS )</span>
       <ol>
-        {chapters.map((chapter, index) => {
-          const previous = index > 0 ? chapters[index - 1] : null;
-          const commitDelta = previous ? delta(chapter.commits, previous.commits, " commits") : null;
-          const dayDelta = previous ? delta(chapter.activeDays, previous.activeDays, "d") : null;
+        {chapters.map((chapter) => {
+          // Sourced from the stored, gated ChapterDelta (see lib/story/chapter-delta.ts) -
+          // not recomputed from adjacent absolute totals, which would double-count an
+          // incremental chapter's window and could leak a number the creator unselected.
+          const commitDelta = chapter.commitsDelta ? signed(chapter.commitsDelta, " commits") : null;
+          const dayDelta = chapter.activeDaysDelta ? signed(chapter.activeDaysDelta, "d") : null;
           const isCurrent = chapter.chapterIndex === currentChapterIndex;
           const href = chapter.chapterIndex === latestChapterIndex ? `/u/${handle}/${slug}` : `/u/${handle}/${slug}/${chapter.chapterIndex}`;
           return (

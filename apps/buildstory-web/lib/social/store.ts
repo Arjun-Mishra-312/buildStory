@@ -48,12 +48,22 @@ export async function getReactionSummary(reportId: string, viewerUserId: string 
   return (await backend()).getReactionSummary(reportId, viewerUserId);
 }
 
+/** Project-wide rollup: reaction totals across every published chapter of a project. */
+export async function getReactionSummaryForReports(reportIds: string[], viewerUserId: string | null) {
+  return (await backend()).getReactionSummaryForReports(reportIds, viewerUserId);
+}
+
 export async function setReaction(reportId: string, userId: string, kind: ReactionKind) {
   return (await backend()).setReaction(reportId, userId, kind);
 }
 
 export async function listComments(reportId: string, limit?: number, cursor?: string) {
   return (await backend()).listComments(reportId, limit, cursor);
+}
+
+/** Project-wide rollup: merges the comment threads of every published chapter of a project. */
+export async function listCommentsForReports(reportIds: string[], limit?: number, cursor?: string) {
+  return (await backend()).listCommentsForReports(reportIds, limit, cursor);
 }
 
 export async function createComment(
@@ -71,6 +81,10 @@ export async function deleteComment(commentId: string, requestingUserId: string,
 
 export async function getCommentViewerState(reportId: string, viewerUserId: string | null): Promise<CommentViewerState> {
   return (await backend()).getCommentViewerState(reportId, viewerUserId);
+}
+
+export async function getCommentViewerStateForReports(reportIds: string[], viewerUserId: string | null): Promise<CommentViewerState> {
+  return (await backend()).getCommentViewerStateForReports(reportIds, viewerUserId);
 }
 
 export async function setCommentUpvote(commentId: string, userId: string, enabled: boolean) {
@@ -91,6 +105,10 @@ export async function markNotificationsRead(userId: string, notificationIds?: st
 
 export async function getActivityFeed(viewerUserId: string, limit?: number, cursor?: string) {
   return (await backend()).getActivityFeed(viewerUserId, limit, cursor);
+}
+
+export async function notifyFollowersOfStoryUpdate(reportId: string, ownerUserId: string) {
+  return (await backend()).notifyFollowersOfStoryUpdate(reportId, ownerUserId);
 }
 
 export async function fileContentReport(

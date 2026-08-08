@@ -123,6 +123,14 @@ export const uploadSessions = sqliteTable(
     creatorId: text("creator_id").notNull(),
     ownerUserId: text("owner_user_id").references(() => users.id, { onDelete: "set null" }),
     projectLabel: text("project_label").notNull(),
+    /**
+     * Set when a creator explicitly starts this scan from an existing project's
+     * "Publish an update" flow, rather than the default "Create a story" flow. Purely
+     * a validation hint at ingest time (see acceptSnapshot's fingerprint check in
+     * lib/ingestion/*-store.ts) - it never changes which project a snapshot lands in,
+     * since that is still resolved by repositoryFingerprint alone (ensureProject).
+     */
+    targetProjectId: text("target_project_id").references(() => projects.id, { onDelete: "set null" }),
     narrativeModel: text("narrative_model"),
     narrativeMode: text("narrative_mode").notNull().default("cloud"),
     status: text("status").notNull(),
@@ -199,6 +207,14 @@ export const reports = sqliteTable(
      * backfilled to 1 by this column's migration.
      */
     chapterIndex: integer("chapter_index"),
+    /**
+     * JSON-serialized ChapterDelta (lib/story/chapter-delta.ts), computed once at
+     * publish time against the project's previous chapter and frozen from then on -
+     * same rationale as buildstory_public_story_index.story_json: deterministic,
+     * computed once, never re-derived on the public read path. Null for a project's
+     * first chapter (chapterIndex 1), which has nothing to compare against.
+     */
+    chapterDeltaJson: text("chapter_delta_json"),
     updatedAt: text("updated_at").notNull(),
   },
   (table) => [

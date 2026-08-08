@@ -1,11 +1,12 @@
 import { jsonError, requireApiCreator, socialErrorResponse } from "@/lib/api/responses";
-import { ensureUser, getPublicStoryIdentity, getPublicStoryIdentityByReportId } from "@/lib/ingestion/store";
+import { ensureUser, getPublicStoryIdentity, getPublicStoryIdentityByReportId, listPublishedReportIdsForProject } from "@/lib/ingestion/store";
 import { assertSameOriginBrowserMutation } from "@/lib/security/browser-request";
 import { checkRateLimit } from "@/lib/social/rate-limit-dispatch";
-import { createComment, listComments } from "@/lib/social/store";
+import { createComment, listCommentsForReports } from "@/lib/social/store";
 
 type RouteContext = { params: Promise<{ storyId: string }> };
 
+/** Rollup read: every published chapter of this story's project, oldest chapter first (a new chapter's comments are never a reason to bury the old ones). */
 export async function GET(request: Request, context: RouteContext) {
   try {
     const { storyId } = await context.params;
@@ -16,7 +17,8 @@ export async function GET(request: Request, context: RouteContext) {
     const limit = Number.isFinite(requestedLimit) ? requestedLimit : 100;
     const cursor = params.get("cursor") || undefined;
     await checkRateLimit("comments-read", "anonymous", 120, 60, request);
-    const comments = await listComments(identity.reportId, limit, cursor);
+    const rollupReportIds = await listPublishedReportIdsForProject(identity.projectId);
+    const comments = await listCommentsForReports(rollupReportIds, limit, cursor);
     const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), 200);
     return Response.json(
       { comments, nextCursor: comments.length === boundedLimit ? (comments.at(-1)?.createdAt ?? null) : null },

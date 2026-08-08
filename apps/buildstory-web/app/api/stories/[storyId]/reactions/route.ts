@@ -1,13 +1,14 @@
 import { jsonError, requireApiCreator, socialErrorResponse } from "@/lib/api/responses";
-import { getPublicStoryIdentity, getPublicStoryIdentityByReportId } from "@/lib/ingestion/store";
+import { getPublicStoryIdentity, getPublicStoryIdentityByReportId, listPublishedReportIdsForProject } from "@/lib/ingestion/store";
 import { assertSameOriginBrowserMutation } from "@/lib/security/browser-request";
 import { isReactionKind } from "@/lib/social/contracts";
 import { checkRateLimit } from "@/lib/social/rate-limit-dispatch";
-import { getReactionSummary, setReaction } from "@/lib/social/store";
+import { getReactionSummaryForReports, setReaction } from "@/lib/social/store";
 import { ensureUser } from "@/lib/ingestion/store";
 
 type RouteContext = { params: Promise<{ storyId: string }> };
 
+/** Rollup read: reaction totals summed across every published chapter of this story's project. */
 export async function GET(_request: Request, context: RouteContext) {
   try {
     const { storyId } = await context.params;
@@ -16,7 +17,8 @@ export async function GET(_request: Request, context: RouteContext) {
 
     const creator = await requireApiCreator();
     const viewerUserId = creator ? (await ensureUser(creator)).id : null;
-    const summary = await getReactionSummary(identity.reportId, viewerUserId);
+    const rollupReportIds = await listPublishedReportIdsForProject(identity.projectId);
+    const summary = await getReactionSummaryForReports(rollupReportIds, viewerUserId);
     return Response.json(summary, { headers: { "cache-control": "no-store" } });
   } catch (error) {
     return socialErrorResponse(error);

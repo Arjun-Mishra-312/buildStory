@@ -9,6 +9,8 @@ import { canUseCloudNarrative } from "@/lib/narrative/entitlement";
 import { estimateCostMicroUsd } from "@/lib/narrative/pricing";
 import { NARRATIVE_FIELD_LIMITS } from "@/lib/narrative/schema";
 import { sanitizePublicText } from "@/lib/publication/sanitization";
+import { computeChapterDelta, publicChapterDelta, type ChapterDelta } from "@/lib/story/chapter-delta";
+import { notifyFollowersOfStoryUpdate } from "@/lib/social/store";
 import { getTrendingScoreForReport, registerProfile as registerSocialProfileRecord, registerReport as registerSocialReportRecord } from "@/lib/social/mock-store";
 import { MAX_MEDIA_PER_REPORT } from "./contracts";
 import { DEFAULT_STORY_BACKGROUND_ID, isStoryBackgroundId } from "@/lib/background-options";
@@ -19,8 +21,10 @@ import type {
   LocalReportSummary,
   NarrativeRecord,
   NarrativeStatus,
+  ProjectDetail,
   ProjectRecord,
   ProjectScanStats,
+  ProjectSummary,
   PublicFieldKey,
   ReportMediaKind,
   ReportMediaRecord,
@@ -40,6 +44,8 @@ import {
 
 type StoredUploadSession = UploadSessionView & {
   ownerUserId: string | null;
+  /** Set when this session was started from an existing project's "Publish an update" flow. See acceptSnapshot's fingerprint check. */
+  targetProjectId: string | null;
   deviceCodeHash: string;
   deviceCodeAttempts: number;
   deviceCodeClaimedAt: string | null;
@@ -113,7 +119,7 @@ type MockStore = {
   reportMedia: Map<string, ReportMediaRecord>;
   /** Keyed by `${provider}:${subject}`. */
   identities: Map<string, StoredIdentity>;
-  publicStoryIndex: Map<string, { story: PublicBuildStoryViewModel; category: string; searchText: string; hasLiveDemo: boolean; updatedAt: string }>;
+  publicStoryIndex: Map<string, { story: PublicBuildStoryViewModel & { chapterDelta: ChapterDelta | null }; category: string; searchText: string; hasLiveDemo: boolean; updatedAt: string }>;
 };
 
 type StoreGlobal = typeof globalThis & {
@@ -209,11 +215,13 @@ function createSeedStore(): MockStore {
       chapterIndex: 1,
     },
     narrative: null,
+    chapterDelta: null,
   };
   const session: StoredUploadSession = {
     id: sessionId,
     creatorId,
     ownerUserId: userId,
+    targetProjectId: null,
     projectLabel: orbitNotesSnapshot.identity.name,
     narrativeModel: null,
     narrativeMode: "cloud",
@@ -236,7 +244,7 @@ function createSeedStore(): MockStore {
     snapshot: null,
     queuedAt: orbitNotesSnapshot.provenance.scannedAt,
   };
-  const publicStory = publicBuildStoryFromSnapshot(report.snapshot, report.selectedPublicFields, { reflection: report.editorial.reflection, category: report.category }, report.artifact, { storyBackgroundId: report.storyBackgroundId });
+  const publicStory = publicBuildStoryFromSnapshot(report.snapshot, report.selectedPublicFields, { tagline: report.editorial.tagline, description: report.editorial.description, reflection: report.editorial.reflection, category: report.category }, report.artifact, { storyBackgroundId: report.storyBackgroundId });
   return {
     sessions: new Map([[sessionId, session]]),
     reports: new Map([[reportId, report]]),
@@ -246,7 +254,7 @@ function createSeedStore(): MockStore {
     llmBudgets: new Map(),
     reportMedia: new Map(),
     publicStoryIndex: new Map([[reportId, {
-      story: publicStory,
+      story: { ...publicStory, chapterDelta: null },
       category: publicStory.category,
       searchText: [publicStory.name, publicStory.tagline, publicStory.description, publicStory.owner.name, publicStory.owner.handle, publicStory.category, ...publicStory.stack, ...publicStory.tools.map((tool) => tool.label), ...publicStory.models.flatMap((model) => [model.id, model.label])].join(" ").slice(0, 12_000),
       hasLiveDemo: Boolean(publicStory.artifactLinks.projectUrl),
@@ -338,6 +346,7 @@ function registerSocialReport(reportId: string, ownerUserId: string | null, repo
   registerSocialReportRecord({
     id: reportId,
     ownerUserId,
+    projectId: report.projectId,
     publicationStatus: report.publication.status,
     publicationSlug: report.publication.slug,
     editorialTagline: report.editorial.tagline,
@@ -770,7 +779,14 @@ export async function createUploadSession(
   ownerUserId: string | null = null,
   narrativeModel: string | null = null,
   narrativeMode: "local" | "cloud" | "off" = "cloud",
+  targetProjectId: string | null = null,
 ): Promise<{ session: UploadSessionView; deviceAuthorization: DeviceAuthorization }> {
+  if (targetProjectId) {
+    const project = store.projects.get(targetProjectId);
+    if (!project || project.ownerUserId !== ownerUserId) {
+      throw new MockIngestionError("not_found", "Project not found.", 404);
+    }
+  }
   const createdAt = new Date();
   const expiresAt = new Date(createdAt.getTime() + 15 * 60_000);
   const id = makeId("upl");
@@ -779,6 +795,7 @@ export async function createUploadSession(
     id,
     creatorId,
     ownerUserId,
+    targetProjectId,
     projectLabel: projectLabel.trim().slice(0, 120) || "New local project",
     narrativeModel,
     narrativeMode,
@@ -936,6 +953,19 @@ export async function acceptSnapshot(
       409,
     );
   }
+  if (session.targetProjectId) {
+    const targetProject = store.projects.get(session.targetProjectId);
+    if (!targetProject || targetProject.ownerUserId !== user.id) {
+      throw new MockIngestionError("not_found", "Project not found.", 404);
+    }
+    if (targetProject.repositoryFingerprint !== validated.snapshot.repository.fingerprint) {
+      throw new MockIngestionError(
+        "project_fingerprint_mismatch",
+        `This scan is from a different repository than "${targetProject.name}".`,
+        422,
+      );
+    }
+  }
   const snapshotSessions = validated.snapshot.sessions;
   const activeDayCount = new Set(snapshotSessions.map((item) => item.startedAt.slice(0, 10))).size;
   const project = ensureProject(
@@ -951,6 +981,13 @@ export async function acceptSnapshot(
       activeDays: activeDayCount,
     },
   );
+
+  // Carry forward the previous chapter's editorial choices - without this, every
+  // update would silently reset to DEFAULT_PUBLIC_FIELDS/no category/no artifact
+  // links, discarding everything the creator set up on the prior chapter.
+  const previousReport = Array.from(store.reports.values())
+    .filter((candidate) => candidate.projectId === project.id)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ?? null;
 
   const acceptedAt = new Date().toISOString();
   const reportId = makeId("rpt");
@@ -971,6 +1008,12 @@ export async function acceptSnapshot(
   session.status = "queued";
   session.statusDetail = "Snapshot validated and queued for report generation.";
 
+  // Only carry forward tagline/description if the creator actually rewrote them away
+  // from the scanner's own defaults - otherwise the new snapshot's freshly regenerated
+  // text is a better default than an old chapter's stale auto-generated copy.
+  const previousTaglineEdited = previousReport?.editorial.tagline !== previousReport?.snapshot.identity.tagline;
+  const previousDescriptionEdited = previousReport?.editorial.description !== previousReport?.snapshot.identity.description;
+
   const newReport: GeneratedReport = {
     id: reportId,
     creatorId: session.creatorId,
@@ -981,7 +1024,7 @@ export async function acceptSnapshot(
     readyAt: null,
     sourceSnapshot: validated.snapshot,
     snapshot: reportSnapshot,
-    selectedPublicFields: [
+    selectedPublicFields: previousReport?.selectedPublicFields ?? [
       "tagline",
       "description",
       "timeWindow",
@@ -993,13 +1036,13 @@ export async function acceptSnapshot(
       "redactionSummary",
     ],
     editorial: {
-      tagline: reportSnapshot.identity.tagline,
-      description: reportSnapshot.identity.description,
-      reflection: "",
+      tagline: previousReport && previousTaglineEdited ? previousReport.editorial.tagline : reportSnapshot.identity.tagline,
+      description: previousReport && previousDescriptionEdited ? previousReport.editorial.description : reportSnapshot.identity.description,
+      reflection: previousReport?.editorial.reflection ?? "",
     },
-    category: null,
-    storyBackgroundId: DEFAULT_STORY_BACKGROUND_ID,
-    artifact: { projectUrl: null, repoUrl: null, videoUrl: null },
+    category: previousReport?.category ?? null,
+    storyBackgroundId: previousReport?.storyBackgroundId ?? DEFAULT_STORY_BACKGROUND_ID,
+    artifact: previousReport?.artifact ?? { projectUrl: null, repoUrl: null, videoUrl: null },
     publication: {
       status: "not_published",
       slug: reportSnapshot.identity.slug,
@@ -1008,6 +1051,7 @@ export async function acceptSnapshot(
       chapterIndex: null,
     },
     narrative: null,
+    chapterDelta: null,
   };
   store.reports.set(reportId, newReport);
   registerSocialReport(reportId, user.id, newReport);
@@ -1342,7 +1386,7 @@ export function deleteReportMedia(creatorId: string, mediaId: string): { r2Key: 
  * is canonical (its publicUrl has no trailing chapter number); older ones are
  * rewritten to a chapter-suffixed publicUrl when superseded. Mirrors d1-store.ts.
  */
-export function publishReport(creatorId: string, reportId: string): GeneratedReport {
+export async function publishReport(creatorId: string, reportId: string): Promise<GeneratedReport> {
   const report = store.reports.get(reportId);
   if (!report || report.creatorId !== creatorId) {
     throw new MockIngestionError("not_found", "Report not found.", 404);
@@ -1393,15 +1437,38 @@ export function publishReport(creatorId: string, reportId: string): GeneratedRep
   report.publication.status = "published";
   report.publication.publishedAt = now;
   report.publication.publicUrl = becomesCanonical ? canonicalUrl : `${canonicalUrl}/${report.publication.chapterIndex}`;
-  const publicStory = publicBuildStoryFromSnapshot(report.snapshot, report.selectedPublicFields, { reflection: report.editorial.reflection, category: report.category }, { ...report.artifact, media: listReportMedia(report.id) }, { storyBackgroundId: report.storyBackgroundId });
+
+  // Compute the chapter's delta against the immediately-preceding chapter, once, at
+  // publish time - never re-derived on a public read, same rationale as story_json.
+  const thisChapterIndex = report.publication.chapterIndex;
+  if (thisChapterIndex !== null && thisChapterIndex > 1) {
+    const previousChapter = Array.from(store.reports.values()).find(
+      (candidate) => candidate.projectId === report.projectId && candidate.publication.chapterIndex === thisChapterIndex - 1,
+    );
+    report.chapterDelta = previousChapter
+      ? computeChapterDelta(previousChapter.snapshot, report.snapshot, thisChapterIndex - 1, thisChapterIndex)
+      : null;
+  }
+
+  const publicStory = publicBuildStoryFromSnapshot(report.snapshot, report.selectedPublicFields, { tagline: report.editorial.tagline, description: report.editorial.description, reflection: report.editorial.reflection, category: report.category }, { ...report.artifact, media: listReportMedia(report.id) }, { storyBackgroundId: report.storyBackgroundId });
+  // Gated at publish time and frozen alongside every other public field - a creator
+  // who never republishes after toggling a field off must not have that field's
+  // numbers reappear here just because the delta band re-reads live state.
+  const publicStoryWithDelta = {
+    ...publicStory,
+    chapterDelta: report.chapterDelta ? publicChapterDelta(report.chapterDelta, report.selectedPublicFields) : null,
+  };
   store.publicStoryIndex.set(report.id, {
-    story: publicStory,
+    story: publicStoryWithDelta,
     category: report.category,
     searchText: [publicStory.name, publicStory.tagline, publicStory.description, publicStory.owner.name, publicStory.owner.handle, publicStory.category, ...publicStory.stack, ...publicStory.tools.map((tool) => tool.label), ...publicStory.models.flatMap((model) => [model.id, model.label])].join(" ").slice(0, 12_000),
     hasLiveDemo: Boolean(publicStory.artifactLinks.projectUrl),
     updatedAt: now,
   });
   registerSocialReport(reportId, userIdForCreator(creatorId), report);
+  if (thisChapterIndex !== null && thisChapterIndex > 1 && owner) {
+    await notifyFollowersOfStoryUpdate(reportId, owner.id);
+  }
   return { ...structuredClone(report), narrative: narrativeRecordFor(reportId) };
 }
 
@@ -1411,7 +1478,7 @@ export function publishReport(creatorId: string, reportId: string): GeneratedRep
  */
 export function unpublishReport(creatorId: string, reportId: string): GeneratedReport {
   const report = store.reports.get(reportId);
-  if (!report || report.creatorId !== creatorId || report.publication.status !== "published") throw new MockIngestionError("not_published", "Published report not found.", 404);
+  if (!report || report.creatorId !== creatorId || !isPubliclyVisible(report.publication.status)) throw new MockIngestionError("not_published", "Published report not found.", 404);
 
   const canonicalUrl = `${publicOrigin()}/u/`; // prefix check below; publicUrl has no trailing /<n> when canonical
   const wasCanonical = Boolean(report.publication.publicUrl) && report.publication.publicUrl!.startsWith(canonicalUrl) && !/\/\d+$/.test(report.publication.publicUrl!);
@@ -1423,7 +1490,7 @@ export function unpublishReport(creatorId: string, reportId: string): GeneratedR
 
   if (wasCanonical) {
     const next = Array.from(store.reports.values())
-      .filter((candidate) => candidate.id !== reportId && candidate.projectId === report.projectId && candidate.publication.status === "published")
+      .filter((candidate) => candidate.id !== reportId && candidate.projectId === report.projectId && isPubliclyVisible(candidate.publication.status))
       .sort((left, right) => (right.publication.chapterIndex ?? 0) - (left.publication.chapterIndex ?? 0))[0];
     if (next) {
       const owner = store.users.get(userIdForCreator(creatorId) ?? "");
@@ -1490,19 +1557,105 @@ export function markProjectRepoVerified(creatorId: string, projectId: string): {
   return { verifiedRepoAt: now };
 }
 
+/** Owner-scoped project list for /studio/projects - one row per project, not per scan. */
+export function listProjects(creatorId: string): ProjectSummary[] {
+  const ownerUserId = userIdForCreator(creatorId);
+  if (!ownerUserId) return [];
+  const byProject = new Map<string, GeneratedReport[]>();
+  for (const report of store.reports.values()) {
+    if (report.creatorId !== creatorId) continue;
+    const list = byProject.get(report.projectId) ?? [];
+    list.push(report);
+    byProject.set(report.projectId, list);
+  }
+  const summaries: ProjectSummary[] = [];
+  for (const [projectId, unsortedReports] of byProject) {
+    const project = store.projects.get(projectId);
+    if (!project || project.ownerUserId !== ownerUserId) continue;
+    const reports = [...unsortedReports].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    const latestReport = reports[0]!;
+    const publishedReports = reports
+      .filter((report) => report.publication.chapterIndex !== null)
+      .sort((left, right) => (right.publication.chapterIndex ?? 0) - (left.publication.chapterIndex ?? 0));
+    const canonicalReport = publishedReports[0] ?? null;
+    summaries.push({
+      id: project.id,
+      slug: project.slug,
+      name: project.name,
+      chapterCount: publishedReports.length,
+      latestChapterIndex: canonicalReport?.publication.chapterIndex ?? null,
+      latestPublicationStatus: latestReport.publication.status,
+      latestReportId: latestReport.id,
+      latestReportStatus: latestReport.status,
+      lastScanAt: latestReport.createdAt,
+      publicUrl: canonicalReport?.publication.publicUrl ?? null,
+    });
+  }
+  return summaries.sort((left, right) => right.lastScanAt.localeCompare(left.lastScanAt));
+}
+
+/** Owner-scoped project detail - every report (chapter or not) belonging to this project. */
+export function getProjectDetail(creatorId: string, projectId: string): ProjectDetail {
+  const project = store.projects.get(projectId);
+  if (!project || userIdForCreator(creatorId) !== project.ownerUserId) {
+    throw new MockIngestionError("not_found", "Project not found.", 404);
+  }
+  const reports = Array.from(store.reports.values())
+    .filter((report) => report.projectId === projectId && report.creatorId === creatorId)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  const canonicalReport = reports
+    .filter((report) => report.publication.chapterIndex !== null)
+    .sort((left, right) => (right.publication.chapterIndex ?? 0) - (left.publication.chapterIndex ?? 0))[0] ?? null;
+  return {
+    id: project.id,
+    slug: project.slug,
+    name: project.name,
+    publicUrl: canonicalReport?.publication.publicUrl ?? null,
+    reports: reports.map((report) => ({
+      reportId: report.id,
+      status: report.status,
+      chapterIndex: report.publication.chapterIndex,
+      publicationStatus: report.publication.status,
+      createdAt: report.createdAt,
+      publishedAt: report.publication.publishedAt,
+      chapterDelta: report.chapterDelta,
+      editorialTagline: report.editorial.tagline,
+    })),
+  };
+}
+
 export function getPublicProjectVerification(handle: string, slug: string): string | null {
   const handleLower = handle.toLocaleLowerCase("en-US");
   const owner = Array.from(store.users.values()).find((candidate) => candidate.handleLower === handleLower);
   if (!owner) return null;
   const publishedProjectIds = new Set(
     Array.from(store.reports.values())
-      .filter((report) => report.publication.status === "published" && report.publication.slug === slug)
+      .filter((report) => (report.publication.status === "published" || report.publication.status === "draft_changes") && report.publication.slug === slug)
       .map((report) => report.projectId),
   );
   const project = Array.from(store.projects.values()).find(
     (candidate) => candidate.ownerUserId === owner.id && publishedProjectIds.has(candidate.id),
   );
   return project?.verifiedRepoAt ?? null;
+}
+
+function isPubliclyVisible(status: string): boolean {
+  return status === "published" || status === "draft_changes";
+}
+
+/**
+ * Reads back the exact projection frozen at the last publish. A report in `draft_changes`
+ * has unsaved edits sitting in its own snapshot/selectedPublicFields/editorial fields -
+ * those must never be re-derived for a public read, or every save would leak the creator's
+ * unpublished changes onto the still-live public URL. Mirrors d1-store.ts's frozenPublicStory.
+ */
+function frozenPublicStory(reportId: string): (PublicBuildStoryViewModel & { reportId: string; chapterDelta: ChapterDelta | null }) | null {
+  const entry = store.publicStoryIndex.get(reportId);
+  return entry ? { ...structuredClone(entry.story), reportId } : null;
+}
+
+function publicDeltaFor(report: GeneratedReport): ChapterDelta | null {
+  return report.chapterDelta ? publicChapterDelta(report.chapterDelta, report.selectedPublicFields) : null;
 }
 
 /** Public boundary: callers receive only the selected projection, never report state. */
@@ -1514,33 +1667,44 @@ function canonicalOf(candidates: GeneratedReport[]): GeneratedReport | undefined
 export function getPublishedStoryBySlug(slug: string) {
   const report = canonicalOf(
     Array.from(store.reports.values()).filter(
-      (candidate) => candidate.publication.slug === slug && candidate.publication.status === "published",
+      (candidate) => candidate.publication.slug === slug && isPubliclyVisible(candidate.publication.status),
     ),
   );
   if (!report) return null;
+  if (report.publication.status === "draft_changes") return frozenPublicStory(report.id);
   const snapshot = structuredClone(report.snapshot);
   snapshot.identity.tagline = report.editorial.tagline;
   snapshot.identity.description = report.editorial.description;
   snapshot.identity.visibility = "public";
-  return publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields, {
-    reflection: report.editorial.reflection,
-    category: report.category,
-  }, { ...report.artifact, media: listReportMedia(report.id) }, { storyBackgroundId: report.storyBackgroundId });
+  return {
+    ...publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields, {
+      tagline: report.editorial.tagline,
+      description: report.editorial.description,
+      reflection: report.editorial.reflection,
+      category: report.category,
+    }, { ...report.artifact, media: listReportMedia(report.id) }, { storyBackgroundId: report.storyBackgroundId }),
+    chapterDelta: publicDeltaFor(report),
+  };
 }
 
 export function getPublishedStory(handle: string, slug: string) {
   const report = canonicalOf(
     Array.from(store.reports.values()).filter((candidate) => {
       const owner = store.users.get(userIdForCreator(candidate.creatorId) ?? "");
-      return owner?.handleLower === handle.toLocaleLowerCase("en-US") && candidate.publication.slug === slug && candidate.publication.status === "published";
+      return owner?.handleLower === handle.toLocaleLowerCase("en-US") && candidate.publication.slug === slug && isPubliclyVisible(candidate.publication.status);
     }),
   );
   if (!report) return null;
+  if (report.publication.status === "draft_changes") return frozenPublicStory(report.id);
   const snapshot = structuredClone(report.snapshot);
   snapshot.identity.tagline = report.editorial.tagline;
   snapshot.identity.description = report.editorial.description;
   snapshot.identity.visibility = "public";
-  return { ...publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields, { reflection: report.editorial.reflection, category: report.category }, { ...report.artifact, media: listReportMedia(report.id) }, { storyBackgroundId: report.storyBackgroundId }), reportId: report.id };
+  return {
+    ...publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields, { tagline: report.editorial.tagline, description: report.editorial.description, reflection: report.editorial.reflection, category: report.category }, { ...report.artifact, media: listReportMedia(report.id) }, { storyBackgroundId: report.storyBackgroundId }),
+    reportId: report.id,
+    chapterDelta: publicDeltaFor(report),
+  };
 }
 
 /** A specific chapter of a project's public story, by its 1-based chapterIndex - used for the archival "<slug>/<n>" path. */
@@ -1550,16 +1714,21 @@ export function getPublishedStoryChapter(handle: string, slug: string, chapterIn
     return (
       owner?.handleLower === handle.toLocaleLowerCase("en-US") &&
       candidate.publication.slug === slug &&
-      candidate.publication.status === "published" &&
+      isPubliclyVisible(candidate.publication.status) &&
       candidate.publication.chapterIndex === chapterIndex
     );
   });
   if (!report) return null;
+  if (report.publication.status === "draft_changes") return frozenPublicStory(report.id);
   const snapshot = structuredClone(report.snapshot);
   snapshot.identity.tagline = report.editorial.tagline;
   snapshot.identity.description = report.editorial.description;
   snapshot.identity.visibility = "public";
-  return { ...publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields, { reflection: report.editorial.reflection, category: report.category }, { ...report.artifact, media: listReportMedia(report.id) }, { storyBackgroundId: report.storyBackgroundId }), reportId: report.id };
+  return {
+    ...publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields, { tagline: report.editorial.tagline, description: report.editorial.description, reflection: report.editorial.reflection, category: report.category }, { ...report.artifact, media: listReportMedia(report.id) }, { storyBackgroundId: report.storyBackgroundId }),
+    reportId: report.id,
+    chapterDelta: publicDeltaFor(report),
+  };
 }
 
 /** All currently-published chapters of a project, oldest first - powers the timeline nav. */
@@ -1567,31 +1736,52 @@ export function listPublishedChapters(handle: string, slug: string) {
   return Array.from(store.reports.values())
     .filter((candidate) => {
       const owner = store.users.get(userIdForCreator(candidate.creatorId) ?? "");
-      return owner?.handleLower === handle.toLocaleLowerCase("en-US") && candidate.publication.slug === slug && candidate.publication.status === "published";
+      return owner?.handleLower === handle.toLocaleLowerCase("en-US") && candidate.publication.slug === slug && isPubliclyVisible(candidate.publication.status);
     })
     .sort((left, right) => (left.publication.chapterIndex ?? 0) - (right.publication.chapterIndex ?? 0))
-    .map((report) => ({
-      reportId: report.id,
-      chapterIndex: report.publication.chapterIndex ?? 1,
-      publishedAt: report.publication.publishedAt,
-      tagline: report.editorial.tagline,
-      commits: report.snapshot.git.commits,
-      activeDays: report.snapshot.timeWindow.activeDays,
-      costMicroUsd: report.snapshot.usage.cost?.totalMicroUsd ?? null,
-    }));
+    .map((report) => {
+      // Reads the frozen, already-gated public projection, never the private snapshot -
+      // a chapter the creator didn't select gitAggregates/costEstimate for must show
+      // 0/null here too, exactly like everywhere else on the page. The stored
+      // chapterDelta is already gated too, so the timeline's inline deltas can never
+      // disagree with the "what changed" band shown elsewhere.
+      const publicStory = store.publicStoryIndex.get(report.id)?.story ?? null;
+      return {
+        reportId: report.id,
+        chapterIndex: report.publication.chapterIndex ?? 1,
+        publishedAt: report.publication.publishedAt,
+        tagline: report.editorial.tagline,
+        commits: publicStory?.git.commits ?? 0,
+        activeDays: publicStory?.activeDays ?? 0,
+        costMicroUsd: publicStory?.cost?.totalMicroUsd ?? null,
+        commitsDelta: publicStory?.chapterDelta?.build.commits.change ?? null,
+        activeDaysDelta: publicStory?.chapterDelta?.build.activeDays.change ?? null,
+        chapterDelta: publicStory?.chapterDelta ?? null,
+      };
+    });
 }
 
 /** IDs only, for social features (reactions/comments) to key off of - never content. */
-export function getPublicStoryIdentity(slug: string): { reportId: string; ownerUserId: string | null } | null {
+export function getPublicStoryIdentity(slug: string): { reportId: string; ownerUserId: string | null; projectId: string } | null {
   const report = Array.from(store.reports.values()).find(
-    (candidate) => candidate.publication.slug === slug && candidate.publication.status === "published",
+    (candidate) => candidate.publication.slug === slug && isPubliclyVisible(candidate.publication.status),
   );
-  return report ? { reportId: report.id, ownerUserId: userIdForCreator(report.creatorId) } : null;
+  return report ? { reportId: report.id, ownerUserId: userIdForCreator(report.creatorId), projectId: report.projectId } : null;
 }
 
 export function getPublicStoryIdentityByReportId(reportId: string) {
   const report = store.reports.get(reportId);
-  return report && report.publication.status === "published" ? { reportId: report.id, ownerUserId: userIdForCreator(report.creatorId) } : null;
+  return report && isPubliclyVisible(report.publication.status)
+    ? { reportId: report.id, ownerUserId: userIdForCreator(report.creatorId), projectId: report.projectId }
+    : null;
+}
+
+/** Every published (or draft_changes) report id for a project, most recent chapter first - for the comment/reaction rollup. */
+export function listPublishedReportIdsForProject(projectId: string): string[] {
+  return Array.from(store.reports.values())
+    .filter((report) => report.projectId === projectId && isPubliclyVisible(report.publication.status))
+    .sort((left, right) => (right.publication.chapterIndex ?? 0) - (left.publication.chapterIndex ?? 0))
+    .map((report) => report.id);
 }
 
 /**
@@ -1600,9 +1790,18 @@ export function getPublicStoryIdentityByReportId(reportId: string) {
  * one representative row per project - always its current latest (highest chapterIndex) -
  * or a re-scanned project would appear as N duplicate entries in Explore/search.
  */
-function isLatestPublishedChapter(report: GeneratedReport): boolean {
+/**
+ * `includeDraftChanges` must match the caller's own filter, exactly as in d1-store.ts's
+ * latestChapterOnly: callers that re-derive live from report.snapshot (listPublishedStories,
+ * listStoriesByOwner, searchPublishedStories) must keep computing "latest" against
+ * published-only rows, or a project whose newest chapter is mid-edit would suppress its
+ * still-fully-published previous chapter. explorePublishedStories reads the frozen
+ * publicStoryIndex entry, so it can safely widen both.
+ */
+function isLatestPublishedChapter(report: GeneratedReport, includeDraftChanges = false): boolean {
+  const visible = (status: string) => status === "published" || (includeDraftChanges && status === "draft_changes");
   const maxChapter = Array.from(store.reports.values())
-    .filter((candidate) => candidate.projectId === report.projectId && candidate.publication.status === "published")
+    .filter((candidate) => candidate.projectId === report.projectId && visible(candidate.publication.status))
     .reduce((max, candidate) => Math.max(max, candidate.publication.chapterIndex ?? 0), 0);
   return (report.publication.chapterIndex ?? 0) === maxChapter;
 }
@@ -1649,7 +1848,8 @@ export function explorePublishedStories(query: {
   const selectedModels = (query.models ?? []).map((value) => value.toLocaleLowerCase("en-US"));
   const indexed = Array.from(store.publicStoryIndex.entries()).flatMap(([reportId, entry]) => {
     const report = store.reports.get(reportId);
-    if (!report || report.publication.status !== "published" || !isLatestPublishedChapter(report)) return [];
+    const visibleStatus = report?.publication.status === "published" || report?.publication.status === "draft_changes";
+    if (!report || !visibleStatus || !isLatestPublishedChapter(report, true)) return [];
     return [{ ...structuredClone(entry.story), reportId, publishedAt: report.publication.publishedAt, trendScore: getTrendingScoreForReport(reportId), publicSearchText: entry.searchText.toLocaleLowerCase("en-US") }];
   });
   type IndexedStory = (typeof indexed)[number];

@@ -20,14 +20,19 @@ type CreateResponse = {
   deviceAuthorization: DeviceAuthorization;
 };
 
+type TargetProject = { id: string; name: string; nextChapterIndex: number };
+
 export function ScannerConnectionFlow({
   initialSessions,
   scannerEnabled,
+  targetProject = null,
 }: {
   initialSessions: UploadSessionView[];
   scannerEnabled: boolean;
+  /** Set when this session is started from an existing project's "Publish an update" flow, not the general "Create a story" flow. */
+  targetProject?: TargetProject | null;
 }) {
-  const [projectLabel, setProjectLabel] = useState("New local project");
+  const [projectLabel, setProjectLabel] = useState(targetProject?.name ?? "New local project");
   const [session, setSession] = useState<UploadSessionView | null>(null);
   const [authorization, setAuthorization] = useState<DeviceAuthorization | null>(null);
   const [starting, setStarting] = useState(false);
@@ -74,7 +79,12 @@ export function ScannerConnectionFlow({
       const response = await fetch("/api/creator/upload-sessions", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ projectLabel, narrativeModel, narrativeMode: selectedMode }),
+        body: JSON.stringify({
+          projectLabel,
+          narrativeModel,
+          narrativeMode: selectedMode,
+          ...(targetProject ? { projectId: targetProject.id } : {}),
+        }),
       });
       const body = (await response.json()) as CreateResponse | { error?: { message?: string } };
       if (!response.ok || !("session" in body)) {
@@ -120,16 +130,27 @@ export function ScannerConnectionFlow({
 
       <section className="scanner-flow__setup">
         <div className="scanner-step-label"><span>01</span> PROJECT DETAILS</div>
-        <h2>Start a guided story capture.</h2>
-        <p>{scannerEnabled
-          ? "This session is bound to your creator account. No repository is read by the browser."
-          : "Scanner connections are not configured on this deployment yet."}</p>
-        <label>
-          <span>Project label</span>
-          <input value={projectLabel} onChange={(event) => setProjectLabel(event.target.value)} maxLength={120} disabled={!scannerEnabled} />
-        </label>
+        <h2>{targetProject ? `Publish an update to ${targetProject.name}.` : "Start a guided story capture."}</h2>
+        <p>
+          {targetProject
+            ? `This scan becomes Chapter ${targetProject.nextChapterIndex} of ${targetProject.name}. It must be run against the same repository as the earlier chapters.`
+            : scannerEnabled
+              ? "This session is bound to your creator account. No repository is read by the browser."
+              : "Scanner connections are not configured on this deployment yet."}
+        </p>
+        {targetProject ? (
+          <div className="scanner-target-project">
+            <span>Project</span>
+            <strong>{targetProject.name}</strong>
+          </div>
+        ) : (
+          <label>
+            <span>Project label</span>
+            <input value={projectLabel} onChange={(event) => setProjectLabel(event.target.value)} maxLength={120} disabled={!scannerEnabled} />
+          </label>
+        )}
         <button className="button button--primary" type="button" onClick={startSession} disabled={starting || !scannerEnabled}>
-          {starting ? "Starting…" : "Create story connection"}
+          {starting ? "Starting…" : targetProject ? "Create update connection" : "Create story connection"}
         </button>
         {error ? <p className="scanner-flow__error" role="alert">{error}</p> : null}
       </section>

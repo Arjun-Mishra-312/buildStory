@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { BuildStoryViewModel, PublicBuildStoryViewModel } from "@/lib/build-story";
 import { STORY_CATEGORIES, type NarrativeRecord, type PublicationStatus, type PublicFieldKey, type ReportMediaRecord, type StoryCategory } from "@/lib/ingestion/contracts";
 import type { NarrativeDisplayStatus } from "@/lib/ingestion/narrative-status";
@@ -9,6 +10,9 @@ import { DEFAULT_STORY_BACKGROUND_ID, STORY_BACKGROUND_OPTIONS, storyBackgroundO
 import { copyToClipboard } from "@/lib/clipboard";
 import { initialsFrom } from "@/lib/identity/initials";
 import { resolveVideoEmbed } from "@/lib/media/video-embed";
+import type { ChapterDelta } from "@/lib/story/chapter-delta";
+import { ChapterDeltaSummary } from "./chapter-delta-summary";
+import { ProjectChangelog } from "./project-changelog";
 import { ChapterTimeline, type ChapterSummary } from "./chapter-timeline";
 import { CommentThread } from "./comment-thread";
 import { ReceiptCard } from "./receipt-card";
@@ -18,7 +22,17 @@ import { SocialActions } from "./social-actions";
 type ArtifactLinksState = { projectUrl: string | null; repoUrl: string | null; videoUrl: string | null };
 
 type ProjectWorkbenchProps = {
-  story: (BuildStoryViewModel | PublicBuildStoryViewModel) & { reportId?: string };
+  story: (BuildStoryViewModel | PublicBuildStoryViewModel) & { reportId?: string; chapterDelta?: ChapterDelta | null };
+  /**
+   * The server-gated public projection (publicBuildStoryFromSnapshot run against
+   * the report's currently-saved selectedPublicFields). Only meaningful for
+   * access="creator" - the "Public" tab renders from this instead of the full
+   * private `story`, so the boundary checkboxes actually change what the creator
+   * previews. Refreshed by the caller (router.refresh()) after a saved selection.
+   */
+  previewStory?: (PublicBuildStoryViewModel & { chapterDelta?: ChapterDelta | null }) | null;
+  /** Live, ungated preview of the delta since the previous chapter - computed server-side, shown only to the creator before they publish. */
+  livePreviewDelta?: ChapterDelta | null;
   access?: "public" | "creator";
   reportId?: string;
   projectId?: string;
@@ -136,45 +150,61 @@ function StoryPackView({
         <p>{pack.hero.summary}</p>
       </section>
 
-      <section className="story-pack__arc" aria-label="Build arc">
-        <header><span>BUILD ARC</span><strong>{privateView ? "Evidence-linked phases" : "How the build moved"}</strong></header>
-        <div className="story-pack__arc-grid">
-          {pack.buildArc.map((phase, index) => (
-            <article key={phase.phase} className="story-pack__arc-card">
-              <span className="story-pack__phase-number">0{index + 1}</span>
-              <small>{phase.phase.toUpperCase()}</small>
-              <h3>{phase.headline}</h3>
-              <p>{phase.summary}</p>
-              <div className="story-pack__sources">{phase.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div>
-            </article>
-          ))}
-        </div>
-      </section>
+      {pack.buildArc.length ? (
+        <section className="story-pack__arc" aria-label="Build arc">
+          <header><span>BUILD ARC</span><strong>{privateView ? "Evidence-linked phases" : "How the build moved"}</strong></header>
+          <div className="story-pack__arc-grid">
+            {pack.buildArc.map((phase, index) => (
+              <article key={phase.phase} className="story-pack__arc-card">
+                <span className="story-pack__phase-number">0{index + 1}</span>
+                <small>{phase.phase.toUpperCase()}</small>
+                <h3>{phase.headline}</h3>
+                <p>{phase.summary}</p>
+                <div className="story-pack__sources">{phase.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
-      <section className="story-pack__moments">
-        <header><span>MOMENTS THAT CHANGED THE BUILD</span><strong>{pack.moments.length} evidence-backed moments</strong></header>
-        <div className="story-pack__moment-grid">
-          {pack.moments.map((moment, index) => (
-            <article className="story-pack__moment-card" key={`${moment.title}-${index}`}>
-              <div className="story-pack__moment-index">{String(index + 1).padStart(2, "0")}</div>
-              <div>
-                <small>{moment.kind.toUpperCase()} · {moment.phase.toUpperCase()}</small>
-                <h3>{moment.title}</h3>
-                <div className="story-pack__moment-copy"><p><strong>What happened</strong>{moment.whatHappened}</p><p><strong>Why it mattered</strong>{moment.whyItMattered}</p></div>
-                <div className="story-pack__sources">{moment.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
+      {pack.moments.length ? (
+        <section className="story-pack__moments">
+          <header><span>MOMENTS THAT CHANGED THE BUILD</span><strong>{pack.moments.length} evidence-backed moments</strong></header>
+          <div className="story-pack__moment-grid">
+            {pack.moments.map((moment, index) => (
+              <article className="story-pack__moment-card" key={`${moment.title}-${index}`}>
+                <div className="story-pack__moment-index">{String(index + 1).padStart(2, "0")}</div>
+                <div>
+                  <small>{moment.kind.toUpperCase()} · {moment.phase.toUpperCase()}</small>
+                  <h3>{moment.title}</h3>
+                  <div className="story-pack__moment-copy"><p><strong>What happened</strong>{moment.whatHappened}</p><p><strong>Why it mattered</strong>{moment.whyItMattered}</p></div>
+                  <div className="story-pack__sources">{moment.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
-      <div className="story-pack__insight-grid">
-        <section className="story-pack__insight-card story-pack__insight-card--turning"><span>TURNING POINT</span><blockquote>“{pack.turningPoint.quote}”</blockquote><div className="story-pack__sources">{pack.turningPoint.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div></section>
-        <section className="story-pack__insight-card"><span>DECISIONS</span>{pack.decisions.map((item, index) => <div className="story-pack__decision" key={`${item.title}-${index}`}><strong>{item.title}</strong><p>{item.rationale}</p><small>{item.outcome}</small></div>)}</section>
-        <section className="story-pack__insight-card"><span>LEARNINGS</span>{pack.learnings.map((item, index) => <div className="story-pack__bullet" key={`${item.title}-${index}`}><strong>{item.title}</strong><p>{item.detail}</p></div>)}</section>
-        <section className="story-pack__insight-card"><span>STANDOUT TRAITS</span>{pack.standoutTraits.map((item, index) => <div className="story-pack__bullet" key={`${item.title}-${index}`}><strong>{item.title}</strong><p>{item.detail}</p></div>)}</section>
-        <section className="story-pack__insight-card story-pack__insight-card--growth"><span>GROWTH EDGE</span><h3>{pack.growthEdge.title}</h3><p>{pack.growthEdge.observation}</p><small>{pack.growthEdge.nextStep}</small></section>
-      </div>
+      {pack.turningPoint.quote || pack.decisions.length || pack.learnings.length || pack.standoutTraits.length || pack.growthEdge.title ? (
+        <div className="story-pack__insight-grid">
+          {pack.turningPoint.quote ? (
+            <section className="story-pack__insight-card story-pack__insight-card--turning"><span>TURNING POINT</span><blockquote>“{pack.turningPoint.quote}”</blockquote><div className="story-pack__sources">{pack.turningPoint.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div></section>
+          ) : null}
+          {pack.decisions.length ? (
+            <section className="story-pack__insight-card"><span>DECISIONS</span>{pack.decisions.map((item, index) => <div className="story-pack__decision" key={`${item.title}-${index}`}><strong>{item.title}</strong><p>{item.rationale}</p><small>{item.outcome}</small></div>)}</section>
+          ) : null}
+          {pack.learnings.length ? (
+            <section className="story-pack__insight-card"><span>LEARNINGS</span>{pack.learnings.map((item, index) => <div className="story-pack__bullet" key={`${item.title}-${index}`}><strong>{item.title}</strong><p>{item.detail}</p></div>)}</section>
+          ) : null}
+          {pack.standoutTraits.length ? (
+            <section className="story-pack__insight-card"><span>STANDOUT TRAITS</span>{pack.standoutTraits.map((item, index) => <div className="story-pack__bullet" key={`${item.title}-${index}`}><strong>{item.title}</strong><p>{item.detail}</p></div>)}</section>
+          ) : null}
+          {pack.growthEdge.title ? (
+            <section className="story-pack__insight-card story-pack__insight-card--growth"><span>GROWTH EDGE</span><h3>{pack.growthEdge.title}</h3><p>{pack.growthEdge.observation}</p><small>{pack.growthEdge.nextStep}</small></section>
+          ) : null}
+        </div>
+      ) : null}
 
       {privateView && openRef && selected ? (
         <div className="story-pack__evidence-backdrop" role="presentation" onClick={() => setOpenRef(null)}>
@@ -193,6 +223,8 @@ function StoryPackView({
 
 export function ProjectWorkbench({
   story,
+  previewStory = null,
+  livePreviewDelta = null,
   access = "creator",
   reportId,
   projectId,
@@ -210,6 +242,7 @@ export function ProjectWorkbench({
   currentChapterIndex,
   reviewedEvidence = [],
 }: ProjectWorkbenchProps) {
+  const router = useRouter();
   const resolvedNarrativeStatus: NarrativeDisplayStatus =
     narrativeStatus ??
     (narrative
@@ -266,18 +299,28 @@ export function ProjectWorkbench({
   const [badgeCopied, setBadgeCopied] = useState(false);
   const [selectedFields, setSelectedFields] = useState<PublicFieldKey[]>(initialSelectedPublicFields);
   const [publicationStatus, setPublicationStatus] = useState<PublicationStatus>(initialPublicationStatus);
+  // "draft_changes" still has a live public URL (the last published version) - see the
+  // publication-boundary fix that keeps it serving the frozen story instead of 404ing.
+  // Anything gated on "is there something public to link to / take down" must include it.
+  const isLive = publicationStatus === "published" || publicationStatus === "draft_changes";
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [publicationError, setPublicationError] = useState<string | null>(null);
   const storyNarrative = "narrative" in story ? story.narrative : null;
-  const storyPack = narrative?.storyPack ?? ("storyPack" in story && story.storyPack ? story.storyPack : null) ?? (
+  // Private-tab pack: the full, ungated narrative record (used only on the private tab,
+  // which always shows everything regardless of the publication boundary).
+  const privateStoryPack = narrative?.storyPack ?? ("storyPack" in story && story.storyPack ? story.storyPack : null) ?? (
     storyNarrative && typeof storyNarrative === "object" && "storyPack" in storyNarrative
       ? (storyNarrative.storyPack as ReportStoryPackV2 | undefined) ?? null
       : null
   );
-  // Public visitors see the server-gated projection already on `story`; the creator's own
-  // preview shows their live draft regardless of the publication-boundary checkboxes, matching
-  // how tagline/description/profile already behave above - this panel is an editor+preview,
-  // not the enforcement boundary (that's publicBuildStoryFromSnapshot, server-side).
+  // Public visitors already see the server-gated projection on `story`. A creator's own
+  // "Public" tab must render the same server-gated projection (`previewStory`, recomputed
+  // from the currently-saved selectedPublicFields) - not the full private `story` - or the
+  // boundary checkboxes visibly do nothing in the one place a creator checks them.
+  const displayStory: PublicBuildStoryViewModel & { chapterDelta?: ChapterDelta | null } = access === "creator" && previewStory
+    ? previewStory
+    : (story as PublicBuildStoryViewModel);
+  const publicStoryPackPreview = "storyPack" in displayStory ? displayStory.storyPack : null;
   const displayArtifactLinks = access === "public" && "artifactLinks" in story ? story.artifactLinks : artifactLinks;
   const displayArtifactMedia = access === "public" && "artifactMedia" in story ? story.artifactMedia : media;
   const videoEmbed = resolveVideoEmbed(displayArtifactLinks.videoUrl);
@@ -356,9 +399,13 @@ export function ProjectWorkbench({
     }
   }
 
-  async function saveFieldSelection() {
-    if (!reportId) return;
-    setSaveState("saving");
+  /**
+   * PATCHes the current field selection. Both saveFieldSelection and publishChanges
+   * must go through this - publish previously fired without it, so "Republish" would
+   * silently publish whatever selection was last saved, ignoring any unsaved toggles.
+   */
+  async function persistSelection(): Promise<boolean> {
+    if (!reportId) return false;
     try {
       const response = await fetch(`/api/creator/reports/${reportId}`, {
         method: "PATCH",
@@ -367,10 +414,17 @@ export function ProjectWorkbench({
       });
       if (!response.ok) throw new Error("Report selection update failed.");
       setPublicationStatus((current) => current === "published" ? "draft_changes" : current);
-      setSaveState("saved");
+      router.refresh();
+      return true;
     } catch {
-      setSaveState("error");
+      return false;
     }
+  }
+
+  async function saveFieldSelection() {
+    if (!reportId) return;
+    setSaveState("saving");
+    setSaveState((await persistSelection()) ? "saved" : "error");
   }
 
   async function publishChanges() {
@@ -386,6 +440,11 @@ export function ProjectWorkbench({
     }
     setPublicationError(null);
     setSaveState("saving");
+    if (!(await persistSelection())) {
+      setPublicationError("Could not save your field selection. Try again before publishing.");
+      setSaveState("error");
+      return;
+    }
     try {
       const response = await fetch(`/api/creator/reports/${reportId}/publish`, { method: "POST" });
       if (!response.ok) {
@@ -394,6 +453,7 @@ export function ProjectWorkbench({
       }
       setPublicationStatus("published");
       setSaveState("saved");
+      router.refresh();
     } catch (error) {
       setPublicationError(error instanceof Error ? error.message : "Could not publish this story.");
       setSaveState("error");
@@ -401,7 +461,7 @@ export function ProjectWorkbench({
   }
 
   async function unpublish() {
-    if (!reportId || publicationStatus !== "published") return;
+    if (!reportId || !isLive) return;
     setSaveState("saving");
     try {
       const response = await fetch(`/api/creator/reports/${reportId}/publish`, { method: "DELETE" });
@@ -487,14 +547,14 @@ export function ProjectWorkbench({
   }
 
   async function copyLink() {
-    if (publicationStatus !== "published") return;
+    if (!isLive) return;
     const ok = await copyToClipboard(`${window.location.origin}/u/${story.owner.handle}/${story.slug}`);
     setCopied(ok);
     if (ok) window.setTimeout(() => setCopied(false), 1600);
   }
 
   async function copyBadgeMarkdown() {
-    if (publicationStatus !== "published") return;
+    if (!isLive) return;
     const path = `/u/${story.owner.handle}/${story.slug}`;
     const markdown = `[![Buildstory](${window.location.origin}${path}/badge.svg)](${window.location.origin}${path})`;
     const ok = await copyToClipboard(markdown);
@@ -545,7 +605,7 @@ export function ProjectWorkbench({
               Edit public page
             </button>
           ) : null}
-          {publicationStatus === "published" ? (
+          {isLive ? (
             <button
               className="button button--dark button--small"
               type="button"
@@ -555,7 +615,7 @@ export function ProjectWorkbench({
               {copied ? "Public link copied" : "Copy public link"} <span aria-hidden="true">↗</span>
             </button>
           ) : null}
-          {publicationStatus === "published" ? (
+          {isLive ? (
             <button
               className="button button--secondary button--small"
               type="button"
@@ -784,7 +844,7 @@ export function ProjectWorkbench({
               <div className="build-story__hero-copy">
                 <div className="story-kicker">
                   <span className={`status-dot status-dot--${story.status === "shipped" ? "shipped" : "building"}`} />
-                  {story.status.toUpperCase()} · {(category ?? ("category" in story ? story.category : "other")).toUpperCase()} · {story.dateRange.toUpperCase()}
+                  {story.status.toUpperCase()} · {(category ?? ("category" in story ? story.category : "other")).toUpperCase()} · {displayStory.dateRange.toUpperCase()}
                 </div>
                 <h1>{story.name}</h1>
                 <p className="build-story__tagline">{tagline}</p>
@@ -825,7 +885,7 @@ export function ProjectWorkbench({
                     <span className="cover-caption">BUILD / RECEIPT</span>
                     <strong>{story.name}</strong>
                     <i />
-                    <small>{story.sessionCount} sessions / {story.git.commits} commits / {story.activeDays} days</small>
+                    <small>{displayStory.sessionCount} sessions / {displayStory.git.commits} commits / {displayStory.activeDays} days</small>
                   </div>
                 </>}
               </div>
@@ -834,6 +894,12 @@ export function ProjectWorkbench({
             {access === "public" && currentChapterIndex ? (
               <ChapterTimeline chapters={chapters} handle={story.owner.handle} slug={story.slug} currentChapterIndex={currentChapterIndex} />
             ) : null}
+
+            {access === "public" && displayStory.chapterDelta ? (
+              <ChapterDeltaSummary delta={displayStory.chapterDelta} />
+            ) : null}
+
+            {access === "public" ? <ProjectChangelog chapters={chapters} /> : null}
 
             {hasArtifact && (screenshotMedia.length > 0 || videoEmbed) ? (
               <section className="artifact-panel section-wrap" aria-label="The artifact">
@@ -861,17 +927,17 @@ export function ProjectWorkbench({
             ) : null}
 
             <div className="story-stats section-wrap" aria-label="Build summary">
-              <div><strong>{story.activeDays}</strong><span>active days</span></div>
-              <div><strong>{story.sessionCount}</strong><span>AI sessions</span></div>
-              <div><strong>{story.git.commits}</strong><span>commits</span></div>
-              <div><strong>{story.git.additions.toLocaleString()}</strong><span>lines added</span></div>
-              <div><strong>{story.models.length}</strong><span>models in the mix</span></div>
+              <div><strong>{displayStory.activeDays}</strong><span>active days</span></div>
+              <div><strong>{displayStory.sessionCount}</strong><span>AI sessions</span></div>
+              <div><strong>{displayStory.git.commits}</strong><span>commits</span></div>
+              <div><strong>{displayStory.git.additions.toLocaleString()}</strong><span>lines added</span></div>
+              <div><strong>{displayStory.models.length}</strong><span>models in the mix</span></div>
               <div>
-                <strong>{story.tokenUsage ? compactNumber.format(story.tokenUsage.totalTokens) : "—"}</strong>
+                <strong>{displayStory.tokenUsage ? compactNumber.format(displayStory.tokenUsage.totalTokens) : "—"}</strong>
                 <span>tokens processed</span>
               </div>
               <div>
-                <strong>{story.cost?.totalMicroUsd != null ? formatMicroUsd(story.cost.totalMicroUsd) : "—"}</strong>
+                <strong>{displayStory.cost?.totalMicroUsd != null ? formatMicroUsd(displayStory.cost.totalMicroUsd) : "—"}</strong>
                 <span>est. API-equivalent spend</span>
               </div>
             </div>
@@ -887,19 +953,27 @@ export function ProjectWorkbench({
                   </div>
                 </section>
 
-                {story.profile ? (
+                {displayStory.profile?.archetype || displayStory.profile?.scores ? (
                   <section className="story-section">
                     <span className="story-section__number">02</span>
                     <div>
                       <span className="story-section__label">BUILDER PROFILE</span>
-                      <h2>{story.profile.archetype.name}</h2>
-                      <p>{story.profile.archetype.rationale.join(" ")}</p>
-                      <div className="profile-score-grid">
-                        {Object.entries(story.profile.scores).map(([key, score]) => (
-                          <div key={key}><strong>{score.value}</strong><span>{key === "productInstinct" ? "product instinct*" : key}</span></div>
-                        ))}
-                      </div>
-                      <small>* Product instinct is a weak proxy derived from completion and plan-before-edit signals.</small>
+                      {displayStory.profile.archetype ? (
+                        <>
+                          <h2>{displayStory.profile.archetype.name}</h2>
+                          <p>{displayStory.profile.archetype.rationale.join(" ")}</p>
+                        </>
+                      ) : null}
+                      {displayStory.profile.scores ? (
+                        <>
+                          <div className="profile-score-grid">
+                            {Object.entries(displayStory.profile.scores).map(([key, score]) => (
+                              <div key={key}><strong>{score.value}</strong><span>{key === "productInstinct" ? "product instinct*" : key}</span></div>
+                            ))}
+                          </div>
+                          <small>* Product instinct is a weak proxy derived from completion and plan-before-edit signals.</small>
+                        </>
+                      ) : null}
                     </div>
                   </section>
                 ) : null}
@@ -911,7 +985,7 @@ export function ProjectWorkbench({
                   </aside>
                 ) : null}
 
-                {storyPack ? <StoryPackView pack={storyPack} privateView={false} reviewedEvidence={reviewedEvidence} fallbacksUsed={"fallbacksUsed" in story ? story.fallbacksUsed : []} /> : <section className="story-section story-pack-empty" aria-live="polite">
+                {publicStoryPackPreview ? <StoryPackView pack={publicStoryPackPreview} privateView={false} reviewedEvidence={reviewedEvidence} fallbacksUsed={"fallbacksUsed" in displayStory ? displayStory.fallbacksUsed : []} /> : <section className="story-section story-pack-empty" aria-live="polite">
                   <span className="story-section__number">02</span>
                   <div>
                     <span className="story-section__label">THE BUILD</span>
@@ -924,7 +998,7 @@ export function ProjectWorkbench({
                   <span className="story-section__number">03</span>
                   <div>
                     <span className="story-section__label">WHERE IT STANDS</span>
-                    <h2>{story.sessionCount} sessions, {story.git.commits} commits, and counting.</h2>
+                    <h2>{displayStory.sessionCount} sessions, {displayStory.git.commits} commits, and counting.</h2>
                     {story.stack.length ? (
                       <div className="story-tags">
                         {story.stack.map((tag) => <span key={tag}>{tag}</span>)}
@@ -939,7 +1013,7 @@ export function ProjectWorkbench({
                   <span>THE EVIDENCE</span>
                   <p>Generated from a redacted ProjectSnapshot.</p>
                 </div>
-                <ReceiptCard story={story} />
+                <ReceiptCard story={displayStory} />
                 {access === "creator" ? (
                   <button type="button" className="receipt-source-link" onClick={() => setView("private")}>
                     View private source report <span aria-hidden="true">→</span>
@@ -954,7 +1028,7 @@ export function ProjectWorkbench({
               <div className="community-section__actions">
                 <SocialActions storyId={story.reportId ?? story.id} ownerHandle={story.owner.handle} />
               </div>
-              <CommentThread storyId={story.reportId ?? story.id} />
+              <CommentThread storyId={story.reportId ?? story.id} chapterCount={Math.max(chapters.length, currentChapterIndex ?? 1)} />
             </div>
           ) : null}
         </div>
@@ -1016,6 +1090,12 @@ export function ProjectWorkbench({
             ))}
           </section>
 
+          {livePreviewDelta ? (
+            <section className="report-card report-card--delta-preview" aria-label="What changed since the last chapter">
+              <ChapterDeltaSummary delta={livePreviewDelta} selectedFields={selectedFields} />
+            </section>
+          ) : null}
+
           <section className="publication-boundary-panel">
             <header>
               <div>
@@ -1024,7 +1104,7 @@ export function ProjectWorkbench({
                 <p>The source snapshot and session details remain private regardless of this selection.</p>
               </div>
               <div className={`publication-state publication-state--${publicationStatus}`}>
-                <i /> {publicationStatus.replaceAll("_", " ")}
+                <i /> {publicationStatus === "draft_changes" ? "unpublished changes" : publicationStatus.replaceAll("_", " ")}
               </div>
             </header>
             <div className="public-field-grid">
@@ -1059,9 +1139,9 @@ export function ProjectWorkbench({
                   Save private selection
                 </button>
                 <button className="button button--primary" type="button" onClick={publishChanges} disabled={saveState === "saving"}>
-                  {saveState === "saving" ? "Publishing…" : publicationStatus === "published" ? "Republish page" : "Publish universal page"}
+                  {saveState === "saving" ? "Publishing…" : isLive ? "Republish page" : "Publish universal page"}
                 </button>
-                {publicationStatus === "published" ? <button className="button button--text" type="button" onClick={() => void unpublish()} disabled={saveState === "saving"}>Unpublish</button> : null}
+                {isLive ? <button className="button button--text" type="button" onClick={() => void unpublish()} disabled={saveState === "saving"}>Unpublish</button> : null}
               </div>
             </footer>
           </section>
@@ -1177,7 +1257,7 @@ export function ProjectWorkbench({
               <section className="report-card report-card--narrative">
                 <header><span>07 / AI-WRITTEN NARRATIVE</span><strong>{narrative?.mode === "cloud" ? "Cloud model" : "Local model"}</strong></header>
                 {resolvedNarrativeStatus === "narrative_ready" && narrative?.sections ? (
-                  storyPack ? <StoryPackView pack={storyPack} privateView reviewedEvidence={reviewedEvidence} fallbacksUsed={narrative.fallbacksUsed} /> : <section className="story-section story-pack-empty" aria-live="polite">
+                  privateStoryPack ? <StoryPackView pack={privateStoryPack} privateView reviewedEvidence={reviewedEvidence} fallbacksUsed={narrative.fallbacksUsed} /> : <section className="story-section story-pack-empty" aria-live="polite">
                     <span className="story-section__label">STRUCTURED STORY PACK</span>
                     <h3>Structured cards are not available for this report.</h3>
                     <p>This report was generated with an older narrative payload. Regenerate it with the current scanner to populate evidence-linked moments, decisions, learnings, traits, and growth cards.</p>

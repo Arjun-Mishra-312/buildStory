@@ -40,6 +40,8 @@ export type CommentStatus = "visible" | "deleted" | "hidden";
 export type CommentRecord = {
   id: string;
   reportId: string;
+  /** Which chapter of the project this comment was posted on - a project can roll up comments across several published chapters. */
+  chapterIndex: number;
   parentCommentId: string | null;
   author: CommentAuthor;
   body: string;
@@ -49,7 +51,7 @@ export type CommentRecord = {
   upvoteCount: number;
 };
 
-export type NotificationKind = "follow" | "reaction" | "comment" | "comment_reply" | "comment_upvote";
+export type NotificationKind = "follow" | "reaction" | "comment" | "comment_reply" | "comment_upvote" | "story_update";
 
 export type CommentViewerState = {
   upvotedCommentIds: string[];

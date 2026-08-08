@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-const links = [["Overview", "/studio"], ["Connect scanner", "/studio/connect"], ["Settings", "/studio/settings"], ["Public stories", "/explore"]] as const;
+const links = [["Overview", "/studio"], ["Projects", "/studio/projects"], ["Connect scanner", "/studio/connect"], ["Settings", "/studio/settings"], ["Public stories", "/explore"]] as const;
 
 export function StudioNav({ children, role }: { children: React.ReactNode; role: "member" | "moderator" | "admin" }) {
   const visibleLinks = role === "moderator" || role === "admin"
