@@ -5088,16 +5088,16 @@ html[data-theme="dark"] .background-theme-dark { display: block !important; }
 .background-picker__label small { color: var(--muted); font-size: 10px; line-height: 1.3; }
 
 .build-story__cover-background { position: absolute !important; inset: 0; z-index: 0; width: 100% !important; height: 100% !important; min-height: 0 !important; object-fit: cover !important; }
-.build-story__cover-copy { position: absolute; left: 0; top: 0; bottom: 0; z-index: 1; display: flex; flex-direction: column; justify-content: center; gap: 12px; width: 68%; padding: 34px; color: var(--paper); background: color-mix(in srgb, var(--midnight) 92%, transparent); }
+.build-story__cover-copy { position: absolute; left: 0; top: 0; bottom: 0; z-index: 1; display: flex; flex-direction: column; justify-content: center; gap: 12px; width: 68%; padding: 34px; color: var(--ink); background: color-mix(in srgb, var(--surface-strong) 92%, transparent); }
 .build-story__cover-copy strong { max-width: 14ch; font: 400 clamp(24px, 3vw, 38px)/1 var(--font-editorial); }
 .build-story__cover-copy i { display: block; width: 72%; height: 2px; background: var(--coral); }
-.build-story__cover-copy small { color: color-mix(in srgb, var(--paper) 72%, transparent); font: 10px var(--font-code); letter-spacing: .06em; text-transform: uppercase; }
+.build-story__cover-copy small { color: color-mix(in srgb, var(--ink) 72%, transparent); font: 10px var(--font-code); letter-spacing: .06em; text-transform: uppercase; }
 
 .explore-story-card__receipt--image { position: relative; isolation: isolate; padding: 0; background: var(--midnight); }
 .explore-story-card__receipt--image > img { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; object-fit: cover; }
-.explore-story-card__receipt-copy { display: flex; position: absolute; left: 0; top: 0; bottom: 0; flex-direction: column; justify-content: center; gap: 9px; width: 76%; padding: 18px; color: var(--paper); background: color-mix(in srgb, var(--midnight) 93%, transparent); }
+.explore-story-card__receipt-copy { display: flex; position: absolute; left: 0; top: 0; bottom: 0; flex-direction: column; justify-content: center; gap: 9px; width: 76%; padding: 18px; color: var(--ink); background: color-mix(in srgb, var(--surface-strong) 93%, transparent); }
 .explore-story-card__receipt-copy span,
-.explore-story-card__receipt-copy small { color: #aab8de; font: 9px var(--font-code); letter-spacing: .1em; text-transform: uppercase; }
+.explore-story-card__receipt-copy small { color: var(--muted); font: 9px var(--font-code); letter-spacing: .1em; text-transform: uppercase; }
 .explore-story-card__receipt-copy strong { font: 20px var(--font-editorial); }
 .explore-story-card__receipt-copy i { display: block; height: 2px; width: 70%; background: var(--coral); }
 
