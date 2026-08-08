@@ -1,6 +1,6 @@
 # Buildstory web
 
-Desktop-first Buildstory product for publishing sanitized stories about AI-assisted software work. The web app is a Next.js 16/Vinext application built for Cloudflare Sites and lives in the standalone Buildstory repository.
+Desktop-first Buildstory product for publishing sanitized stories about AI-assisted software work. The web app is a Next.js 16/Vinext application deployed as a Cloudflare Worker and lives in the standalone Buildstory repository.
 
 ## Product surfaces
 
@@ -69,9 +69,9 @@ Jobs use a durable lease, idempotent status transitions, and at most three attem
 
 ## Production configuration
 
-`.env.production.example` lists every required name. Secret values belong in the Sites secret manager, never source control or build logs. Production requires:
+`.env.production.example` lists every required name. Secret values belong in the Cloudflare Worker secret store, never source control or build logs. Production requires:
 
-- Cloudflare Sites/Vinext and the logical D1 binding `DB`;
+- Cloudflare Workers/Vinext and the logical D1 binding `DB`;
 - the committed Drizzle migration under `drizzle/`;
 - Google OAuth credentials and a 32+ character Auth.js secret;
 - an HTTPS `BUILDSTORY_PUBLIC_ORIGIN`;

@@ -4,7 +4,7 @@ Buildstory is a standalone product for publishing sanitized stories about AI-ass
 
 ## Repository layout
 
-- `apps/buildstory-web` — Next.js 16/Vinext web app, Auth.js integration, strict local scanner API, D1 schema and migration, Cloudflare Sites configuration, tests, and operations documentation.
+- `apps/buildstory-web` — Next.js 16/Vinext web app, Auth.js integration, strict local scanner API, D1 schema and migration, Cloudflare Worker configuration, tests, and operations documentation.
 - `packages/buildstory-scanner` — read-only local CLI package exposing both `buildstory` and the compatible `story-scanner` alias.
 - `artifacts/` — packed scanner archives for local install and release verification. `npm run package:scanner` writes the current one; `npm run check:artifact` asserts the newest matches the source schema.
 

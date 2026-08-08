@@ -40,11 +40,11 @@ The scanner accepts a hosted ingestion destination only when explicitly pinned p
 
 ## Staging
 
-1. Use a dedicated Sites project, D1 database, Google OAuth client, hostname, and secrets. Never reuse production D1 for staging.
+1. Use a dedicated Cloudflare Worker, D1 database, Google OAuth client, hostname, and secrets. Never reuse production D1 for staging.
 2. Configure all names from `.env.production.example`; use the staging HTTPS origin and exact staging host allowlist.
-3. Generate and inspect schema changes with `npm run db:generate`. Commit both SQL and Drizzle metadata. The Sites build copies migrations to `dist/.openai/drizzle`.
+3. Generate and inspect schema changes with `npm run db:generate`. Commit both SQL and Drizzle metadata. The release workflow applies migrations from `drizzle/` before deploying the Worker.
 4. Run `npm run build:production` in an environment containing the required names, then `npm run verify`.
-5. Save/deploy a Sites version only through the approved release process. This repository consolidation does not deploy.
+5. Deploy a Worker release only through the approved release process. This repository consolidation does not deploy.
 6. Confirm `GET /api/health` is 200 and `GET /api/ready` is 200 after bindings/migrations are active. Confirm an unknown host is rejected, anonymous public routes render, and creator routes require Google.
 7. Exercise the full CLI flow against staging's own origin: `buildstory-scan connect <session> --code <code> --api-base-url https://<staging-host>/ --allow-host <staging-host>`, then `scan-upload` and `status`. Confirm the same flow against a *different* host (e.g. production's origin, or an unrelated one) is refused - a required security result.
 
@@ -109,4 +109,4 @@ During an auth or data incident:
 
 ## Rollback and backup
 
-Roll back the application version through Sites. Prefer additive, backward-compatible D1 migrations; do not run destructive down migrations during an incident. Restore D1 from the provider's approved backup/time-travel workflow only after recording the recovery point and impact. Validate `/api/ready`, ownership checks, and public projection behavior before reopening traffic.
+Roll back the application version through the Cloudflare Worker deployment. Prefer additive, backward-compatible D1 migrations; do not run destructive down migrations during an incident. Restore D1 from the provider's approved backup/time-travel workflow only after recording the recovery point and impact. Validate `/api/ready`, ownership checks, and public projection behavior before reopening traffic.

@@ -154,8 +154,8 @@ slugs, same-origin creator-write protection, strict host handling, readiness,
 security headers, and content-free structured error logging.
 
 Operators must still complete the release-specific work in
-`docs/production-runbook.md`: provision Sites/D1, apply migrations, store Auth.js
-and Google credentials in the hosted secret manager, register the exact HTTPS
+`docs/production-runbook.md`: provision the Cloudflare Worker/D1/R2 resources, apply migrations, store Auth.js
+and Google credentials in the Worker secret store, register the exact HTTPS
 callback, configure the host allowlist and edge rate limits, establish backup
 and retention policy, complete privacy/terms/deletion processes, and obtain
 explicit deployment approval. Missing production configuration or D1 state

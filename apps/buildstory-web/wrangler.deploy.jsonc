@@ -9,7 +9,7 @@
   //   - Not `wrangler.jsonc`: confirmed 2026-08-04 that `vinext dev`
   //     auto-discovers a file literally named wrangler.jsonc in this directory
   //     regardless of whether vite.config.ts references it, and MERGES it with
-  //     the inline `.openai/hosting.json`-driven config - which then declares
+  //     the inline local-dev config - which then declares
   //     `nodejs_compat` twice and crashes Miniflare outright ("Compatibility
   //     flag specified multiple times: nodejs_compat").
   //

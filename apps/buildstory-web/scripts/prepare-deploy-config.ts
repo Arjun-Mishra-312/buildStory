@@ -6,14 +6,14 @@ import path from "node:path";
  * deploy config driven by `wrangler.deploy.jsonc`.
  *
  * The generated file is built from vite.config.ts's *local dev* binding block,
- * so it ships Miniflare placeholders (`site-creator-d1`, `site-creator-r2`, the
+ * so it ships local-dev placeholders (`buildstory-local-d1`, `buildstory-local-r2`, the
  * all-zero database id) and an empty `vars`. Every one of those is wrong for a
  * real deploy, and none of them fail `wrangler deploy --dry-run` - the dry run
  * never contacts the account. So each is overwritten here and then re-checked
  * against the assertions at the bottom.
  */
 
-const DEV_PLACEHOLDERS = ["00000000-0000-4000-8000-000000000000", "site-creator-d1", "site-creator-r2"];
+const DEV_PLACEHOLDERS = ["00000000-0000-4000-8000-000000000000", "buildstory-local-d1", "buildstory-local-r2"];
 
 /** Names worker/index.ts and lib/config/runtime.ts require at runtime; secrets are set separately. */
 const REQUIRED_VARS = [
@@ -99,7 +99,7 @@ generated.d1_databases = (source.d1_databases as Array<Record<string, unknown>>)
 });
 
 // db/r2.ts resolves env.MEDIA. Without this the generated file keeps the
-// Miniflare `site-creator-r2` placeholder and deploy binds a bucket that does
+// local-dev `buildstory-local-r2` placeholder and deploy binds a bucket that does
 // not exist - or, worse, silently creates the wrong one.
 generated.r2_buckets = required(source.r2_buckets, "wrangler.deploy.jsonc must declare the MEDIA r2_buckets binding before deploy.");
 

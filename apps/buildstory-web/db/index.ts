@@ -6,7 +6,7 @@ let testDatabase: D1Database | null = null;
 export class DatabaseUnavailableError extends Error {
   constructor() {
     super(
-      "The required Cloudflare D1 binding `DB` is unavailable. Configure the Sites D1 binding and apply migrations before serving production traffic.",
+      "The required Cloudflare D1 binding `DB` is unavailable. Configure the Cloudflare D1 binding and apply migrations before serving production traffic.",
     );
   }
 }
