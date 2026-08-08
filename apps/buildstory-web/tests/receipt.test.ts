@@ -58,3 +58,62 @@ test("receipt uses deterministic cost shares and keeps unpriced models outside t
   assert.match(html, /API-equivalent spend/);
   assert.match(html, /unpriced models are excluded from the cost-share denominator/);
 });
+
+test("receipt surfaces skipped sessions and partially-priced models instead of presenting a silently partial total", async () => {
+  const snapshot = await receiptFixture();
+  snapshot.usage.coverage = {
+    sessionsDiscovered: 17,
+    sessionsIncluded: 12,
+    sessionsSkipped: 5,
+    skipped: [{ reason: "outside-window", count: 5 }],
+    partiallyPricedModels: 1,
+  };
+  const story = buildStoryFromSnapshot(snapshot);
+
+  const html = renderToStaticMarkup(createElement(ReceiptCard, { story }));
+  assert.match(html, /5 sessions outside the selected window aren&#x27;t reflected in these totals\./);
+  assert.match(html, /1 model priced only part of its observed usage\./);
+});
+
+test("receipt shows no coverage caveat when nothing was skipped or partially priced", async () => {
+  const snapshot = await receiptFixture();
+  snapshot.usage.coverage = {
+    sessionsDiscovered: 1,
+    sessionsIncluded: 1,
+    sessionsSkipped: 0,
+    skipped: [],
+    partiallyPricedModels: 0,
+  };
+  const story = buildStoryFromSnapshot(snapshot);
+
+  const html = renderToStaticMarkup(createElement(ReceiptCard, { story }));
+  assert.doesNotMatch(html, /reflected in these totals/);
+  assert.doesNotMatch(html, /priced only part of its observed usage/);
+});
+
+test("two distinct models never collapse onto the same id just because one's name contains a colon", async () => {
+  const raw = JSON.parse(
+    await readFile(path.resolve(process.cwd(), "tests/fixtures/scanner-project-snapshot.json"), "utf8"),
+  ) as ScannerProjectSnapshot;
+  // Naive `${provider}:${name}` joining collides these two onto the same
+  // string ("a:b:c") even though they're different models - see
+  // report-adapter.ts's escapeIdPart.
+  raw.usage.models = [
+    { provider: "a", name: "b:c", turnCount: 1, sessionCount: 1, tokenUsage: null, costMicroUsd: 1_000_000 },
+    { provider: "a:b", name: "c", turnCount: 1, sessionCount: 1, tokenUsage: null, costMicroUsd: 1_000_000 },
+  ];
+  raw.sessions[0]!.modelRefs = ["b:c", "c"];
+
+  const snapshot = reportSnapshotFromScanner(raw, { id: "project-collision", slug: "project-collision" }, {
+    id: "creator-collision",
+    name: "Collision Tester",
+    handle: "collision-tester",
+    role: "Builder",
+  });
+
+  const ids = snapshot.usage.models.map((model) => model.id);
+  assert.equal(new Set(ids).size, ids.length, `expected distinct ids, got: ${ids.join(", ")}`);
+
+  const story = buildStoryFromSnapshot(snapshot);
+  assert.deepEqual(story.models.map((model) => model.share).sort(), [50, 50], "each model must get its own cost share, not one collapsed entry");
+});

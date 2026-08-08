@@ -159,7 +159,7 @@ function providerLabel(provider: ScannerProjectSnapshot["sessions"][number]["pro
 function expectedAssumptions(snapshot: ScannerProjectSnapshot) {
   const providerIds = snapshot.sourceSelection.providers.map((selection) => selection.provider);
   const assumptions = [
-    "When no explicit start is supplied, the scanner uses a deterministic 30-day lookback from the effective end.",
+    "When no explicit start is supplied, the scanner defaults to full observed history, starting at the earliest session.",
     "Git fileTouches is the sum of per-commit changed-file counts and is not a unique-file count.",
     "Estimated cost is priced from a static, versioned table of known model families; a model not in that table shows tokens only, never a guessed price.",
   ];
@@ -240,6 +240,7 @@ const expectedWarningMessages: Record<QualityWarningCode, readonly string[]> = {
   SESSION_MODEL_UNKNOWN: [
     "No model identifier was present in the session metadata.",
     "No model identifier was present in an assistant message.",
+    "At least one token count was recorded before any model identifier was established and was billed under a placeholder model name.",
   ],
   SESSION_ACTIVE_AT_SCAN_END: [
     "An active Codex session had no completion marker at the observed boundary.",

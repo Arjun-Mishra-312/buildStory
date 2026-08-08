@@ -176,6 +176,7 @@ export const orbitNotesSnapshot = {
       unpricedTokens: 0,
       pricingTableVersion: "2026-08-05.1",
     },
+    coverage: null,
   },
   git: {
     commits: 87,

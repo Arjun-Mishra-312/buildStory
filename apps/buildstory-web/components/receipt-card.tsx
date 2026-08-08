@@ -13,6 +13,7 @@ type ReceiptStory = Pick<
   | "modelRequests"
   | "redaction"
   | "cost"
+  | "coverage"
 >;
 
 type ReceiptCardProps = {
@@ -24,6 +25,16 @@ const usdFormat = new Intl.NumberFormat("en", { style: "currency", currency: "US
 const formatMicroUsd = (microUsd: number) => usdFormat.format(microUsd / 1_000_000);
 
 export function ReceiptCard({ story, compact = false }: ReceiptCardProps) {
+  const coverageNotes: string[] = [];
+  if (story.coverage && story.coverage.sessionsSkipped > 0) {
+    const n = story.coverage.sessionsSkipped;
+    coverageNotes.push(`${n.toLocaleString()} session${n === 1 ? "" : "s"} outside the selected window ${n === 1 ? "isn't" : "aren't"} reflected in these totals.`);
+  }
+  if (story.coverage && story.coverage.partiallyPricedModels > 0) {
+    const n = story.coverage.partiallyPricedModels;
+    coverageNotes.push(`${n.toLocaleString()} model${n === 1 ? "" : "s"} priced only part of its observed usage.`);
+  }
+
   return (
     <aside className={`receipt ${compact ? "receipt--compact" : ""}`}>
       <div className="receipt__teeth receipt__teeth--top" aria-hidden="true" />
@@ -107,6 +118,9 @@ export function ReceiptCard({ story, compact = false }: ReceiptCardProps) {
         <p className="receipt__fineprint">
           {story.cost.unpricedTokens.toLocaleString()} tokens from unpriced models are excluded from the cost-share denominator.
         </p>
+      ) : null}
+      {coverageNotes.length > 0 ? (
+        <p className="receipt__fineprint">{coverageNotes.join(" ")}</p>
       ) : null}
       <div className="receipt__barcode" aria-hidden="true" />
       <p className="receipt__fineprint">

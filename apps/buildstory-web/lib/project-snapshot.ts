@@ -80,6 +80,23 @@ export type AggregateCost = {
   pricingTableVersion: string;
 };
 
+/**
+ * How completely the shown usage/cost figures reflect what the scanner
+ * actually observed on disk - see buildstory-scan's UsageCoverage. Exists so
+ * a build receipt never presents a partial number as if it were the whole
+ * story.
+ */
+export type AggregateCoverage = {
+  sessionsDiscovered: number;
+  sessionsIncluded: number;
+  sessionsSkipped: number;
+  skipped: Array<{
+    reason: "outside-window" | "no-timestamp" | "duplicate-session-id" | "parse-failed" | "file-unreadable";
+    count: number;
+  }>;
+  partiallyPricedModels: number;
+};
+
 export type ToolModelUsage = {
   models: Array<{
     id: string;
@@ -101,6 +118,8 @@ export type ToolModelUsage = {
   tokenUsage: AggregateTokenUsage | null;
   /** null on a report sourced from a scanner older than 1.6.0 - treat the same as "no cost data". */
   cost: AggregateCost | null;
+  /** null on a report sourced from a scanner older than 1.7.0 - coverage is unknown, not zero. */
+  coverage: AggregateCoverage | null;
 };
 
 export type GitAggregates = {

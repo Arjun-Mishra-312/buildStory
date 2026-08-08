@@ -100,6 +100,7 @@ export function buildStoryFromSnapshot(snapshot: ProjectSnapshot) {
     tools: snapshot.usage.tools,
     tokenUsage: snapshot.usage.tokenUsage,
     cost: snapshot.usage.cost,
+    coverage: snapshot.usage.coverage,
     stack: [snapshot.repository.framework, snapshot.repository.primaryLanguage, snapshot.repository.packageManager]
       .filter((value): value is string => Boolean(value) && value !== "Not collected"),
     git: snapshot.git,
@@ -261,11 +262,19 @@ export function publicBuildStoryFromSnapshot(
     modelRequests: selected.has("modelMix") ? story.modelRequests : 0,
     models: selected.has("modelMix")
       ? story.models.map((model) =>
-          selected.has("costEstimate") ? model : { ...model, tokenUsage: null, costMicroUsd: null },
+          // `share` is a cost percentage computed from real costMicroUsd
+          // figures (see costShares above) - it must be withheld along with
+          // tokenUsage/costMicroUsd whenever costEstimate isn't selected, or
+          // an exact cost breakdown leaks through a mix-only receipt.
+          selected.has("costEstimate") ? model : { ...model, tokenUsage: null, costMicroUsd: null, share: null },
         )
       : [],
     tokenUsage: selected.has("modelMix") ? story.tokenUsage : null,
     cost: selected.has("costEstimate") ? story.cost : null,
+    // Coverage describes both a session count (sessionSummary) and a cost
+    // caveat (costEstimate) - only show it when both are public, so it
+    // never leaks a category the creator didn't select.
+    coverage: selected.has("costEstimate") && selected.has("sessionSummary") ? story.coverage : null,
     tools: selected.has("toolUsage") ? story.tools : [],
     git: selected.has("gitAggregates")
       ? story.git

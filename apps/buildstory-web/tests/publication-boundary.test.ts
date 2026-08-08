@@ -229,3 +229,22 @@ test("regression: builder profile sub-fields are independently gated", () => {
   assert.equal(scoresOnly.profile?.archetype, null, "archetype must stay hidden when only profileScores is selected");
   assert.equal(scoresOnly.profile?.workPatterns, null, "workPatterns must stay hidden when only profileScores is selected");
 });
+
+test("regression: a model's cost 'share' percentage is withheld along with costEstimate, not leaked via modelMix alone", () => {
+  // model.share is computed from real costMicroUsd figures (see costShares
+  // in build-story.ts) - it rides the same privacy gate as cost itself, not
+  // the model-mix gate, or the exact cost percentage would leak through a
+  // receipt that only opted into showing the model mix.
+  const modelMixOnly = project(["tagline", "modelMix"]);
+  assert.ok(modelMixOnly.models.length > 0, "fixture sanity: modelMix alone must still show model rows");
+  for (const model of modelMixOnly.models) {
+    assert.equal(model.share, null, `${model.label}'s cost share must stay hidden without costEstimate`);
+    assert.equal(model.costMicroUsd, null);
+  }
+
+  const modelMixAndCost = project(["tagline", "modelMix", "costEstimate"]);
+  assert.ok(
+    modelMixAndCost.models.some((model) => model.share !== null),
+    "selecting costEstimate alongside modelMix must restore the real share percentages",
+  );
+});

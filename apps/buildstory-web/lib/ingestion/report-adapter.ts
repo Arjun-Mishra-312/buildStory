@@ -43,6 +43,17 @@ function isSyntheticModel(name: string) {
 }
 
 /**
+ * Escapes "\" and ":" so `${escapeIdPart(provider)}:${escapeIdPart(name)}`
+ * is injective - a literal colon inside `provider` or `name` can no longer
+ * be mistaken for the field separator and collide two distinct models onto
+ * the same id (which then collapses their cost shares onto one entry - see
+ * build-story.ts's costShares).
+ */
+function escapeIdPart(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll(":", "\\:");
+}
+
+/**
  * Turns the strict content-free scanner transport into the private report input
  * already consumed by the validated UI. No source snapshot field is invented,
  * and private scanner provenance stays on the private report only.
@@ -107,7 +118,7 @@ export function reportSnapshotFromScanner(
     })),
     usage: {
       models: reportModels.map((model) => ({
-        id: `${model.provider}:${model.name}`,
+        id: `${escapeIdPart(model.provider)}:${escapeIdPart(model.name)}`,
         label: model.name,
         provider: model.provider,
         requests: model.turnCount,
@@ -139,6 +150,8 @@ export function reportSnapshotFromScanner(
         : null,
       // Absent on a snapshot from a scanner older than 1.6.0 - "no cost data," same as an unpriced model.
       cost: snapshot.usage.cost ?? null,
+      // Absent on a snapshot from a scanner older than 1.7.0 - coverage is unknown, not zero.
+      coverage: snapshot.usage.coverage ?? null,
     },
     git: {
       commits: snapshot.git.commits,

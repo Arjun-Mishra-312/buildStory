@@ -112,7 +112,7 @@ test("production upload validation rejects legacy scanner contracts", () => {
   try {
     const result = validateProjectSnapshot(legacySnapshot);
     assert.equal(result.ok, false);
-    if (!result.ok) assert.match(result.errors[0] ?? "", /Production uploads require ProjectSnapshot 1\.6\.0/);
+    if (!result.ok) assert.match(result.errors[0] ?? "", /Production uploads require ProjectSnapshot 1\.7\.0/);
   } finally {
     if (previous === undefined) Reflect.deleteProperty(process.env, "NODE_ENV");
     else Reflect.set(process.env, "NODE_ENV", previous);

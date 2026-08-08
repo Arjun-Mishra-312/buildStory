@@ -6,9 +6,9 @@
  * transport object after validation; it is never accepted as upload input.
  */
 
-export const PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.6.0" as const;
-/** Accepted only as a transport compatibility shim; new scanners must emit 1.6.0. */
-export const PREVIOUS_PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.5.0" as const;
+export const PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.7.0" as const;
+/** Accepted only as a transport compatibility shim; new scanners must emit 1.7.0. */
+export const PREVIOUS_PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.6.0" as const;
 /** Still accepted at the upload boundary for already-installed CLIs during rollout. See validation.ts. */
 export const LEGACY_PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.3.0" as const;
 export const OLDEST_PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.2.0" as const;
@@ -197,7 +197,7 @@ export interface TimeWindow {
   start: IsoDateTime;
   end: IsoDateTime;
   timezone: "UTC";
-  startBasis: "explicit" | "default-lookback" | "empty-repository";
+  startBasis: "explicit" | "full-history" | "default-lookback" | "empty-repository";
   endBasis: "explicit" | "latest-session" | "head-commit" | "unix-epoch";
   utcOffsetMinutes?: number;
 }
@@ -256,6 +256,8 @@ export interface UsageSummary {
   tokenUsage: TokenUsage | null;
   /** Absent on a snapshot from a scanner older than 1.6.0 - treat the same as "no cost data". */
   cost?: UsageCostSummary;
+  /** Absent on a snapshot from a scanner older than 1.7.0 - coverage is unknown, not zero. */
+  coverage?: UsageCoverage;
 }
 
 export interface UsageCostSummary {
@@ -263,6 +265,17 @@ export interface UsageCostSummary {
   pricedTokens: number;
   unpricedTokens: number;
   pricingTableVersion: string;
+}
+
+export interface UsageCoverage {
+  sessionsDiscovered: number;
+  sessionsIncluded: number;
+  sessionsSkipped: number;
+  skipped: Array<{
+    reason: "outside-window" | "no-timestamp" | "duplicate-session-id" | "parse-failed" | "file-unreadable";
+    count: number;
+  }>;
+  partiallyPricedModels: number;
 }
 
 export interface GitAggregateMetrics {

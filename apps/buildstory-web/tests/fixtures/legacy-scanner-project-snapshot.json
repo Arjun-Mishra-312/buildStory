@@ -179,7 +179,7 @@
     "warningCount": 0,
     "warnings": [],
     "assumptions": [
-      "When no explicit start is supplied, the scanner uses a deterministic 30-day lookback from the effective end.",
+      "When no explicit start is supplied, the scanner defaults to full observed history, starting at the earliest session.",
       "Git fileTouches is the sum of per-commit changed-file counts and is not a unique-file count.",
       "Estimated cost is priced from a static, versioned table of known model families; a model not in that table shows tokens only, never a guessed price.",
       "Codex sessions are repository-scoped from session or turn-context working-directory metadata.",
