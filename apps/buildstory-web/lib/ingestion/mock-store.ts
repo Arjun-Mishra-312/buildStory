@@ -11,6 +11,7 @@ import { NARRATIVE_FIELD_LIMITS } from "@/lib/narrative/schema";
 import { sanitizePublicText } from "@/lib/publication/sanitization";
 import { getTrendingScoreForReport, registerProfile as registerSocialProfileRecord, registerReport as registerSocialReportRecord } from "@/lib/social/mock-store";
 import { MAX_MEDIA_PER_REPORT } from "./contracts";
+import { DEFAULT_STORY_BACKGROUND_ID, isStoryBackgroundId } from "@/lib/background-options";
 import { compareExploreRows, decodeExploreCursor, encodeExploreCursor, isAfterExploreCursor } from "./explore-cursor";
 import type {
   DeviceAuthorization,
@@ -194,6 +195,7 @@ function createSeedStore(): MockStore {
         "AI made it cheap to explore three architectures. Tester feedback made it obvious which one deserved to survive.",
     },
     category: "productivity",
+    storyBackgroundId: DEFAULT_STORY_BACKGROUND_ID,
     artifact: {
       projectUrl: "https://example.com/orbit-notes",
       repoUrl: "https://github.com/example/orbit-notes",
@@ -234,7 +236,7 @@ function createSeedStore(): MockStore {
     snapshot: null,
     queuedAt: orbitNotesSnapshot.provenance.scannedAt,
   };
-  const publicStory = publicBuildStoryFromSnapshot(report.snapshot, report.selectedPublicFields, { reflection: report.editorial.reflection, category: report.category }, report.artifact);
+  const publicStory = publicBuildStoryFromSnapshot(report.snapshot, report.selectedPublicFields, { reflection: report.editorial.reflection, category: report.category }, report.artifact, { storyBackgroundId: report.storyBackgroundId });
   return {
     sessions: new Map([[sessionId, session]]),
     reports: new Map([[reportId, report]]),
@@ -996,6 +998,7 @@ export async function acceptSnapshot(
       reflection: "",
     },
     category: null,
+    storyBackgroundId: DEFAULT_STORY_BACKGROUND_ID,
     artifact: { projectUrl: null, repoUrl: null, videoUrl: null },
     publication: {
       status: "not_published",
@@ -1171,6 +1174,7 @@ export function updateReport(
     editorial?: Partial<GeneratedReport["editorial"]>;
     artifact?: ArtifactLinksUpdate;
     category?: GeneratedReport["category"];
+    storyBackgroundId?: GeneratedReport["storyBackgroundId"];
   },
 ): GeneratedReport {
   const report = store.reports.get(reportId);
@@ -1257,6 +1261,12 @@ export function updateReport(
       throw new MockIngestionError("invalid_category", "Choose a valid project category.", 422);
     }
     report.category = update.category;
+  }
+  if (update.storyBackgroundId !== undefined) {
+    if (!isStoryBackgroundId(update.storyBackgroundId)) {
+      throw new MockIngestionError("invalid_story_background", "Choose a valid story background.", 422);
+    }
+    report.storyBackgroundId = update.storyBackgroundId;
   }
   if (report.publication.status === "published") {
     report.publication.status = "draft_changes";
@@ -1383,7 +1393,7 @@ export function publishReport(creatorId: string, reportId: string): GeneratedRep
   report.publication.status = "published";
   report.publication.publishedAt = now;
   report.publication.publicUrl = becomesCanonical ? canonicalUrl : `${canonicalUrl}/${report.publication.chapterIndex}`;
-  const publicStory = publicBuildStoryFromSnapshot(report.snapshot, report.selectedPublicFields, { reflection: report.editorial.reflection, category: report.category }, { ...report.artifact, media: listReportMedia(report.id) });
+  const publicStory = publicBuildStoryFromSnapshot(report.snapshot, report.selectedPublicFields, { reflection: report.editorial.reflection, category: report.category }, { ...report.artifact, media: listReportMedia(report.id) }, { storyBackgroundId: report.storyBackgroundId });
   store.publicStoryIndex.set(report.id, {
     story: publicStory,
     category: report.category,
@@ -1515,7 +1525,7 @@ export function getPublishedStoryBySlug(slug: string) {
   return publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields, {
     reflection: report.editorial.reflection,
     category: report.category,
-  }, { ...report.artifact, media: listReportMedia(report.id) });
+  }, { ...report.artifact, media: listReportMedia(report.id) }, { storyBackgroundId: report.storyBackgroundId });
 }
 
 export function getPublishedStory(handle: string, slug: string) {
@@ -1530,7 +1540,7 @@ export function getPublishedStory(handle: string, slug: string) {
   snapshot.identity.tagline = report.editorial.tagline;
   snapshot.identity.description = report.editorial.description;
   snapshot.identity.visibility = "public";
-  return { ...publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields, { reflection: report.editorial.reflection, category: report.category }, { ...report.artifact, media: listReportMedia(report.id) }), reportId: report.id };
+  return { ...publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields, { reflection: report.editorial.reflection, category: report.category }, { ...report.artifact, media: listReportMedia(report.id) }, { storyBackgroundId: report.storyBackgroundId }), reportId: report.id };
 }
 
 /** A specific chapter of a project's public story, by its 1-based chapterIndex - used for the archival "<slug>/<n>" path. */
@@ -1549,7 +1559,7 @@ export function getPublishedStoryChapter(handle: string, slug: string, chapterIn
   snapshot.identity.tagline = report.editorial.tagline;
   snapshot.identity.description = report.editorial.description;
   snapshot.identity.visibility = "public";
-  return { ...publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields, { reflection: report.editorial.reflection, category: report.category }, { ...report.artifact, media: listReportMedia(report.id) }), reportId: report.id };
+  return { ...publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields, { reflection: report.editorial.reflection, category: report.category }, { ...report.artifact, media: listReportMedia(report.id) }, { storyBackgroundId: report.storyBackgroundId }), reportId: report.id };
 }
 
 /** All currently-published chapters of a project, oldest first - powers the timeline nav. */
@@ -1617,7 +1627,7 @@ export function listPublishedStories(limit = 30, cursor?: string) {
         ...publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields, {
           reflection: report.editorial.reflection,
           category: report.category,
-        }, report.artifact),
+        }, report.artifact, { storyBackgroundId: report.storyBackgroundId }),
         publishedAt: report.publication.publishedAt,
       };
     });
@@ -1723,7 +1733,7 @@ export function listStoriesByOwner(ownerUserId: string, limit = 30, cursor?: str
         ...publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields, {
           reflection: report.editorial.reflection,
           category: report.category,
-        }, report.artifact),
+        }, report.artifact, { storyBackgroundId: report.storyBackgroundId }),
         publishedAt: report.publication.publishedAt,
       };
     });
@@ -1762,7 +1772,7 @@ export function searchPublishedStories(query: string, limit = 20, cursor?: strin
       return {
         ...publicBuildStoryFromSnapshot(snapshot, report.selectedPublicFields, {
           reflection: report.editorial.reflection,
-        }, report.artifact),
+        }, report.artifact, { storyBackgroundId: report.storyBackgroundId }),
         publishedAt: report.publication.publishedAt,
       };
     });

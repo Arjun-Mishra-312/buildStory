@@ -5,6 +5,7 @@ import type { BuildStoryViewModel, PublicBuildStoryViewModel } from "@/lib/build
 import { STORY_CATEGORIES, type NarrativeRecord, type PublicationStatus, type PublicFieldKey, type ReportMediaRecord, type StoryCategory } from "@/lib/ingestion/contracts";
 import type { NarrativeDisplayStatus } from "@/lib/ingestion/narrative-status";
 import type { ReportStoryPackV2 } from "@/lib/ingestion/scanner-project-snapshot";
+import { DEFAULT_STORY_BACKGROUND_ID, STORY_BACKGROUND_OPTIONS, storyBackgroundOption, type StoryBackgroundId } from "@/lib/background-options";
 import { copyToClipboard } from "@/lib/clipboard";
 import { initialsFrom } from "@/lib/identity/initials";
 import { resolveVideoEmbed } from "@/lib/media/video-embed";
@@ -31,6 +32,7 @@ type ProjectWorkbenchProps = {
     reflection: string;
   }>;
   initialCategory?: StoryCategory | null;
+  initialStoryBackgroundId?: StoryBackgroundId;
   initialArtifact?: ArtifactLinksState;
   initialMedia?: ReportMediaRecord[];
   initialVerifiedRepoAt?: string | null;
@@ -198,6 +200,7 @@ export function ProjectWorkbench({
   narrativeStatus,
   initialEditorial,
   initialCategory,
+  initialStoryBackgroundId = DEFAULT_STORY_BACKGROUND_ID,
   initialArtifact,
   initialMedia = [],
   initialVerifiedRepoAt = null,
@@ -232,6 +235,8 @@ export function ProjectWorkbench({
   const [description, setDescription] = useState(initialDescription);
   const [reflection, setReflection] = useState(defaultReflection);
   const [category, setCategory] = useState<StoryCategory | null>(resolvedCategory);
+  const [storyBackgroundId, setStoryBackgroundId] = useState<StoryBackgroundId>(initialStoryBackgroundId);
+  const publicStoryBackgroundId = "storyBackgroundId" in story && story.storyBackgroundId ? story.storyBackgroundId : initialStoryBackgroundId;
   const [artifactLinks, setArtifactLinks] = useState<ArtifactLinksState>(
     initialArtifact ?? { projectUrl: null, repoUrl: null, videoUrl: null },
   );
@@ -243,7 +248,11 @@ export function ProjectWorkbench({
     repoUrl: artifactLinks.repoUrl ?? "",
     videoUrl: artifactLinks.videoUrl ?? "",
     category: resolvedCategory ?? "",
+    storyBackgroundId: initialStoryBackgroundId,
   });
+  const activeStoryBackgroundId = access === "creator"
+    ? (editing ? draft.storyBackgroundId : storyBackgroundId)
+    : publicStoryBackgroundId;
   const [media, setMedia] = useState<ReportMediaRecord[]>(initialMedia);
   const [mediaBusy, setMediaBusy] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
@@ -285,6 +294,7 @@ export function ProjectWorkbench({
       repoUrl: artifactLinks.repoUrl ?? "",
       videoUrl: artifactLinks.videoUrl ?? "",
       category: category ?? "",
+      storyBackgroundId,
     });
     setEditing(true);
   }
@@ -298,6 +308,7 @@ export function ProjectWorkbench({
       repoUrl: artifactLinks.repoUrl ?? "",
       videoUrl: artifactLinks.videoUrl ?? "",
       category: category ?? "",
+      storyBackgroundId,
     });
     setEditing(false);
   }
@@ -315,13 +326,14 @@ export function ProjectWorkbench({
       videoUrl: draft.videoUrl.trim() || null,
     };
     const nextCategory = draft.category && STORY_CATEGORIES.includes(draft.category as StoryCategory) ? draft.category as StoryCategory : null;
+    const nextStoryBackgroundId = draft.storyBackgroundId;
     setSaveState("saving");
     try {
       if (reportId) {
         const response = await fetch(`/api/creator/reports/${reportId}`, {
           method: "PATCH",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ editorial: next, selectedPublicFields: selectedFields, artifact: nextArtifact, category: nextCategory }),
+          body: JSON.stringify({ editorial: next, selectedPublicFields: selectedFields, artifact: nextArtifact, category: nextCategory, storyBackgroundId: nextStoryBackgroundId }),
         });
         if (!response.ok) throw new Error("Report update failed.");
       }
@@ -330,6 +342,9 @@ export function ProjectWorkbench({
       setReflection(next.reflection);
       setArtifactLinks(nextArtifact);
       setCategory(nextCategory);
+      setStoryBackgroundId(nextStoryBackgroundId);
+      // Keep the selected background in the creator preview and share-card default.
+      setDraft((current) => ({ ...current, storyBackgroundId: nextStoryBackgroundId }));
       if (nextCategory) setPublicationError(null);
       setPublicationStatus((current) => current === "published" ? "draft_changes" : current);
       setSaveState("saved");
@@ -690,6 +705,31 @@ export function ProjectWorkbench({
                 />
               </label>
 
+              <fieldset className="background-picker">
+                <legend>Story card background</legend>
+                <p className="background-picker__hint">Choose the visual system behind the Explore receipt. Text is rendered in a solid safe panel beside the artwork, so it never sits over a decorative image element.</p>
+                <div className="background-picker__grid">
+                  {STORY_BACKGROUND_OPTIONS.map((option) => (
+                    <label className={`background-picker__option${draft.storyBackgroundId === option.id ? " is-selected" : ""}`} key={option.id}>
+                      <input
+                        type="radio"
+                        name="storyBackground"
+                        value={option.id}
+                        checked={draft.storyBackgroundId === option.id}
+                        onChange={() => setDraft({ ...draft, storyBackgroundId: option.id })}
+                      />
+                      <span className="background-picker__swatch">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img className="background-theme-light" src={option.assets.light} alt="" />
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img className="background-theme-dark" src={option.assets.dark} alt="" />
+                      </span>
+                      <span className="background-picker__label"><strong>{option.label}</strong><small>{option.description}</small></span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
               <div className="project-editor__actions">
                 <button className="button button--text" type="button" onClick={cancelEditing}>Cancel</button>
                 <button className="button button--primary" type="submit">Save public draft</button>
@@ -765,6 +805,7 @@ export function ProjectWorkbench({
                       path={`/u/${story.owner.handle}/${story.slug}`}
                       title={story.name}
                       downloadPath={`/api/share/story/${story.owner.handle}/${story.slug}`}
+                      storyBackgroundId={activeStoryBackgroundId}
                     />
                   </div>
                 ) : null}
@@ -773,7 +814,18 @@ export function ProjectWorkbench({
                 {coverMedia ? <>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={coverMedia.url} alt={`${story.name} product preview`} />
-                </> : <><span className="orbit orbit--one" /><span className="orbit orbit--two" /><span className="orbit orbit--three" /><span className="orbit-note orbit-note--one">{story.sessionCount} sessions</span><span className="orbit-note orbit-note--two">{story.git.commits} commits</span><span className="orbit-note orbit-note--three">{story.activeDays} days</span><span className="cover-caption">BUILD / RECEIPT</span></>}
+                </> : <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img className="background-theme-light build-story__cover-background" src={storyBackgroundOption(activeStoryBackgroundId).assets.light} alt="" />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img className="background-theme-dark build-story__cover-background" src={storyBackgroundOption(activeStoryBackgroundId).assets.dark} alt="" />
+                  <div className="build-story__cover-copy">
+                    <span className="cover-caption">BUILD / RECEIPT</span>
+                    <strong>{story.name}</strong>
+                    <i />
+                    <small>{story.sessionCount} sessions / {story.git.commits} commits / {story.activeDays} days</small>
+                  </div>
+                </>}
               </div>
             </header>
 

@@ -3,6 +3,7 @@ import type { GeneratedReport, PublicFieldKey, StoryCategory } from "@/lib/inges
 import { readBoundedJson } from "@/lib/ingestion/local-api";
 import { getReport, updateReport } from "@/lib/ingestion/store";
 import { assertSameOriginBrowserMutation } from "@/lib/security/browser-request";
+import { isStoryBackgroundId, type StoryBackgroundId } from "@/lib/background-options";
 
 type RouteContext = { params: Promise<{ reportId: string }> };
 
@@ -34,7 +35,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (
       Object.keys(raw).length === 0 ||
       Object.keys(raw).some(
-        (key) => key !== "selectedPublicFields" && key !== "editorial" && key !== "artifact" && key !== "category",
+        (key) => key !== "selectedPublicFields" && key !== "editorial" && key !== "artifact" && key !== "category" && key !== "storyBackgroundId",
       ) ||
       (raw.selectedPublicFields !== undefined &&
         (!Array.isArray(raw.selectedPublicFields) ||
@@ -56,10 +57,11 @@ export async function PATCH(request: Request, context: RouteContext) {
           ) ||
           Object.values(raw.artifact).some((field) => field !== null && typeof field !== "string")))
       || (raw.category !== undefined && raw.category !== null && typeof raw.category !== "string")
+      || (raw.storyBackgroundId !== undefined && !isStoryBackgroundId(raw.storyBackgroundId))
     ) {
       return jsonError(
         "invalid_report_update",
-        "Report updates may contain public-field names, editorial values, a category, and artifact link URLs.",
+        "Report updates may contain public-field names, editorial values, a category, artifact link URLs, and a story background.",
         422,
       );
     }
@@ -68,6 +70,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       editorial?: Partial<GeneratedReport["editorial"]>;
       artifact?: { projectUrl?: string | null; repoUrl?: string | null; videoUrl?: string | null };
       category?: StoryCategory | null;
+      storyBackgroundId?: StoryBackgroundId;
     };
     const { reportId } = await context.params;
     const report = await updateReport(creator.creatorId, reportId, body);

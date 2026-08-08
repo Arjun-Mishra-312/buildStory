@@ -15,3 +15,13 @@ export const SHARE_CARD_PALETTE = {
   cobalt: "#6f86e8",
   line: "#38372f",
 } as const;
+
+export const SHARE_CARD_LIGHT_PALETTE = {
+  surface: "#f1ede3",
+  ink: "#171a20",
+  muted: "#5d626b",
+  faint: "#8b8f96",
+  coral: "#d95f4b",
+  cobalt: "#4864c9",
+  line: "#c9c6bd",
+} as const;

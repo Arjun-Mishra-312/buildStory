@@ -176,6 +176,7 @@ export const reports = sqliteTable(
     editorialDescription: text("editorial_description").notNull(),
     editorialReflection: text("editorial_reflection").notNull(),
     category: text("category"),
+    storyBackgroundId: text("story_background_id").notNull().default("repository-topography"),
     publicationStatus: text("publication_status").notNull(),
     publicationSlug: text("publication_slug").notNull(),
     publicationPath: text("publication_path"),

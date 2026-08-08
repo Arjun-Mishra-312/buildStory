@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { copyToClipboard } from "@/lib/clipboard";
+import { isShareBackgroundId, SHARE_BACKGROUND_OPTIONS, type BackgroundTheme, type ShareBackgroundId, type StoryBackgroundId } from "@/lib/background-options";
 
 type ShareDialogProps = {
   open: boolean;
@@ -9,10 +10,13 @@ type ShareDialogProps = {
   path: string;
   title: string;
   imagePath: string;
+  storyBackgroundId?: StoryBackgroundId;
 };
 
-export function ShareDialog({ open, onClose, path, title, imagePath }: ShareDialogProps) {
+export function ShareDialog({ open, onClose, path, title, imagePath, storyBackgroundId }: ShareDialogProps) {
   const [copied, setCopied] = useState(false);
+  const [shareTheme, setShareTheme] = useState<BackgroundTheme>(() => typeof document !== "undefined" && document.documentElement.dataset.theme === "light" ? "light" : "dark");
+  const [shareBackgroundId, setShareBackgroundId] = useState<ShareBackgroundId>(() => isShareBackgroundId(storyBackgroundId) ? storyBackgroundId : SHARE_BACKGROUND_OPTIONS[0].id);
   // Lazy initializer: runs once on mount, client-side only - avoids an extra
   // render from setting this in an effect, and stays SSR-safe since
   // `navigator.canShare` simply doesn't exist in the Worker's SSR environment.
@@ -47,7 +51,7 @@ export function ShareDialog({ open, onClose, path, title, imagePath }: ShareDial
   async function shareViaDevice() {
     setDeviceShareState("sharing");
     try {
-      const response = await fetch(imagePath);
+      const response = await fetch(selectedImagePath);
       const blob = await response.blob();
       const file = new File([blob], "buildstory-share-card.png", { type: "image/png" });
       if (!navigator.canShare({ files: [file] })) {
@@ -61,6 +65,11 @@ export function ShareDialog({ open, onClose, path, title, imagePath }: ShareDial
       setDeviceShareState("idle");
     }
   }
+
+  const selectedImagePath = (() => {
+    const params = new URLSearchParams({ background: shareBackgroundId, theme: shareTheme });
+    return `${imagePath}?${params.toString()}`;
+  })();
 
   const url = absoluteUrl();
   const intents = [
@@ -79,10 +88,31 @@ export function ShareDialog({ open, onClose, path, title, imagePath }: ShareDial
         </div>
 
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img className="share-dialog__preview" src={imagePath} alt={`${title} — shareable build story card`} />
+        <img className="share-dialog__preview" src={selectedImagePath} alt={`${title} — shareable build story card`} />
+
+        <fieldset className="share-dialog__background-picker">
+          <legend>Receipt visual</legend>
+          <div className="share-dialog__theme-toggle" role="group" aria-label="Receipt color theme">
+            {(["light", "dark"] as const).map((theme) => (
+              <button key={theme} type="button" className={`button button--small ${shareTheme === theme ? "button--primary" : "button--secondary"}`} onClick={() => setShareTheme(theme)}>
+                {theme === "light" ? "Light" : "Dark"}
+              </button>
+            ))}
+          </div>
+          <div className="share-dialog__background-grid">
+            {SHARE_BACKGROUND_OPTIONS.map((option) => (
+              <label className={`share-dialog__background-option${shareBackgroundId === option.id ? " is-selected" : ""}`} key={option.id}>
+                <input type="radio" name="shareBackground" checked={shareBackgroundId === option.id} onChange={() => setShareBackgroundId(option.id)} />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={option.assets[shareTheme]} alt="" />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
 
         <div className="share-dialog__actions">
-          <a className="button button--primary button--small" href={imagePath} download>
+          <a className="button button--primary button--small" href={selectedImagePath} download>
             Download image
           </a>
           {canShareFiles ? (

@@ -88,3 +88,24 @@ export const SHARE_BACKGROUND_OPTIONS = [
 export type StoryBackgroundId = (typeof STORY_BACKGROUND_OPTIONS)[number]["id"];
 export type ShareBackgroundId = (typeof SHARE_BACKGROUND_OPTIONS)[number]["id"];
 
+export const DEFAULT_STORY_BACKGROUND_ID: StoryBackgroundId = "repository-topography";
+
+export function isStoryBackgroundId(value: unknown): value is StoryBackgroundId {
+  return typeof value === "string" && STORY_BACKGROUND_OPTIONS.some((option) => option.id === value);
+}
+
+export function isShareBackgroundId(value: unknown): value is ShareBackgroundId {
+  return typeof value === "string" && SHARE_BACKGROUND_OPTIONS.some((option) => option.id === value);
+}
+
+export function isBackgroundTheme(value: unknown): value is BackgroundTheme {
+  return value === "light" || value === "dark";
+}
+
+export function storyBackgroundOption(id: unknown) {
+  return STORY_BACKGROUND_OPTIONS.find((option) => option.id === id) ?? STORY_BACKGROUND_OPTIONS[0];
+}
+
+export function shareBackgroundOption(id: unknown) {
+  return SHARE_BACKGROUND_OPTIONS.find((option) => option.id === id) ?? SHARE_BACKGROUND_OPTIONS[0];
+}

@@ -1,5 +1,6 @@
 import type { ProjectSnapshot } from "@/lib/project-snapshot";
 import type { PROJECT_SNAPSHOT_SCHEMA_VERSION, ScannerProjectSnapshot, NarrativeMode, ReportStoryPackV2 } from "./scanner-project-snapshot";
+import type { StoryBackgroundId } from "@/lib/background-options";
 
 export type UploadSessionStatus =
   | "awaiting_scanner"
@@ -261,6 +262,7 @@ export type GeneratedReport = {
     reflection: string;
   };
   category: StoryCategory | null;
+  storyBackgroundId: StoryBackgroundId;
   /** Creator-supplied links to the actual artifact, gated by the artifactLinks PublicFieldKey when published. */
   artifact: {
     projectUrl: string | null;

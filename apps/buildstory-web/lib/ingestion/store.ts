@@ -136,6 +136,7 @@ export async function updateReport(
     editorial?: Partial<GeneratedReport["editorial"]>;
     artifact?: ArtifactLinksUpdate;
     category?: GeneratedReport["category"];
+    storyBackgroundId?: GeneratedReport["storyBackgroundId"];
   },
 ) {
   return (await backend()).updateReport(creatorId, reportId, update);

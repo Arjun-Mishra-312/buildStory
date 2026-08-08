@@ -78,6 +78,7 @@ export default async function ImportedReportPage({ params }: PageProps) {
         initialSelectedPublicFields={report.selectedPublicFields}
         initialEditorial={report.editorial}
         initialCategory={report.category}
+        initialStoryBackgroundId={report.storyBackgroundId}
         initialArtifact={report.artifact}
         initialMedia={media}
         initialVerifiedRepoAt={projectVerification?.verifiedRepoAt ?? null}

@@ -4741,6 +4741,69 @@ html[data-theme="dark"] .closing-cta {
   }
 }
 
+/* Theme-paired generated receipt artwork. The light asset is the safe default;
+   the dark pair is swapped when the app theme changes without re-rendering text. */
+.background-theme-dark { display: none !important; }
+html[data-theme="dark"] .background-theme-light { display: none !important; }
+html[data-theme="dark"] .background-theme-dark { display: block !important; }
+
+.background-picker {
+  display: grid;
+  gap: 12px;
+  margin: 8px 0 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+.background-picker legend,
+.share-dialog__background-picker legend {
+  padding: 0 5px;
+  color: var(--ink);
+  font: 11px var(--font-code);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.background-picker__hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.background-picker__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.background-picker__option { display: grid; gap: 8px; min-width: 0; cursor: pointer; }
+.background-picker__option input,
+.share-dialog__background-option input { position: absolute; opacity: 0; pointer-events: none; }
+.background-picker__swatch { position: relative; display: block; aspect-ratio: 1; overflow: hidden; border: 1px solid var(--line); background: var(--midnight); }
+.background-picker__swatch img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.background-picker__option.is-selected .background-picker__swatch { border-color: var(--coral); box-shadow: 0 0 0 2px color-mix(in srgb, var(--coral) 32%, transparent); }
+.background-picker__label { display: grid; gap: 3px; }
+.background-picker__label strong { font-size: 12px; }
+.background-picker__label small { color: var(--muted); font-size: 10px; line-height: 1.3; }
+
+.build-story__cover-background { position: absolute !important; inset: 0; z-index: 0; width: 100% !important; height: 100% !important; min-height: 0 !important; object-fit: cover !important; }
+.build-story__cover-copy { position: absolute; left: 0; top: 0; bottom: 0; z-index: 1; display: flex; flex-direction: column; justify-content: center; gap: 12px; width: 68%; padding: 34px; color: var(--paper); background: color-mix(in srgb, var(--midnight) 92%, transparent); }
+.build-story__cover-copy strong { max-width: 14ch; font: 400 clamp(24px, 3vw, 38px)/1 var(--font-editorial); }
+.build-story__cover-copy i { display: block; width: 72%; height: 2px; background: var(--coral); }
+.build-story__cover-copy small { color: color-mix(in srgb, var(--paper) 72%, transparent); font: 10px var(--font-code); letter-spacing: .06em; text-transform: uppercase; }
+
+.explore-story-card__receipt--image { position: relative; isolation: isolate; padding: 0; background: var(--midnight); }
+.explore-story-card__receipt--image > img { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; object-fit: cover; }
+.explore-story-card__receipt-copy { display: flex; position: absolute; left: 0; top: 0; bottom: 0; flex-direction: column; justify-content: center; gap: 9px; width: 76%; padding: 18px; color: var(--paper); background: color-mix(in srgb, var(--midnight) 93%, transparent); }
+.explore-story-card__receipt-copy span,
+.explore-story-card__receipt-copy small { color: #aab8de; font: 9px var(--font-code); letter-spacing: .1em; text-transform: uppercase; }
+.explore-story-card__receipt-copy strong { font: 20px var(--font-editorial); }
+.explore-story-card__receipt-copy i { display: block; height: 2px; width: 70%; background: var(--coral); }
+
+.share-dialog__background-picker { display: grid; gap: 10px; margin: 0; padding: 12px; border: 1px solid var(--line); background: var(--surface-soft); }
+.share-dialog__theme-toggle { display: flex; gap: 6px; }
+.share-dialog__background-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.share-dialog__background-option { display: grid; gap: 5px; min-width: 0; cursor: pointer; }
+.share-dialog__background-option img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; border: 1px solid var(--line); }
+.share-dialog__background-option span { overflow: hidden; color: var(--muted); font-size: 9px; white-space: nowrap; text-overflow: ellipsis; }
+.share-dialog__background-option.is-selected img { border-color: var(--coral); box-shadow: 0 0 0 2px color-mix(in srgb, var(--coral) 32%, transparent); }
+
+@media (max-width: 720px) {
+  .background-picker__grid { grid-template-columns: 1fr; }
+  .background-picker__option { grid-template-columns: 72px 1fr; align-items: center; }
+  .background-picker__swatch { grid-row: span 2; }
+  .share-dialog__background-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
 @media (max-width: 1180px) {
   .landing-hero {
     grid-template-columns: minmax(0, 0.9fr) minmax(460px, 1.1fr);

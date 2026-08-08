@@ -35,6 +35,7 @@ import type { ScannerProjectSnapshot } from "./scanner-project-snapshot";
 import { PROJECT_SNAPSHOT_SCHEMA_VERSION } from "./scanner-project-snapshot";
 import { MAX_SNAPSHOT_BYTES, validateProjectSnapshot } from "./validation";
 import { compareExploreRows, decodeExploreCursor, encodeExploreCursor, isAfterExploreCursor } from "./explore-cursor";
+import { DEFAULT_STORY_BACKGROUND_ID, isStoryBackgroundId } from "@/lib/background-options";
 
 const DEFAULT_MONTHLY_LLM_CAP_MICRO_USD = 1_000_000; // $1.00/month/user, subsidized default
 
@@ -81,6 +82,7 @@ type ReportRow = {
   editorial_description: string;
   editorial_reflection: string;
   category: string | null;
+  story_background_id: string;
   publication_status: string;
   publication_slug: string;
   publication_path: string | null;
@@ -293,6 +295,7 @@ function reportFromRow(row: ReportRow, narrative: NarrativeRecord | null = null)
       reflection: row.editorial_reflection,
     },
     category: row.category as GeneratedReport["category"],
+    storyBackgroundId: isStoryBackgroundId(row.story_background_id) ? row.story_background_id : DEFAULT_STORY_BACKGROUND_ID,
     artifact: {
       projectUrl: row.artifact_project_url,
       repoUrl: row.artifact_repo_url,
@@ -1578,6 +1581,7 @@ export async function updateReport(
     editorial?: Partial<GeneratedReport["editorial"]>;
     artifact?: ArtifactLinksUpdate;
     category?: GeneratedReport["category"];
+    storyBackgroundId?: GeneratedReport["storyBackgroundId"];
   },
 ): Promise<GeneratedReport> {
   const report = await getReport(creatorId, reportId);
@@ -1632,12 +1636,16 @@ export async function updateReport(
   if (category !== null && !validCategories.includes(category)) {
     throw new D1IngestionError("invalid_category", "Choose a valid project category.", 422);
   }
+  const storyBackgroundId = update.storyBackgroundId === undefined ? report.storyBackgroundId : update.storyBackgroundId;
+  if (!isStoryBackgroundId(storyBackgroundId)) {
+    throw new D1IngestionError("invalid_story_background", "Choose a valid story background.", 422);
+  }
   const now = new Date().toISOString();
   await (await database())
     .prepare(
       `UPDATE buildstory_reports
        SET selected_public_fields_json = ?, editorial_tagline = ?, editorial_description = ?,
-           editorial_reflection = ?, category = ?,
+           editorial_reflection = ?, category = ?, story_background_id = ?,
            artifact_project_url = ?, artifact_repo_url = ?, artifact_video_url = ?,
            publication_status = CASE WHEN publication_status = 'published' THEN 'draft_changes' ELSE publication_status END,
            updated_at = ?
@@ -1649,6 +1657,7 @@ export async function updateReport(
       editorial.description,
       editorial.reflection,
       category,
+      storyBackgroundId,
       artifact.projectUrl,
       artifact.repoUrl,
       artifact.videoUrl,
@@ -1840,6 +1849,7 @@ export async function publishReport(
     report.selectedPublicFields,
     { reflection: report.editorial.reflection, category: report.category },
     { ...report.artifact, media: await listReportMedia(reportId) },
+    { storyBackgroundId: report.storyBackgroundId },
   );
   const publicCoverUrl = publicStory.artifactMedia.find((item) => item.kind === "cover")?.url ?? publicStory.artifactMedia[0]?.url ?? null;
   const publicSearchText = [publicStory.name, publicStory.tagline, publicStory.description, publicStory.owner.name, publicStory.owner.handle, publicStory.category, ...publicStory.stack, ...publicStory.tools.map((tool) => tool.label), ...publicStory.models.map((model) => model.label)].join(" ").slice(0, 12_000);
@@ -2048,7 +2058,7 @@ export async function getPublicProjectVerification(handle: string, slug: string)
 export async function getPublishedStoryBySlug(slug: string) {
   const row = await (await database())
     .prepare(
-      `SELECT id AS report_id, snapshot_json, selected_public_fields_json, editorial_tagline, editorial_description, editorial_reflection, category,
+      `SELECT id AS report_id, snapshot_json, selected_public_fields_json, editorial_tagline, editorial_description, editorial_reflection, category, story_background_id,
               artifact_project_url, artifact_repo_url, artifact_video_url
        FROM buildstory_reports
        WHERE publication_slug = ? AND publication_status = 'published'
@@ -2062,6 +2072,7 @@ export async function getPublishedStoryBySlug(slug: string) {
       editorial_description: string;
       editorial_reflection: string;
       category: string | null;
+      story_background_id: string;
       report_id: string;
       artifact_project_url: string | null;
       artifact_repo_url: string | null;
@@ -2093,19 +2104,19 @@ export async function getPublishedStoryBySlug(slug: string) {
       repoUrl: row.artifact_repo_url,
       videoUrl: row.artifact_video_url,
       media,
-    }),
+    }, { storyBackgroundId: isStoryBackgroundId(row.story_background_id) ? row.story_background_id : DEFAULT_STORY_BACKGROUND_ID }),
     reportId: row.report_id,
   };
 }
 
 export async function getPublishedStory(handle: string, slug: string) {
   const row = await (await database()).prepare(
-    `SELECT r.id AS report_id, r.snapshot_json, r.selected_public_fields_json, r.editorial_tagline, r.editorial_description, r.editorial_reflection, r.category,
+    `SELECT r.id AS report_id, r.snapshot_json, r.selected_public_fields_json, r.editorial_tagline, r.editorial_description, r.editorial_reflection, r.category, r.story_background_id,
             r.artifact_project_url, r.artifact_repo_url, r.artifact_video_url
      FROM buildstory_reports r JOIN buildstory_users u ON u.id = r.owner_user_id
      WHERE u.handle_lower = ? AND r.publication_slug = ? AND r.publication_path = ? AND r.publication_status = 'published' LIMIT 1`,
   ).bind(handle.toLocaleLowerCase("en-US"), slug, `${handle.toLocaleLowerCase("en-US")}/${slug}`).first<{
-    report_id: string; snapshot_json: string; selected_public_fields_json: string; editorial_tagline: string; editorial_description: string; editorial_reflection: string; category: string | null;
+    report_id: string; snapshot_json: string; selected_public_fields_json: string; editorial_tagline: string; editorial_description: string; editorial_reflection: string; category: string | null; story_background_id: string;
     artifact_project_url: string | null; artifact_repo_url: string | null; artifact_video_url: string | null;
   }>();
   if (!row) return null;
@@ -2121,7 +2132,7 @@ export async function getPublishedStory(handle: string, slug: string) {
       repoUrl: row.artifact_repo_url,
       videoUrl: row.artifact_video_url,
       media,
-    }),
+    }, { storyBackgroundId: isStoryBackgroundId(row.story_background_id) ? row.story_background_id : DEFAULT_STORY_BACKGROUND_ID }),
     reportId: row.report_id,
   };
 }
@@ -2129,12 +2140,12 @@ export async function getPublishedStory(handle: string, slug: string) {
 /** A specific chapter of a project's public story, by its 1-based chapterIndex - used for the archival "<slug>/<n>" path. */
 export async function getPublishedStoryChapter(handle: string, slug: string, chapterIndex: number) {
   const row = await (await database()).prepare(
-    `SELECT r.id AS report_id, r.snapshot_json, r.selected_public_fields_json, r.editorial_tagline, r.editorial_description, r.editorial_reflection, r.category,
+    `SELECT r.id AS report_id, r.snapshot_json, r.selected_public_fields_json, r.editorial_tagline, r.editorial_description, r.editorial_reflection, r.category, r.story_background_id,
             r.artifact_project_url, r.artifact_repo_url, r.artifact_video_url
      FROM buildstory_reports r JOIN buildstory_users u ON u.id = r.owner_user_id
      WHERE u.handle_lower = ? AND r.publication_slug = ? AND r.publication_status = 'published' AND r.chapter_index = ? LIMIT 1`,
   ).bind(handle.toLocaleLowerCase("en-US"), slug, chapterIndex).first<{
-    report_id: string; snapshot_json: string; selected_public_fields_json: string; editorial_tagline: string; editorial_description: string; editorial_reflection: string; category: string | null;
+    report_id: string; snapshot_json: string; selected_public_fields_json: string; editorial_tagline: string; editorial_description: string; editorial_reflection: string; category: string | null; story_background_id: string;
     artifact_project_url: string | null; artifact_repo_url: string | null; artifact_video_url: string | null;
   }>();
   if (!row) return null;
@@ -2150,7 +2161,7 @@ export async function getPublishedStoryChapter(handle: string, slug: string, cha
       repoUrl: row.artifact_repo_url,
       videoUrl: row.artifact_video_url,
       media,
-    }),
+    }, { storyBackgroundId: isStoryBackgroundId(row.story_background_id) ? row.story_background_id : DEFAULT_STORY_BACKGROUND_ID }),
     reportId: row.report_id,
   };
 }
@@ -2240,7 +2251,7 @@ export async function listPublishedStories(limit = 30, cursor?: string) {
   const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), 100);
   const rows = await (await database())
     .prepare(
-      `SELECT snapshot_json, selected_public_fields_json, editorial_tagline, editorial_description, editorial_reflection, category, published_at,
+      `SELECT snapshot_json, selected_public_fields_json, editorial_tagline, editorial_description, editorial_reflection, category, story_background_id, published_at,
               artifact_project_url, artifact_repo_url, artifact_video_url
        FROM buildstory_reports
        WHERE publication_status = 'published' AND ${latestChapterOnly()} AND (? IS NULL OR published_at < ?)
@@ -2254,6 +2265,7 @@ export async function listPublishedStories(limit = 30, cursor?: string) {
       editorial_description: string;
       editorial_reflection: string;
       category: string | null;
+      story_background_id: string;
       published_at: string | null;
       artifact_project_url: string | null;
       artifact_repo_url: string | null;
@@ -2280,7 +2292,7 @@ export async function listPublishedStories(limit = 30, cursor?: string) {
         projectUrl: row.artifact_project_url,
         repoUrl: row.artifact_repo_url,
         videoUrl: row.artifact_video_url,
-      }),
+      }, { storyBackgroundId: isStoryBackgroundId(row.story_background_id) ? row.story_background_id : DEFAULT_STORY_BACKGROUND_ID }),
       publishedAt: row.published_at,
     });
   }
@@ -2385,7 +2397,7 @@ export async function listStoriesByOwner(ownerUserId: string, limit = 30, cursor
   const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), 100);
   const rows = await (await database())
     .prepare(
-      `SELECT snapshot_json, selected_public_fields_json, editorial_tagline, editorial_description, editorial_reflection, category, published_at,
+      `SELECT snapshot_json, selected_public_fields_json, editorial_tagline, editorial_description, editorial_reflection, category, story_background_id, published_at,
               artifact_project_url, artifact_repo_url, artifact_video_url
        FROM buildstory_reports
        WHERE publication_status = 'published' AND owner_user_id = ? AND ${latestChapterOnly()} AND (? IS NULL OR published_at < ?)
@@ -2399,6 +2411,7 @@ export async function listStoriesByOwner(ownerUserId: string, limit = 30, cursor
       editorial_description: string;
       editorial_reflection: string;
       category: string | null;
+      story_background_id: string;
       published_at: string | null;
       artifact_project_url: string | null;
       artifact_repo_url: string | null;
@@ -2423,7 +2436,7 @@ export async function listStoriesByOwner(ownerUserId: string, limit = 30, cursor
         projectUrl: row.artifact_project_url,
         repoUrl: row.artifact_repo_url,
         videoUrl: row.artifact_video_url,
-      }),
+      }, { storyBackgroundId: isStoryBackgroundId(row.story_background_id) ? row.story_background_id : DEFAULT_STORY_BACKGROUND_ID }),
       publishedAt: row.published_at,
     });
   }
@@ -2443,7 +2456,7 @@ export async function searchPublishedStories(query: string, limit = 20, cursor?:
   const prefix = `${escapeLikePattern(trimmed.toLocaleLowerCase("en-US"))}%`;
   const rows = await (await database())
     .prepare(
-      `SELECT r.snapshot_json, r.selected_public_fields_json, r.editorial_tagline, r.editorial_description, r.editorial_reflection, r.category, r.published_at,
+      `SELECT r.snapshot_json, r.selected_public_fields_json, r.editorial_tagline, r.editorial_description, r.editorial_reflection, r.category, r.story_background_id, r.published_at,
               r.artifact_project_url, r.artifact_repo_url, r.artifact_video_url
        FROM buildstory_reports r
        LEFT JOIN buildstory_users u ON u.id = r.owner_user_id
@@ -2466,6 +2479,7 @@ export async function searchPublishedStories(query: string, limit = 20, cursor?:
       editorial_description: string;
       editorial_reflection: string;
       category: string | null;
+      story_background_id: string;
       published_at: string | null;
       artifact_project_url: string | null;
       artifact_repo_url: string | null;
@@ -2487,7 +2501,7 @@ export async function searchPublishedStories(query: string, limit = 20, cursor?:
         projectUrl: row.artifact_project_url,
         repoUrl: row.artifact_repo_url,
         videoUrl: row.artifact_video_url,
-      }),
+      }, { storyBackgroundId: isStoryBackgroundId(row.story_background_id) ? row.story_background_id : DEFAULT_STORY_BACKGROUND_ID }),
       publishedAt: row.published_at,
     });
   }

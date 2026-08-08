@@ -3,6 +3,7 @@ import type { PublicFieldKey, StoryCategory } from "./ingestion/contracts";
 import type { ReportStoryPackV2 } from "./ingestion/scanner-project-snapshot";
 import { NARRATIVE_FIELD_LIMITS } from "./narrative/schema";
 import { sanitizePublicText } from "./publication/sanitization";
+import { DEFAULT_STORY_BACKGROUND_ID, isStoryBackgroundId, type StoryBackgroundId } from "./background-options";
 
 export type BuildStoryViewModel = ReturnType<typeof buildStoryFromSnapshot>;
 export type PublicBuildStoryViewModel = ReturnType<typeof publicBuildStoryFromSnapshot>;
@@ -190,6 +191,10 @@ export type ArtifactLinksInput = {
   media?: ArtifactMediaItem[];
 };
 
+export type PublicStoryVisualOptions = {
+  storyBackgroundId?: StoryBackgroundId;
+};
+
 /**
  * Explicit publication boundary. Public routes receive this projection rather
  * than the source snapshot or full private report.
@@ -199,6 +204,7 @@ export function publicBuildStoryFromSnapshot(
   selectedPublicFields: PublicFieldKey[],
   editorial?: { tagline?: string; description?: string; reflection?: string; category?: StoryCategory | null },
   artifact?: ArtifactLinksInput,
+  visual?: PublicStoryVisualOptions,
 ) {
   const story = buildStoryFromSnapshot(snapshot);
   const selected = new Set(selectedPublicFields);
@@ -219,6 +225,9 @@ export function publicBuildStoryFromSnapshot(
     description: selected.has("description") ? publicDescription : "",
     reflection: selected.has("description") ? publicReflection : "",
     category: editorial?.category ?? "other",
+    storyBackgroundId: isStoryBackgroundId(visual?.storyBackgroundId)
+      ? visual.storyBackgroundId
+      : DEFAULT_STORY_BACKGROUND_ID,
     status: story.status,
     owner: {
       name: sanitizePublicText(story.owner.name, 160).value,

@@ -3,6 +3,8 @@ import { getPublishedStory } from "@/lib/ingestion/store";
 import { formatShareCardData } from "@/lib/share-card/format";
 import { renderShareCard } from "@/lib/share-card/render";
 import { buildStoryShareCard } from "@/lib/share-card/story-card";
+import { isBackgroundTheme, isShareBackgroundId, shareBackgroundOption } from "@/lib/background-options";
+import { loadShareBackgroundDataUri } from "@/lib/share-card/background";
 import { checkRateLimit } from "@/lib/social/rate-limit-dispatch";
 
 type RouteContext = { params: Promise<{ handle: string; slug: string }> };
@@ -20,8 +22,17 @@ export async function GET(request: Request, context: RouteContext) {
     }
 
     const canonicalUrl = `${new URL(request.url).origin}/u/${handle}/${slug}`;
-    const image = buildStoryShareCard(formatShareCardData(story), canonicalUrl);
-    const filename = `buildstory-${handle}-${slug}.png`;
+    const params = new URL(request.url).searchParams;
+    const requestedBackground = params.get("background");
+    const backgroundId = isShareBackgroundId(requestedBackground)
+      ? requestedBackground
+      : isShareBackgroundId(story.storyBackgroundId) ? story.storyBackgroundId : "repository-topography";
+    const requestedTheme = params.get("theme");
+    const theme = isBackgroundTheme(requestedTheme) ? requestedTheme : "dark";
+    const background = shareBackgroundOption(backgroundId);
+    const backgroundDataUri = await loadShareBackgroundDataUri(request, background.assets[theme]);
+    const image = buildStoryShareCard(formatShareCardData(story), canonicalUrl, { backgroundDataUri, theme });
+    const filename = `buildstory-${handle}-${slug}-${backgroundId}-${theme}.png`;
 
     return await renderShareCard(image, {
       width: 1080,
