@@ -71,12 +71,15 @@ export default async function StudioPage() {
               key={session.id}
             >
               <div className="dashboard-project-card__cover" aria-hidden="true">
-                <StoryVisual story={story ?? {
-                  name: session.projectLabel,
-                  stack: [],
-                  storyBackgroundId: "repository-topography",
-                  artifactMedia: [],
-                }} />
+                <StoryVisual
+                  variant="compact"
+                  story={story ?? {
+                    name: session.projectLabel,
+                    stack: [],
+                    storyBackgroundId: "repository-topography",
+                    artifactMedia: [],
+                  }}
+                />
               </div>
               <div className="dashboard-project-card__body">
                 <div><span className="status-dot status-dot--shipped" /> REPORT READY</div>

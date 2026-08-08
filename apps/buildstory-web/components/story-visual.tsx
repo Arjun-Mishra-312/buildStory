@@ -6,14 +6,22 @@ export type StoryVisualStory = Pick<
   "name" | "stack" | "storyBackgroundId" | "artifactMedia"
 >;
 
+type StoryVisualProps = {
+  story: StoryVisualStory;
+  variant?: "default" | "compact";
+};
+
 /** Shared receipt artwork used by both public Explore cards and the private Studio list. */
-export function StoryVisual({ story }: { story: StoryVisualStory }) {
+export function StoryVisual({ story, variant = "default" }: StoryVisualProps) {
   const cover = story.artifactMedia?.find((media) => media.kind === "cover")?.url ?? story.artifactMedia?.[0]?.url;
   return cover ? (
     // eslint-disable-next-line @next/next/no-img-element
     <img src={cover} alt="" className="explore-story-card__cover" />
   ) : (
-    <div className="explore-story-card__receipt explore-story-card__receipt--image" aria-hidden="true">
+    <div
+      className={`explore-story-card__receipt explore-story-card__receipt--image${variant === "compact" ? " explore-story-card__receipt--compact" : ""}`}
+      aria-hidden="true"
+    >
       {/* Decorative art stays in its own layer; copy sits on an opaque panel. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img className="background-theme-light" src={storyBackgroundOption(story.storyBackgroundId).assets.light} alt="" />
