@@ -97,7 +97,7 @@ async function secured(response: Response, request: Request) {
     const scriptHashes = await inlineScriptHashes(html);
     headers.set(
       "content-security-policy",
-      `default-src 'self'; base-uri 'self'; connect-src 'self' https://cloudflareinsights.com; font-src 'self' data:; form-action 'self'; frame-ancestors 'none'; frame-src https://www.youtube-nocookie.com https://player.vimeo.com https://www.loom.com; img-src 'self' data: https:; object-src 'none'; script-src 'self'${scriptHashes ? ` ${scriptHashes}` : ""} https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'`,
+      `default-src 'self'; base-uri 'self'; connect-src 'self' https://cloudflareinsights.com; font-src 'self' data:; form-action 'self'; frame-ancestors 'none'; frame-src https://www.youtube-nocookie.com https://player.vimeo.com https://www.loom.com; img-src 'self' blob: data: https:; object-src 'none'; script-src 'self'${scriptHashes ? ` ${scriptHashes}` : ""} https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'`,
     );
     return new Response(html, {
       status: response.status,
@@ -108,7 +108,7 @@ async function secured(response: Response, request: Request) {
 
   headers.set(
     "content-security-policy",
-    "default-src 'self'; base-uri 'self'; connect-src 'self' https://cloudflareinsights.com; font-src 'self' data:; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: https:; object-src 'none'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'",
+    "default-src 'self'; base-uri 'self'; connect-src 'self' https://cloudflareinsights.com; font-src 'self' data:; form-action 'self'; frame-ancestors 'none'; img-src 'self' blob: data: https:; object-src 'none'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'",
   );
   // Re-wrapping a Response from its streamed .body (rather than a materialized
   // buffer) makes the edge serve it with Transfer-Encoding: chunked and no

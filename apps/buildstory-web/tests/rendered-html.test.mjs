@@ -51,6 +51,7 @@ test("server-renders public routes through the shared shell", async () => {
     const html = await response.text();
     assert.match(html, expected);
     assert.match(response.headers.get("content-security-policy") ?? "", /script-src 'self'(?: 'sha256-[A-Za-z0-9+/]+=*)+/i);
+    assert.match(response.headers.get("content-security-policy") ?? "", /img-src 'self' blob: data: https:/i);
     assert.match(html, /<script src="\/theme-boot\.js">/i);
     assert.equal((html.match(/class="site-header"/g) ?? []).length, 1, pathname);
     assert.equal((html.match(/class="site-footer"/g) ?? []).length, 1, pathname);
