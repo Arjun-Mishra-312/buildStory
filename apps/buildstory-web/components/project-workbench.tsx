@@ -815,7 +815,7 @@ export function ProjectWorkbench({
               <div className="build-story__cover">
                 {coverMedia ? <>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={coverMedia.url} alt={`${story.name} product preview`} />
+                  <img className="build-story__cover-image" src={coverMedia.url} alt={`${story.name} product preview`} />
                 </> : <>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img className="background-theme-light build-story__cover-background" src={storyBackgroundOption(activeStoryBackgroundId).assets.light} alt="" />
@@ -835,14 +835,8 @@ export function ProjectWorkbench({
               <ChapterTimeline chapters={chapters} handle={story.owner.handle} slug={story.slug} currentChapterIndex={currentChapterIndex} />
             ) : null}
 
-            {hasArtifact && (displayArtifactMedia.length > 0 || videoEmbed) ? (
+            {hasArtifact && (screenshotMedia.length > 0 || videoEmbed) ? (
               <section className="artifact-panel section-wrap" aria-label="The artifact">
-                {coverMedia ? (
-                  <div className="artifact-panel__cover">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={coverMedia.url} alt="" />
-                  </div>
-                ) : null}
                 {videoEmbed ? (
                   <div className="artifact-panel__video">
                     <iframe
@@ -856,6 +850,7 @@ export function ProjectWorkbench({
                 ) : null}
                 {screenshotMedia.length ? (
                   <div className="artifact-panel__screenshots">
+                    <span className="artifact-panel__screenshots-label">Screenshots</span>
                     {screenshotMedia.map((item) => <span key={item.id}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={item.url} alt="" loading="lazy" />

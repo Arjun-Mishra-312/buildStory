@@ -1674,7 +1674,8 @@ html[data-theme="dark"] .closing-cta {
   display: block;
   width: 100%;
   height: 100px;
-  object-fit: cover;
+  object-fit: contain;
+  background: var(--midnight);
 }
 
 .project-media-editor__item figcaption {
@@ -1723,13 +1724,6 @@ html[data-theme="dark"] .closing-cta {
   border-bottom: 1px solid var(--line-strong);
 }
 
-.artifact-panel__cover img {
-  display: block;
-  width: 100%;
-  max-height: 480px;
-  object-fit: cover;
-}
-
 .artifact-panel__video {
   position: relative;
   width: 100%;
@@ -1754,7 +1748,8 @@ html[data-theme="dark"] .closing-cta {
   display: block;
   width: 100%;
   height: 140px;
-  object-fit: cover;
+  object-fit: contain;
+  background: var(--midnight);
   border: 1px solid var(--line);
 }
 
@@ -6316,4 +6311,27 @@ button.story-pack__source { cursor: pointer; }
   .route-skeleton__canvas i,
   .route-skeleton__blocks i { animation: none; background: var(--surface-soft); }
   .inline-loading i { animation: none; border-color: var(--cobalt); }
+}
+
+/* Uploaded cover media keeps its full frame instead of being cropped into the hero. */
+.build-story__cover > img.build-story__cover-image {
+  position: relative;
+  z-index: 1;
+  object-fit: contain;
+  background: var(--midnight);
+}
+
+.explore-lead__media img,
+.explore-story-card__cover {
+  object-fit: contain;
+  background: var(--midnight);
+}
+
+.artifact-panel__screenshots > .artifact-panel__screenshots-label {
+  display: block;
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font: 10px var(--font-code);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
