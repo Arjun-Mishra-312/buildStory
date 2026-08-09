@@ -120,7 +120,10 @@ export function buildStoryFromSnapshot(snapshot: ProjectSnapshot) {
     ...(snapshot.sourceSelection ? { sourceSelection: snapshot.sourceSelection } : {}),
     profile: snapshot.builderProfile ?? null,
     narrative: snapshot.narrative ?? null,
-    signals: snapshot.signals,
+    // Reports persisted before signals existed on ProjectSnapshot have no
+    // signals array in their stored JSON despite the type saying otherwise -
+    // default so every downstream .length/.map/[0] stays safe.
+    signals: snapshot.signals ?? [],
     receiptId: `BR-${activityWindow.endedAt.slice(2, 10).replaceAll("-", "")}-${snapshot.repository.currentRevision.toUpperCase()}`,
   };
 }
