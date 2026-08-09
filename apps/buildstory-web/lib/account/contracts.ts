@@ -18,8 +18,16 @@ export type AccountExport = {
     displayName: string;
     email: string;
     bio: string | null;
+    builderRole: string | null;
+    onboardingCompletedAt: string | null;
     createdAt: string;
   };
+  guidance: Array<{
+    guideKey: string;
+    guideVersion: number;
+    state: string;
+    updatedAt: string;
+  }>;
   projects: Array<{
     id: string;
     slug: string;
@@ -48,4 +56,36 @@ export type AccountExport = {
   following: string[];
   followers: string[];
   media: Array<{ id: string; reportId: string; url: string; kind: string; createdAt: string }>;
+  /**
+   * The scanner data itself - the most personal thing Buildstory holds, and
+   * previously missing from this export even though Settings promised
+   * "scanner records". sourceSnapshot is the full validated ProjectSnapshot
+   * the scanner uploaded for this report, including any narrativeEvidence
+   * excerpts if the creator opted into Cloud mode with evidence - this is
+   * the one place that redacted excerpt text is ever returned to the
+   * creator themselves.
+   */
+  scans: Array<{
+    reportId: string;
+    createdAt: string;
+    sourceSnapshot: unknown;
+  }>;
+  narratives: Array<{
+    reportId: string;
+    mode: string;
+    provider: string;
+    model: string;
+    status: string;
+    sections: unknown;
+    fallbacksUsed: string[];
+    createdAt: string;
+  }>;
+  uploadSessions: Array<{
+    id: string;
+    projectLabel: string;
+    narrativeMode: string;
+    status: string;
+    reportId: string | null;
+    createdAt: string;
+  }>;
 };

@@ -40,8 +40,8 @@ Build and install the co-located scanner separately:
 ```powershell
 npm --prefix packages/buildstory-scanner ci
 npm run build:scanner
-npm install --global ./artifacts/buildstory-scanner-0.4.0.tgz
-buildstory --version
+npm install --global ./artifacts/buildstory-scan-0.9.0.tgz
+buildstory-scan --version
 ```
 
 The dashboard provides the exact `buildstory-scan connect ... --api-base-url http://localhost:3000/` command. A scan/upload still requires both `--consent local-scan` and `--upload-consent local-dashboard`.

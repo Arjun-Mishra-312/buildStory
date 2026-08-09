@@ -1,14 +1,17 @@
 import { getR2, MediaStorageUnavailableError } from "@/db/r2";
-import { deleteAccountData, getAccountProjectsAndReports, listReportMedia } from "@/lib/ingestion/mock-store";
+import { deleteAccountData, getAccountProjectsAndReports, getAccountScannerData, getUserRecord, listReportMedia } from "@/lib/ingestion/mock-store";
 import { deleteAccountSocialData, getAccountSocialData, getProfile } from "@/lib/social/mock-store";
 import { AccountError, type AccountExport } from "./contracts";
+import { listGuidance } from "@/lib/ingestion/mock-store";
 
 export function exportAccountData(userId: string): AccountExport {
   const profile = getProfile(userId);
   if (!profile) throw new AccountError("not_found", "Account not found.", 404);
+  const user = getUserRecord(userId);
   const { projects, reports } = getAccountProjectsAndReports(userId);
   const social = getAccountSocialData(userId);
   const media = reports.flatMap((report) => listReportMedia(report.id));
+  const { narratives, uploadSessions } = getAccountScannerData(userId);
   return {
     exportedAt: new Date().toISOString(),
     profile: {
@@ -17,8 +20,11 @@ export function exportAccountData(userId: string): AccountExport {
       displayName: profile.displayName,
       email: "",
       bio: profile.bio,
+      builderRole: profile.builderRole,
+      onboardingCompletedAt: user.onboardingCompletedAt,
       createdAt: "",
     },
+    guidance: listGuidance(userId),
     projects: projects.map((project) => ({
       id: project.id,
       slug: project.slug,
@@ -41,6 +47,25 @@ export function exportAccountData(userId: string): AccountExport {
     following: social.following,
     followers: social.followers,
     media: media.map((item) => ({ id: item.id, reportId: item.reportId, url: item.url, kind: item.kind, createdAt: "" })),
+    scans: reports.map((report) => ({ reportId: report.id, createdAt: report.createdAt, sourceSnapshot: report.sourceSnapshot })),
+    narratives: narratives.map((narrative) => ({
+      reportId: narrative.reportId,
+      mode: narrative.mode,
+      provider: narrative.provider,
+      model: narrative.model,
+      status: narrative.status,
+      sections: narrative.sections,
+      fallbacksUsed: narrative.fallbacksUsed,
+      createdAt: "",
+    })),
+    uploadSessions: uploadSessions.map((session) => ({
+      id: session.id,
+      projectLabel: session.projectLabel,
+      narrativeMode: session.narrativeMode,
+      status: session.status,
+      reportId: session.reportId,
+      createdAt: session.createdAt,
+    })),
   };
 }
 

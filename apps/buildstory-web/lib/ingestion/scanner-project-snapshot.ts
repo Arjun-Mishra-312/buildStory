@@ -18,7 +18,13 @@ export const NARRATIVE_EVIDENCE_BUNDLE_VERSION = "1.0.0" as const;
 
 export type IsoDateTime = string;
 export type Sha256Digest = `sha256:${string}`;
-export type NarrativeMode = "local" | "cloud" | "off";
+/**
+ * Connection-level mode, chosen on the dashboard. Distinct from
+ * GeneratedNarrative.mode below (always "local" in the snapshot itself,
+ * for both "local" and "byok" scans - see the scanner package's
+ * contract.ts for the full rationale).
+ */
+export type NarrativeMode = "local" | "byok" | "cloud" | "off";
 
 /**
  * Every AI coding-session source the scanner can read. gemini-antigravity

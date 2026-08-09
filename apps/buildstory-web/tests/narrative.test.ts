@@ -40,8 +40,20 @@ const narrativeEvidence = {
   discarded: { candidates: 1, rejectedByRedaction: 0, rejectedByBudget: 0 },
 };
 
-async function acceptFreshSnapshot(snapshot: unknown) {
-  const created = await createUploadSession(creatorId, "Narrative pipeline test", "http://localhost/");
+/**
+ * Defaults to "cloud": this file's fixtures exercise the cloud
+ * evidence-processing path unless a test overrides the mode (e.g. the
+ * locally generated narrative test, whose snapshot already carries a
+ * complete generatedNarrative and so takes the mode-independent branch
+ * regardless). createUploadSession's own internal default changed to
+ * "local" for defense in depth (the real POST /api/creator/upload-sessions
+ * route already always passes an explicit mode, defaulting to "local"
+ * itself, so this never mattered for real traffic) - tests that care about
+ * a specific session mode must say so explicitly rather than lean on either
+ * default.
+ */
+async function acceptFreshSnapshot(snapshot: unknown, narrativeMode: "local" | "byok" | "cloud" | "off" = "cloud") {
+  const created = await createUploadSession(creatorId, "Narrative pipeline test", "http://localhost/", null, null, narrativeMode);
   const { sessionId, userCode } = created.deviceAuthorization;
   const claim = await claimUploadSession(sessionId, userCode);
   const raw = JSON.stringify(snapshot);

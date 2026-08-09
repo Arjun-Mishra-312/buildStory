@@ -111,10 +111,10 @@ export function parseLocalConnectRequest(value: unknown): LocalConnectRequest {
     if ("narrativeModes" in value.capabilities && (
       !Array.isArray(value.capabilities.narrativeModes) ||
       value.capabilities.narrativeModes.length === 0 ||
-      value.capabilities.narrativeModes.some((mode) => !["local", "cloud", "off"].includes(mode as string)) ||
+      value.capabilities.narrativeModes.some((mode) => !["local", "byok", "cloud", "off"].includes(mode as string)) ||
       new Set(value.capabilities.narrativeModes).size !== value.capabilities.narrativeModes.length
     )) {
-      details.push("capabilities.narrativeModes must be a unique non-empty list of local, cloud, and/or off.");
+      details.push("capabilities.narrativeModes must be a unique non-empty list of local, byok, cloud, and/or off.");
     }
   }
 

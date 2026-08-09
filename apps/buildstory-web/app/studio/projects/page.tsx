@@ -12,6 +12,14 @@ const publicationLabel: Record<string, string> = {
   published: "Published",
 };
 
+function primaryAction(project: Awaited<ReturnType<typeof listProjects>>[number]) {
+  if (project.latestReportStatus === "queued" || project.latestReportStatus === "generating") return { label: "View progress", href: `/studio/projects/${project.id}`, tone: "button--secondary" };
+  if (project.latestReportStatus === "failed") return { label: "Review issue", href: `/studio/reports/${project.latestReportId}`, tone: "button--secondary" };
+  if (project.latestPublicationStatus === "published") return { label: "Scan for updates", href: `/studio/projects/${project.id}/update`, tone: "button--primary" };
+  if (project.latestPublicationStatus === "draft_changes") return { label: "Review and publish changes", href: `/studio/reports/${project.latestReportId}`, tone: "button--primary" };
+  return { label: "Review and publish", href: `/studio/reports/${project.latestReportId}`, tone: "button--primary" };
+}
+
 export default async function ProjectsPage() {
   const creator = await requireCreator("/studio/projects");
   const projects = await listProjects(creator.creatorId);
@@ -22,12 +30,12 @@ export default async function ProjectsPage() {
         <div>
           <span className="section-index">( YOUR PROJECTS )</span>
           <h1>Every project you&apos;ve scanned.</h1>
-          <p>One row per project, not per scan. Re-scan a project any time to publish an update as a new chapter.</p>
+          <p>One row per project, not per scan. Scan a project any time, review the private report, then publish it as a new chapter.</p>
         </div>
       </header>
 
       {projects.length ? (
-        <div className="project-list">
+        <div className="project-list" data-guide="projects-state">
           {projects.map((project) => (
             <article className="project-row" key={project.id}>
               <div className="project-row__identity">
@@ -45,11 +53,11 @@ export default async function ProjectsPage() {
                     View public page <span aria-hidden="true">↗</span>
                   </a>
                 ) : null}
-                <Link className="button button--secondary button--small" href={`/studio/projects/${project.id}`}>
-                  Review project
+                <Link className="button button--secondary button--small" href={`/studio/projects/${project.id}`} data-guide="projects-history">
+                  Project history
                 </Link>
-                <Link className="button button--primary button--small" href={`/studio/projects/${project.id}/update`}>
-                  {project.chapterCount ? "Publish an update" : "Scan and publish"}
+                <Link className={`button ${primaryAction(project).tone} button--small`} href={primaryAction(project).href} data-guide="projects-scan">
+                  {primaryAction(project).label}
                 </Link>
               </div>
             </article>

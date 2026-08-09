@@ -1,4 +1,5 @@
 export const REACTION_KINDS = ["fire", "mindblown", "relatable", "shipped"] as const;
+import type { BuilderRole } from "@/lib/identity/builder-roles";
 export type ReactionKind = (typeof REACTION_KINDS)[number];
 
 export function isReactionKind(value: unknown): value is ReactionKind {
@@ -11,9 +12,12 @@ export type PublicProfile = {
   displayName: string;
   avatarUrl: string | null;
   bio: string | null;
+  builderRole: BuilderRole | null;
   followerCount: number;
   followingCount: number;
   storyCount: number;
+  /** Already resolved through effectivePlan() at read time - reflects the launch-wide promotion, not just the durable column. */
+  plan: "free" | "pro";
 };
 
 export type FollowState = {

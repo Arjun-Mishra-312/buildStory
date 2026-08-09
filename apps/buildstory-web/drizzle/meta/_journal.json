@@ -134,6 +134,20 @@
       "when": 1786060800000,
       "tag": "0018_story_updates",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1786064400000,
+      "tag": "0019_onboarding_guidance",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1786238755760,
+      "tag": "0020_user_plan",
+      "breakpoints": true
     }
   ]
 }

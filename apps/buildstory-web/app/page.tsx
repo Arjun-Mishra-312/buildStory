@@ -4,6 +4,7 @@ import { MarketingLanding } from "@/components/marketing/landing";
 import { getCreatorSession } from "@/lib/auth/runtime";
 import { ensureUser } from "@/lib/ingestion/store";
 import { getActivityFeed } from "@/lib/social/store";
+import { redirect } from "next/navigation";
 
 export const metadata: Metadata = { title: { absolute: "Buildstory — Show the story behind the software" }, description: "A community for AI-assisted software builders to share the decisions, detours, and tools behind what they ship." };
 
@@ -22,6 +23,8 @@ async function loadFeed(creator: NonNullable<Awaited<ReturnType<typeof getCreato
 export default async function Home() {
   const creator = await getCreatorSession();
   if (!creator) return <MarketingLanding />;
+  const user = await ensureUser(creator);
+  if (!user.onboardingCompletedAt) redirect("/onboarding?next=/");
   const { entries, unavailable } = await loadFeed(creator);
   return <HomeFeed entries={entries} unavailable={unavailable} />;
 }

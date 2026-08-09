@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { DeviceAuthorization, UploadSessionView } from "@/lib/ingestion/contracts";
 import { NARRATIVE_MODE_PREFERENCE_KEY, OLLAMA_MODEL_PREFERENCE_KEY } from "./ollama-model-status";
+import { GuideTooltip } from "@/components/guidance/studio-guide";
 
 const orderedStatuses = [
   "awaiting_scanner",
@@ -29,7 +30,7 @@ export function ScannerConnectionFlow({
 }: {
   initialSessions: UploadSessionView[];
   scannerEnabled: boolean;
-  /** Set when this session is started from an existing project's "Publish an update" flow, not the general "Create a story" flow. */
+  /** Set when this session is started from an existing project's "Scan for updates" flow, not the general "Create a story" flow. */
   targetProject?: TargetProject | null;
 }) {
   const [projectLabel, setProjectLabel] = useState(targetProject?.name ?? "New local project");
@@ -38,7 +39,7 @@ export function ScannerConnectionFlow({
   const [starting, setStarting] = useState(false);
   const [copied, setCopied] = useState<"install" | "connect" | "upload" | null>(null);
   const [withEvidence, setWithEvidence] = useState(false);
-  const [narrativeMode, setNarrativeMode] = useState<"local" | "cloud" | "off">("local");
+  const [narrativeMode, setNarrativeMode] = useState<"local" | "byok" | "cloud" | "off">("local");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -66,12 +67,12 @@ export function ScannerConnectionFlow({
     setError(null);
     try {
       let narrativeModel: string | null = null;
-      let selectedMode: "local" | "cloud" | "off" = "local";
+      let selectedMode: "local" | "byok" | "cloud" | "off" = "local";
       try {
         const storedModel = window.localStorage.getItem(OLLAMA_MODEL_PREFERENCE_KEY);
         narrativeModel = storedModel && storedModel !== "auto" ? storedModel : null;
         const storedMode = window.localStorage.getItem(NARRATIVE_MODE_PREFERENCE_KEY);
-        if (storedMode === "local" || storedMode === "cloud" || storedMode === "off") selectedMode = storedMode;
+        if (storedMode === "local" || storedMode === "byok" || storedMode === "cloud" || storedMode === "off") selectedMode = storedMode;
       } catch {
         narrativeModel = null;
       }
@@ -128,9 +129,9 @@ export function ScannerConnectionFlow({
         </div>
       </section>
 
-      <section className="scanner-flow__setup">
-        <div className="scanner-step-label"><span>01</span> PROJECT DETAILS</div>
-        <h2>{targetProject ? `Publish an update to ${targetProject.name}.` : "Start a guided story capture."}</h2>
+      <section className="scanner-flow__setup" data-guide="create-scanner">
+        <div className="scanner-step-label"><span>01</span> PROJECT DETAILS <GuideTooltip label="scan and report">A scan is the repository snapshot. The report is the private review generated from that scan.</GuideTooltip></div>
+          <h2>{targetProject ? `Scan ${targetProject.name} for updates.` : "Start a guided story capture."}</h2>
         <p>
           {targetProject
             ? `This scan becomes Chapter ${targetProject.nextChapterIndex} of ${targetProject.name}. It must be run against the same repository as the earlier chapters.`
@@ -150,7 +151,7 @@ export function ScannerConnectionFlow({
           </label>
         )}
         <button className="button button--primary" type="button" onClick={startSession} disabled={starting || !scannerEnabled}>
-          {starting ? "Starting…" : targetProject ? "Create update connection" : "Create story connection"}
+          {starting ? "Starting…" : targetProject ? "Start scan connection" : "Create story connection"}
         </button>
         {error ? <p className="scanner-flow__error" role="alert">{error}</p> : null}
       </section>
@@ -172,17 +173,20 @@ export function ScannerConnectionFlow({
               </label>
             ) : null}
             <p className="scanner-evidence-explainer">
+              <strong>Narrative mode <GuideTooltip label="narrative mode">Local keeps excerpts on this machine; bring-your-own-key sends excerpts only to a cloud model you configure yourself; cloud is an explicit upload opt-in through Buildstory; off creates deterministic metrics only.</GuideTooltip></strong>{" "}
               {narrativeMode === "local"
                 ? "Local mode asks Ollama on this machine to write the profile. Conversation excerpts are used in memory and never uploaded."
-                : narrativeMode === "cloud"
-                  ? "Cloud mode uploads only the redacted excerpts you review; it is opt-in and can be disabled in settings."
-                  : "Off mode uploads deterministic metrics and profile scores without narrative prose."}
+                : narrativeMode === "byok"
+                  ? "Bring-your-own-key mode sends redacted excerpts only to the cloud model you configure with your own key (BUILDSTORY_BYOK_* environment variables). Buildstory never receives the excerpts or the key — only the resulting narrative is uploaded."
+                  : narrativeMode === "cloud"
+                    ? "Cloud mode uploads only the redacted excerpts you review; it is opt-in and can be disabled in settings."
+                    : "Off mode uploads deterministic metrics and profile scores without narrative prose."}
             </p>
             <button type="button" className="scanner-command scanner-command--secondary" onClick={() => {
-              const suffix = narrativeMode === "cloud" && withEvidence ? " --with-evidence --review" : narrativeMode === "local" ? " --review" : "";
+              const suffix = narrativeMode === "cloud" && withEvidence ? " --with-evidence --review" : narrativeMode === "local" || narrativeMode === "byok" ? " --review" : "";
               void copyCommand(`${authorization.scanUploadCommandHint}${suffix}`, "upload");
             }}>
-              <code><span>$</span> {authorization.scanUploadCommandHint}{narrativeMode === "cloud" && withEvidence ? " --with-evidence --review" : narrativeMode === "local" ? " --review" : ""}</code>
+              <code><span>$</span> {authorization.scanUploadCommandHint}{narrativeMode === "cloud" && withEvidence ? " --with-evidence --review" : narrativeMode === "local" || narrativeMode === "byok" ? " --review" : ""}</code>
               <small>{copied === "upload" ? "Copied" : "Copy upload"}</small>
             </button>
             <dl>
@@ -207,8 +211,8 @@ export function ScannerConnectionFlow({
         )}
       </section>
 
-      <section className="scanner-flow__status">
-        <div className="scanner-step-label"><span>03</span> LIVE PROGRESS</div>
+      <section className="scanner-flow__status" data-guide="create-progress update-progress">
+        <div className="scanner-step-label"><span>03</span> LIVE PROGRESS <GuideTooltip label="report progress">When the report is ready, review it before publishing a chapter.</GuideTooltip></div>
         <h2>{session ? session.projectLabel : "Status appears here."}</h2>
         <div className="scanner-status-list">
           {orderedStatuses.map((status, index) => (

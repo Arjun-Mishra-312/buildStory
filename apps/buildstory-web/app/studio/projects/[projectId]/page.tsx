@@ -46,6 +46,14 @@ export default async function ProjectDetailPage({ params }: PageProps) {
 
   const chapters = project.reports.filter((report) => report.chapterIndex !== null).sort((left, right) => (right.chapterIndex ?? 0) - (left.chapterIndex ?? 0));
   const drafts = project.reports.filter((report) => report.chapterIndex === null);
+  const latestDraft = drafts[0] ?? null;
+  const primaryAction = latestDraft?.status === "queued" || latestDraft?.status === "generating"
+    ? { label: "View progress", href: `/studio/projects/${projectId}`, tone: "button--secondary" }
+    : latestDraft?.status === "failed"
+      ? { label: "Review issue", href: `/studio/reports/${latestDraft.reportId}`, tone: "button--secondary" }
+      : latestDraft?.status === "ready"
+        ? { label: chapters.length ? "Review and publish changes" : "Review and publish", href: `/studio/reports/${latestDraft.reportId}`, tone: "button--primary" }
+        : { label: "Scan for updates", href: `/studio/projects/${projectId}/update`, tone: "button--primary" };
 
   return (
     <section className="creator-page project-detail-page">
@@ -57,19 +65,25 @@ export default async function ProjectDetailPage({ params }: PageProps) {
         </div>
       </header>
 
-      <div className="project-detail-actions">
+      <div className="project-detail-actions" data-guide="project-detail-actions">
         {project.publicUrl ? (
           <a className="button button--secondary" href={project.publicUrl} target="_blank" rel="noopener noreferrer">
             View public page <span aria-hidden="true">↗</span>
           </a>
         ) : null}
-        <Link className="button button--primary" href={`/studio/projects/${projectId}/update`}>
-          {chapters.length ? "Publish an update" : "Scan and publish"}
+        <Link className={`button ${primaryAction.tone}`} href={primaryAction.href}>
+          {primaryAction.label}
         </Link>
       </div>
 
+      <ol className="update-sequence" aria-label="Publishing sequence">
+        <li><strong>1</strong><span><b>Scan the same repository</b><small>Create an update connection for this project.</small></span></li>
+        <li><strong>2</strong><span><b>Review the private report</b><small>Check what changed before it becomes public.</small></span></li>
+        <li><strong>3</strong><span><b>Publish a new chapter</b><small>Choose the fields your readers should see.</small></span></li>
+      </ol>
+
       {drafts.length ? (
-        <section className="project-detail-drafts">
+        <section className="project-detail-drafts" data-guide="project-detail-drafts">
           <span className="section-index">UNPUBLISHED SCANS</span>
           {drafts.map((report) => (
             <article key={report.reportId} className="project-detail-draft-row">
@@ -84,7 +98,7 @@ export default async function ProjectDetailPage({ params }: PageProps) {
         </section>
       ) : null}
 
-      <section className="project-detail-chapters">
+      <section className="project-detail-chapters" data-guide="project-detail-chapters">
         <span className="section-index">CHAPTERS</span>
         {chapters.length ? chapters.map((report) => (
           <article key={report.reportId} className="project-detail-chapter">

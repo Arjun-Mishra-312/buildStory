@@ -1,7 +1,9 @@
 import { ingestionErrorResponse, jsonError, requireApiCreator } from "@/lib/api/responses";
 import { cliApiBaseUrl, isHostedCliEnabled, isLocalApiEnabled, readBoundedJson } from "@/lib/ingestion/local-api";
 import { createUploadSession, ensureUser, listUploadSessions } from "@/lib/ingestion/store";
+import { effectivePlan } from "@/lib/narrative/entitlement";
 import { isOllamaAutoModel, isValidOllamaModelName } from "@/lib/narrative/ollama";
+import { isProOnlyNarrativeModel } from "@/lib/narrative/pricing";
 import { assertSameOriginBrowserMutation } from "@/lib/security/browser-request";
 import { checkRateLimit } from "@/lib/social/rate-limit-dispatch";
 
@@ -67,8 +69,8 @@ export async function POST(request: Request) {
     if (body.projectId !== undefined && typeof body.projectId !== "string") {
       return jsonError("invalid_request", "projectId must be a string.", 422);
     }
-    if (body.narrativeMode !== undefined && !["local", "cloud", "off"].includes(body.narrativeMode as string)) {
-      return jsonError("invalid_narrative_mode", "narrativeMode must be local, cloud, or off.", 422);
+    if (body.narrativeMode !== undefined && !["local", "byok", "cloud", "off"].includes(body.narrativeMode as string)) {
+      return jsonError("invalid_narrative_mode", "narrativeMode must be local, byok, cloud, or off.", 422);
     }
     if (
       body.narrativeModel !== undefined &&
@@ -88,9 +90,16 @@ export async function POST(request: Request) {
       typeof body.narrativeModel === "string" && !isOllamaAutoModel(body.narrativeModel)
         ? body.narrativeModel.trim()
         : null;
-    const narrativeMode = typeof body.narrativeMode === "string" ? body.narrativeMode as "local" | "cloud" | "off" : "local";
+    const narrativeMode = typeof body.narrativeMode === "string" ? body.narrativeMode as "local" | "byok" | "cloud" | "off" : "local";
     const targetProjectId = typeof body.projectId === "string" ? body.projectId : null;
     const user = await ensureUser(creator);
+    if (narrativeMode === "cloud" && narrativeModel && isProOnlyNarrativeModel(narrativeModel) && effectivePlan(user.plan) !== "pro") {
+      return jsonError(
+        "narrative_model_requires_pro",
+        "This narrative model is a Pro benefit on the subsidized cloud path. It is not restricted in local or bring-your-own-key mode, where the model choice and its cost are entirely yours.",
+        403,
+      );
+    }
     await checkRateLimit("upload_session", user.id, 20, 60, request);
     const result = await createUploadSession(
       creator.creatorId,

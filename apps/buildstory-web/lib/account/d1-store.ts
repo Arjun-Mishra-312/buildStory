@@ -2,6 +2,16 @@ import { getD1 } from "@/db";
 import { getR2, MediaStorageUnavailableError } from "@/db/r2";
 import { mediaPublicUrl } from "@/lib/media/url";
 import { AccountError, type AccountExport } from "./contracts";
+import { listGuidance } from "@/lib/ingestion/d1-store";
+
+/** Malformed stored JSON should degrade the export, not fail the whole request - an export is a best-effort dump of what exists, not a validated re-import format. */
+function parseJsonSafely(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
 
 async function database() {
   try {
@@ -15,12 +25,12 @@ async function database() {
 export async function exportAccountData(userId: string): Promise<AccountExport> {
   const db = await database();
   const user = await db
-    .prepare("SELECT id, handle, display_name, email, bio, created_at FROM buildstory_users WHERE id = ?")
+    .prepare("SELECT id, handle, display_name, email, bio, builder_role, onboarding_completed_at, created_at FROM buildstory_users WHERE id = ?")
     .bind(userId)
-    .first<{ id: string; handle: string; display_name: string; email: string; bio: string | null; created_at: string }>();
+    .first<{ id: string; handle: string; display_name: string; email: string; bio: string | null; builder_role: string | null; onboarding_completed_at: string | null; created_at: string }>();
   if (!user) throw new AccountError("not_found", "Account not found.", 404);
 
-  const [projects, reports, comments, reactions, commentUpvotes, following, followers, media] = await Promise.all([
+  const [projects, reports, comments, reactions, commentUpvotes, following, followers, media, guidance, scans, narratives, uploadSessions] = await Promise.all([
     db
       .prepare("SELECT id, slug, name, latest_commit_count, latest_active_days FROM buildstory_projects WHERE owner_user_id = ? LIMIT 500")
       .bind(userId)
@@ -69,6 +79,23 @@ export async function exportAccountData(userId: string): Promise<AccountExport> 
       .prepare("SELECT id, report_id, r2_key, kind, created_at FROM buildstory_report_media WHERE owner_user_id = ? LIMIT 500")
       .bind(userId)
       .all<{ id: string; report_id: string; r2_key: string; kind: string; created_at: string }>(),
+    listGuidance(userId),
+    // The scanner data itself: previously entirely absent from this export.
+    // Bounded the same as everything else here (LIMIT 500), matching the
+    // fair-use ceiling on stored reports per account, so this query can
+    // never return more rows than that ceiling permits to exist.
+    db
+      .prepare("SELECT id AS report_id, created_at, source_snapshot_json FROM buildstory_reports WHERE owner_user_id = ? LIMIT 500")
+      .bind(userId)
+      .all<{ report_id: string; created_at: string; source_snapshot_json: string }>(),
+    db
+      .prepare("SELECT report_id, mode, provider, model, status, sections_json, fallbacks_used_json, created_at FROM buildstory_narratives WHERE owner_user_id = ? LIMIT 500")
+      .bind(userId)
+      .all<{ report_id: string; mode: string; provider: string; model: string; status: string; sections_json: string | null; fallbacks_used_json: string | null; created_at: string }>(),
+    db
+      .prepare("SELECT id, project_label, narrative_mode, status, report_id, created_at FROM buildstory_upload_sessions WHERE owner_user_id = ? LIMIT 500")
+      .bind(userId)
+      .all<{ id: string; project_label: string; narrative_mode: string; status: string; report_id: string | null; created_at: string }>(),
   ]);
 
   return {
@@ -79,8 +106,11 @@ export async function exportAccountData(userId: string): Promise<AccountExport> 
       displayName: user.display_name,
       email: user.email,
       bio: user.bio,
+      builderRole: user.builder_role,
+      onboardingCompletedAt: user.onboarding_completed_at,
       createdAt: user.created_at,
     },
+    guidance,
     projects: projects.results.map((row) => ({
       id: row.id,
       slug: row.slug,
@@ -113,6 +143,29 @@ export async function exportAccountData(userId: string): Promise<AccountExport> 
       reportId: row.report_id,
       url: mediaPublicUrl(row.r2_key),
       kind: row.kind,
+      createdAt: row.created_at,
+    })),
+    scans: scans.results.map((row) => ({
+      reportId: row.report_id,
+      createdAt: row.created_at,
+      sourceSnapshot: parseJsonSafely(row.source_snapshot_json),
+    })),
+    narratives: narratives.results.map((row) => ({
+      reportId: row.report_id,
+      mode: row.mode,
+      provider: row.provider,
+      model: row.model,
+      status: row.status,
+      sections: row.sections_json ? parseJsonSafely(row.sections_json) : null,
+      fallbacksUsed: row.fallbacks_used_json ? (parseJsonSafely(row.fallbacks_used_json) as string[] ?? []) : [],
+      createdAt: row.created_at,
+    })),
+    uploadSessions: uploadSessions.results.map((row) => ({
+      id: row.id,
+      projectLabel: row.project_label,
+      narrativeMode: row.narrative_mode,
+      status: row.status,
+      reportId: row.report_id,
       createdAt: row.created_at,
     })),
   };

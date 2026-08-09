@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ProjectWorkbench } from "@/components/project-workbench";
 import { getPublicProjectVerification, getPublishedStory, listPublishedChapters } from "@/lib/ingestion/store";
+import { getProfileByHandle } from "@/lib/social/store";
+import { builderRoleLabel } from "@/lib/identity/builder-roles";
 
 type PageProps = { params: Promise<{ handle: string; slug: string }> };
 export const dynamic = "force-dynamic";
@@ -43,6 +45,7 @@ export default async function PublishedStoryPage({ params }: PageProps) {
   const chapters = await listPublishedChapters(handle, slug).catch(() => []);
   const currentChapterIndex = chapters.at(-1)?.chapterIndex ?? 1;
   const verifiedRepoAt = await getPublicProjectVerification(handle, slug).catch(() => null);
+  const profile = await getProfileByHandle(handle).catch(() => null);
   return (
     <ProjectWorkbench
       story={story}
@@ -50,6 +53,7 @@ export default async function PublishedStoryPage({ params }: PageProps) {
       chapters={chapters}
       currentChapterIndex={currentChapterIndex}
       initialVerifiedRepoAt={verifiedRepoAt}
+      ownerRoleOverride={profile?.builderRole ? builderRoleLabel(profile.builderRole) : null}
     />
   );
 }

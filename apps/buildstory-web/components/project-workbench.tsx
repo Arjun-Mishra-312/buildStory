@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { BuildStoryViewModel, PublicBuildStoryViewModel } from "@/lib/build-story";
 import { STORY_CATEGORIES, type NarrativeRecord, type PublicationStatus, type PublicFieldKey, type ReportMediaRecord, type StoryCategory } from "@/lib/ingestion/contracts";
@@ -18,6 +19,7 @@ import { CommentThread } from "./comment-thread";
 import { ReceiptCard } from "./receipt-card";
 import { ShareButton } from "./share-button";
 import { SocialActions } from "./social-actions";
+import { GuideTooltip } from "./guidance/studio-guide";
 
 type ArtifactLinksState = { projectUrl: string | null; repoUrl: string | null; videoUrl: string | null };
 
@@ -36,6 +38,8 @@ type ProjectWorkbenchProps = {
   access?: "public" | "creator";
   reportId?: string;
   projectId?: string;
+  hasLiveChapter?: boolean;
+  ownerRoleOverride?: string | null;
   initialPublicationStatus?: PublicationStatus;
   initialSelectedPublicFields?: PublicFieldKey[];
   narrative?: NarrativeRecord | null;
@@ -228,6 +232,8 @@ export function ProjectWorkbench({
   access = "creator",
   reportId,
   projectId,
+  ownerRoleOverride = null,
+  hasLiveChapter = false,
   initialPublicationStatus = "not_published",
   initialSelectedPublicFields = fieldOptions.filter((field) => !["decisionPatterns", "growthEdge", "storyGrowthEdge", "artifactLinks", "artifactMedia"].includes(field.id)).map((field) => field.id),
   narrative = null,
@@ -242,6 +248,7 @@ export function ProjectWorkbench({
   currentChapterIndex,
   reviewedEvidence = [],
 }: ProjectWorkbenchProps) {
+  const owner = ownerRoleOverride ? { ...story.owner, role: ownerRoleOverride } : story.owner;
   const router = useRouter();
   const resolvedNarrativeStatus: NarrativeDisplayStatus =
     narrativeStatus ??
@@ -297,6 +304,7 @@ export function ProjectWorkbench({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [copied, setCopied] = useState(false);
   const [badgeCopied, setBadgeCopied] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [selectedFields, setSelectedFields] = useState<PublicFieldKey[]>(initialSelectedPublicFields);
   const [publicationStatus, setPublicationStatus] = useState<PublicationStatus>(initialPublicationStatus);
   // "draft_changes" still has a live public URL (the last published version) - see the
@@ -548,14 +556,14 @@ export function ProjectWorkbench({
 
   async function copyLink() {
     if (!isLive) return;
-    const ok = await copyToClipboard(`${window.location.origin}/u/${story.owner.handle}/${story.slug}`);
+    const ok = await copyToClipboard(`${window.location.origin}/u/${owner.handle}/${story.slug}`);
     setCopied(ok);
     if (ok) window.setTimeout(() => setCopied(false), 1600);
   }
 
   async function copyBadgeMarkdown() {
     if (!isLive) return;
-    const path = `/u/${story.owner.handle}/${story.slug}`;
+    const path = `/u/${owner.handle}/${story.slug}`;
     const markdown = `[![Buildstory](${window.location.origin}${path}/badge.svg)](${window.location.origin}${path})`;
     const ok = await copyToClipboard(markdown);
     setBadgeCopied(ok);
@@ -567,14 +575,14 @@ export function ProjectWorkbench({
       {access === "creator" ? (
       <div className="project-console-bar">
         <div className="project-console-bar__identity">
-          <span className="avatar">{initialsFrom(story.owner.name)}</span>
+          <span className="avatar">{initialsFrom(owner.name)}</span>
           <span>
             <strong>{story.name}</strong>
             <small>Owner workbench</small>
           </span>
         </div>
 
-        <div className="view-switcher" role="tablist" aria-label="Project views">
+        <div className="view-switcher" role="tablist" aria-label="Project views" data-guide="workbench-views">
           <button
             id="public-tab"
             role="tab"
@@ -597,14 +605,18 @@ export function ProjectWorkbench({
           >
             <span className="view-status view-status--private" /> Private report
           </button>
+          <GuideTooltip label="public and private views">Public is the reader-facing story; Private is the complete report.</GuideTooltip>
         </div>
 
-        <div className="project-console-bar__actions">
+        <div className="project-console-bar__actions" data-guide="workbench-actions">
           {view === "public" && !editing ? (
             <button className="button button--secondary button--small" type="button" onClick={startEditing}>
               Edit public page
             </button>
           ) : null}
+          {projectId && (isLive || hasLiveChapter) ? <Link className="button button--secondary button--small" href={`/studio/projects/${projectId}/update`}>Scan for updates</Link> : null}
+          {isLive ? <button className="button button--text button--small project-console-bar__more" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((value) => !value)}>More</button> : null}
+          {isLive ? <div className={`project-console-bar__utilities${moreOpen ? " is-open" : ""}`}>
           {isLive ? (
             <button
               className="button button--dark button--small"
@@ -625,7 +637,8 @@ export function ProjectWorkbench({
               {badgeCopied ? "Badge markdown copied" : "Copy README badge"}
             </button>
           ) : null}
-          {publicationStatus !== "published" ? (
+          </div> : null}
+              {publicationStatus !== "published" ? (
             <button
               className="button button--primary button--small"
               type="button"
@@ -849,10 +862,10 @@ export function ProjectWorkbench({
                 <h1>{story.name}</h1>
                 <p className="build-story__tagline">{tagline}</p>
                 <div className="build-story__author">
-                  <span className="avatar avatar--large">{initialsFrom(story.owner.name)}</span>
+                  <span className="avatar avatar--large">{initialsFrom(owner.name)}</span>
                   <span>
-                    <strong>{story.owner.name}</strong>
-                    <small>@{story.owner.handle} · {story.owner.role}</small>
+                    <strong>{owner.name}</strong>
+                    <small>@{owner.handle} · {owner.role}</small>
                   </span>
                 </div>
                 <div className="build-story__hero-actions" aria-label="Project links">
@@ -864,9 +877,9 @@ export function ProjectWorkbench({
                 {access === "public" ? (
                   <div className="build-story__hero-share">
                     <ShareButton
-                      path={`/u/${story.owner.handle}/${story.slug}`}
+                      path={`/u/${owner.handle}/${story.slug}`}
                       title={story.name}
-                      downloadPath={`/api/share/story/${story.owner.handle}/${story.slug}`}
+                      downloadPath={`/api/share/story/${owner.handle}/${story.slug}`}
                       storyBackgroundId={activeStoryBackgroundId}
                     />
                   </div>
@@ -892,7 +905,7 @@ export function ProjectWorkbench({
             </header>
 
             {access === "public" && currentChapterIndex ? (
-              <ChapterTimeline chapters={chapters} handle={story.owner.handle} slug={story.slug} currentChapterIndex={currentChapterIndex} />
+              <ChapterTimeline chapters={chapters} handle={owner.handle} slug={story.slug} currentChapterIndex={currentChapterIndex} />
             ) : null}
 
             {access === "public" && displayStory.chapterDelta ? (
@@ -1026,7 +1039,7 @@ export function ProjectWorkbench({
           {access === "public" ? (
             <div className="section-wrap community-section">
               <div className="community-section__actions">
-                <SocialActions storyId={story.reportId ?? story.id} ownerHandle={story.owner.handle} />
+                <SocialActions storyId={story.reportId ?? story.id} ownerHandle={owner.handle} />
               </div>
               <CommentThread storyId={story.reportId ?? story.id} chapterCount={Math.max(chapters.length, currentChapterIndex ?? 1)} />
             </div>
@@ -1096,10 +1109,10 @@ export function ProjectWorkbench({
             </section>
           ) : null}
 
-          <section className="publication-boundary-panel">
+          <section className="publication-boundary-panel" data-guide="workbench-boundary">
             <header>
               <div>
-                <span className="section-index">PUBLICATION BOUNDARY</span>
+                <span className="section-index">PUBLICATION BOUNDARY <GuideTooltip label="publication boundary">Only the fields selected here are copied into the public chapter. The scan and evidence remain private.</GuideTooltip></span>
                 <h2>Choose the fields allowed onto the public page.</h2>
                 <p>The source snapshot and session details remain private regardless of this selection.</p>
               </div>

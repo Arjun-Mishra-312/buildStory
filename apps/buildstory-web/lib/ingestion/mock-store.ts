@@ -5,7 +5,7 @@ import { normalizeArtifactUrl, type ArtifactLinksUpdate } from "@/lib/ingestion/
 import { isLoopbackHostname } from "@/lib/ingestion/local-api";
 import { mediaPublicUrl } from "@/lib/media/url";
 import { generateNarrative, narrativeProviderConfigured, NarrativeProviderError } from "@/lib/narrative/provider";
-import { canUseCloudNarrative } from "@/lib/narrative/entitlement";
+import { canUseCloudNarrative, effectivePlan } from "@/lib/narrative/entitlement";
 import { estimateCostMicroUsd } from "@/lib/narrative/pricing";
 import { NARRATIVE_FIELD_LIMITS } from "@/lib/narrative/schema";
 import { sanitizePublicText } from "@/lib/publication/sanitization";
@@ -14,6 +14,8 @@ import { notifyFollowersOfStoryUpdate } from "@/lib/social/store";
 import { getTrendingScoreForReport, registerProfile as registerSocialProfileRecord, registerReport as registerSocialReportRecord } from "@/lib/social/mock-store";
 import { MAX_MEDIA_PER_REPORT } from "./contracts";
 import { DEFAULT_STORY_BACKGROUND_ID, isStoryBackgroundId } from "@/lib/background-options";
+import { builderRoleLabel, isBuilderRole, type BuilderRole } from "@/lib/identity/builder-roles";
+import { GUIDE_VERSION, isGuideKey, isGuideState, type GuideKey, type GuideState, type GuidanceRecord } from "@/lib/guidance/contracts";
 import { compareExploreRows, decodeExploreCursor, encodeExploreCursor, isAfterExploreCursor } from "./explore-cursor";
 import type {
   DeviceAuthorization,
@@ -44,7 +46,7 @@ import {
 
 type StoredUploadSession = UploadSessionView & {
   ownerUserId: string | null;
-  /** Set when this session was started from an existing project's "Publish an update" flow. See acceptSnapshot's fingerprint check. */
+  /** Set when this session was started from an existing project's "Scan for updates" flow. See acceptSnapshot's fingerprint check. */
   targetProjectId: string | null;
   deviceCodeHash: string;
   deviceCodeAttempts: number;
@@ -120,6 +122,7 @@ type MockStore = {
   /** Keyed by `${provider}:${subject}`. */
   identities: Map<string, StoredIdentity>;
   publicStoryIndex: Map<string, { story: PublicBuildStoryViewModel & { chapterDelta: ChapterDelta | null }; category: string; searchText: string; hasLiveDemo: boolean; updatedAt: string }>;
+  guidance: Map<string, GuidanceRecord>;
 };
 
 type StoreGlobal = typeof globalThis & {
@@ -144,9 +147,12 @@ function createSeedStore(): MockStore {
     displayName: "Mina Park",
     avatarUrl: null,
     bio: "Independent product engineer",
+    builderRole: "independent-builder",
     role: "member",
     status: "active",
     handleChangedAt: null,
+    onboardingCompletedAt: now,
+    plan: "free",
   };
   const project: StoredProject = {
     id: projectId,
@@ -260,6 +266,7 @@ function createSeedStore(): MockStore {
       hasLiveDemo: Boolean(publicStory.artifactLinks.projectUrl),
       updatedAt: now,
     }]]),
+    guidance: new Map(),
     identities: new Map([[identityKey("dev", "mina-park"), {
       id: "idn_mina_park_seed",
       userId,
@@ -333,7 +340,9 @@ function registerSocialProfile(user: StoredUser) {
     displayName: user.displayName,
     avatarUrl: user.avatarUrl,
     bio: user.bio,
+    builderRole: user.builderRole,
     role: user.role,
+    plan: user.plan,
   });
 }
 
@@ -436,9 +445,12 @@ export function ensureUser(session: {
       displayName: session.name,
       avatarUrl: session.image,
       bio: null,
+      builderRole: null,
       role: "member",
       status: "active",
       handleChangedAt: null,
+      onboardingCompletedAt: null,
+      plan: "free",
     };
     store.users.set(user.id, user);
     registerSocialProfile(user);
@@ -502,6 +514,8 @@ export type ProfileUpdateResult = {
   bio: string | null;
   avatarUrl: string | null;
   handleChangedAt: string | null;
+  builderRole: BuilderRole | null;
+  onboardingCompletedAt: string | null;
 };
 
 /**
@@ -512,7 +526,7 @@ export type ProfileUpdateResult = {
  */
 export function updateProfile(
   userId: string,
-  update: { bio?: string; displayName?: string; handle?: string },
+  update: { bio?: string; displayName?: string; handle?: string; builderRole?: BuilderRole | null },
 ): ProfileUpdateResult {
   const user = store.users.get(userId);
   if (!user) throw new MockIngestionError("not_found", "Account not found.", 404);
@@ -525,6 +539,13 @@ export function updateProfile(
     const displayName = update.displayName.trim().slice(0, MAX_DISPLAY_NAME_LENGTH);
     if (!displayName) throw new MockIngestionError("invalid_display_name", "Display name cannot be empty.", 422);
     user.displayName = displayName;
+  }
+
+  if (update.builderRole !== undefined) {
+    if (update.builderRole !== null && !isBuilderRole(update.builderRole)) {
+      throw new MockIngestionError("invalid_builder_role", "Choose one of the available builder roles.", 422);
+    }
+    user.builderRole = update.builderRole;
   }
 
   if (update.handle !== undefined && update.handle.trim().toLocaleLowerCase("en-US") !== user.handleLower) {
@@ -557,7 +578,70 @@ export function updateProfile(
     bio: user.bio,
     avatarUrl: user.avatarUrl,
     handleChangedAt: user.handleChangedAt,
+    builderRole: user.builderRole,
+    onboardingCompletedAt: user.onboardingCompletedAt,
   };
+}
+
+export function getUserRecord(userId: string): UserRecord {
+  const user = store.users.get(userId);
+  if (!user) throw new MockIngestionError("not_found", "Account not found.", 404);
+  return user;
+}
+
+export function completeOnboarding(
+  userId: string,
+  update: { displayName: string; handle: string; bio?: string | null; builderRole?: BuilderRole | null },
+): ProfileUpdateResult {
+  const user = store.users.get(userId);
+  if (!user) throw new MockIngestionError("not_found", "Account not found.", 404);
+  const displayName = update.displayName.trim().slice(0, MAX_DISPLAY_NAME_LENGTH);
+  if (!displayName) throw new MockIngestionError("invalid_display_name", "Display name cannot be empty.", 422);
+  const handle = update.handle.trim().toLocaleLowerCase("en-US");
+  if (handle.length < 3 || handle.length > 32 || !HANDLE_PATTERN.test(handle)) {
+    throw new MockIngestionError("invalid_handle", "Handles must be 3-32 characters: lowercase letters, numbers, and single hyphens between them.", 422);
+  }
+  if (isReservedHandle(handle)) throw new MockIngestionError("handle_reserved", "That handle is reserved.", 422);
+  if (update.builderRole !== undefined && update.builderRole !== null && !isBuilderRole(update.builderRole)) {
+    throw new MockIngestionError("invalid_builder_role", "Choose one of the available builder roles.", 422);
+  }
+  const taken = Array.from(store.users.values()).some((candidate) => candidate.id !== userId && candidate.handleLower === handle);
+  if (taken) throw new MockIngestionError("handle_taken", "That handle is already taken.", 422);
+
+  const incomingBio = update.bio?.trim().slice(0, MAX_BIO_LENGTH) || null;
+  const incomingRole = update.builderRole ?? null;
+  if (user.onboardingCompletedAt) {
+    const same = user.handleLower === handle && user.displayName === displayName && user.bio === incomingBio && user.builderRole === incomingRole;
+    if (same) return { id: user.id, handle: user.handle, displayName: user.displayName, bio: user.bio, avatarUrl: user.avatarUrl, handleChangedAt: user.handleChangedAt, builderRole: user.builderRole, onboardingCompletedAt: user.onboardingCompletedAt };
+    throw new MockIngestionError("onboarding_already_completed", "Onboarding is already complete. Update your profile from Settings.", 409);
+  }
+  user.displayName = displayName;
+  user.handle = handle;
+  user.handleLower = handle;
+  user.bio = incomingBio;
+  user.builderRole = incomingRole;
+  user.onboardingCompletedAt = new Date().toISOString();
+  registerSocialProfile(user);
+  return { id: user.id, handle: user.handle, displayName: user.displayName, bio: user.bio, avatarUrl: user.avatarUrl, handleChangedAt: user.handleChangedAt, builderRole: user.builderRole, onboardingCompletedAt: user.onboardingCompletedAt };
+}
+
+function guidanceKey(userId: string, guideKey: GuideKey, guideVersion: number) {
+  return `${userId}:${guideKey}:${guideVersion}`;
+}
+
+export function listGuidance(userId: string): GuidanceRecord[] {
+  return Array.from(store.guidance.entries())
+    .filter(([key]) => key.startsWith(`${userId}:`))
+    .map(([, record]) => record);
+}
+
+export function setGuidance(userId: string, guideKey: GuideKey, guideVersion: number, state: GuideState): GuidanceRecord {
+  if (!isGuideKey(guideKey) || !isGuideState(state) || guideVersion !== GUIDE_VERSION) {
+    throw new MockIngestionError("invalid_guidance", "That guide is not available.", 422);
+  }
+  const record: GuidanceRecord = { guideKey, guideVersion, state, updatedAt: new Date().toISOString() };
+  store.guidance.set(guidanceKey(userId, guideKey, guideVersion), record);
+  return record;
 }
 
 function ensureProject(ownerUserId: string, fingerprint: string, fingerprintBasis: string, stats: ProjectScanStats): ProjectRecord {
@@ -600,6 +684,13 @@ function ensureProject(ownerUserId: string, fingerprint: string, fingerprintBasi
 }
 
 const DEFAULT_MONTHLY_LLM_CAP_MICRO_USD = 1_000_000; // $1.00/month/user, subsidized default - mirrors d1-store.ts.
+const PRO_MONTHLY_LLM_CAP_MICRO_USD = 5_000_000; // $5.00/month/user - mirrors d1-store.ts; revisit before Pro is a paid tier.
+const MAX_STORED_REPORTS_PER_ACCOUNT = 500; // Mirrors d1-store.ts's anti-abuse ceiling.
+
+function monthlyLlmCapMicroUsd(ownerUserId: string): number {
+  const plan = store.users.get(ownerUserId)?.plan ?? "free";
+  return effectivePlan(plan) === "pro" ? PRO_MONTHLY_LLM_CAP_MICRO_USD : DEFAULT_MONTHLY_LLM_CAP_MICRO_USD;
+}
 
 function currentBudgetPeriodKey(): string {
   return new Date().toISOString().slice(0, 7); // "YYYY-MM", UTC.
@@ -611,13 +702,14 @@ function hasNarrativeBudget(ownerUserId: string): boolean {
   return budget.spentMicroUsd < budget.capMicroUsd;
 }
 
+/** The cap is captured once, at first spend of the period - see the matching note in d1-store.ts's recordNarrativeSpend. */
 function recordNarrativeSpend(ownerUserId: string, costMicroUsd: number) {
   const key = `${ownerUserId}:${currentBudgetPeriodKey()}`;
   const existing = store.llmBudgets.get(key);
   if (existing) {
     existing.spentMicroUsd += costMicroUsd;
   } else {
-    store.llmBudgets.set(key, { spentMicroUsd: costMicroUsd, capMicroUsd: DEFAULT_MONTHLY_LLM_CAP_MICRO_USD });
+    store.llmBudgets.set(key, { spentMicroUsd: costMicroUsd, capMicroUsd: monthlyLlmCapMicroUsd(ownerUserId) });
   }
 }
 
@@ -778,7 +870,7 @@ export async function createUploadSession(
   apiBaseUrl = "http://localhost:3000/",
   ownerUserId: string | null = null,
   narrativeModel: string | null = null,
-  narrativeMode: "local" | "cloud" | "off" = "cloud",
+  narrativeMode: "local" | "byok" | "cloud" | "off" = "local",
   targetProjectId: string | null = null,
 ): Promise<{ session: UploadSessionView; deviceAuthorization: DeviceAuthorization }> {
   if (targetProjectId) {
@@ -854,7 +946,7 @@ export function getUploadSession(
 export async function claimUploadSession(
   sessionId: string,
   userCode: string,
-  narrativeModes?: Array<"local" | "cloud" | "off">,
+  narrativeModes?: Array<"local" | "byok" | "cloud" | "off">,
 ): Promise<ScannerClaimResponse> {
   const session = store.sessions.get(sessionId);
   const codeHash = await hashToken(userCode.trim().toUpperCase());
@@ -953,6 +1045,15 @@ export async function acceptSnapshot(
       409,
     );
   }
+  // Mirrors d1-store.ts's anti-abuse ceiling - see its comment for the full rationale.
+  const existingReportCount = Array.from(store.reports.values()).filter((report) => report.creatorId === session.creatorId).length;
+  if (existingReportCount >= MAX_STORED_REPORTS_PER_ACCOUNT) {
+    throw new MockIngestionError(
+      "report_limit_reached",
+      `This account has reached its ${MAX_STORED_REPORTS_PER_ACCOUNT}-report storage limit. Delete an existing project or report before scanning a new one.`,
+      403,
+    );
+  }
   if (session.targetProjectId) {
     const targetProject = store.projects.get(session.targetProjectId);
     if (!targetProject || targetProject.ownerUserId !== user.id) {
@@ -996,7 +1097,7 @@ export async function acceptSnapshot(
     id: user.id,
     name: user.displayName,
     handle: user.handle,
-    role: user.bio ?? "AI-assisted software builder",
+    role: builderRoleLabel(user.builderRole) ?? user.bio ?? "AI-assisted software builder",
   });
   session.uploadTokenConsumedAt = acceptedAt;
   session.uploadReceiptId = receiptId;
@@ -1074,13 +1175,17 @@ export async function acceptSnapshot(
       costMicroUsd: 0,
       attempts: 0,
     });
-  } else if (session.narrativeMode === "local") {
+  } else if (session.narrativeMode === "local" || session.narrativeMode === "byok") {
+    // Generation was attempted on the creator's machine (Ollama or a BYOK
+    // provider) and produced nothing - record it as failed rather than
+    // falling through to the narrativeEvidence branch, which local/byok
+    // scans never carry.
     store.narratives.set(reportId, {
       id: makeId("nar"),
       reportId,
       ownerUserId: user.id,
       mode: "local",
-      provider: "ollama",
+      provider: session.narrativeMode === "byok" ? "byok" : "ollama",
       model: session.narrativeModel ?? "auto",
       status: "failed",
       sections: null,
@@ -2010,6 +2115,14 @@ export function getAccountProjectsAndReports(userId: string): { projects: Stored
   };
 }
 
+/** For the account export: the scanner records themselves - narrative generation results and upload session history, keyed by owner. */
+export function getAccountScannerData(userId: string): { narratives: StoredNarrative[]; uploadSessions: StoredUploadSession[] } {
+  return {
+    narratives: Array.from(store.narratives.values()).filter((narrative) => narrative.ownerUserId === userId),
+    uploadSessions: Array.from(store.sessions.values()).filter((session) => session.ownerUserId === userId),
+  };
+}
+
 /**
  * Permanent, irreversible erasure - mirrors d1-store's deleteAccount:
  * reports/sessions/projects owned by this user are removed outright, not
@@ -2037,6 +2150,9 @@ export function deleteAccountData(userId: string): string[] {
   }
   for (const [id, project] of store.projects) {
     if (project.ownerUserId === userId) store.projects.delete(id);
+  }
+  for (const key of store.guidance.keys()) {
+    if (key.startsWith(`${userId}:`)) store.guidance.delete(key);
   }
   store.users.delete(userId);
   return orphanedR2Keys;

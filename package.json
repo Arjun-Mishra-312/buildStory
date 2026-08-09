@@ -22,6 +22,6 @@
     "check:artifact": "node scripts/check-artifact-freshness.mjs"
   },
   "dependencies": {
-    "buildstory-scan": "^0.7.0"
+    "buildstory-scan": "^0.9.0"
   }
 }

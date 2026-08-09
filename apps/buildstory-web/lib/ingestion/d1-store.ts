@@ -5,7 +5,7 @@ import { normalizeArtifactUrl, type ArtifactLinksUpdate } from "@/lib/ingestion/
 import { mediaPublicUrl } from "@/lib/media/url";
 import { isLoopbackHostname } from "@/lib/ingestion/local-api";
 import { generateNarrative, narrativeProviderConfigured, NarrativeProviderError } from "@/lib/narrative/provider";
-import { canUseCloudNarrative } from "@/lib/narrative/entitlement";
+import { canUseCloudNarrative, effectivePlan } from "@/lib/narrative/entitlement";
 import { estimateCostMicroUsd } from "@/lib/narrative/pricing";
 import { NARRATIVE_FIELD_LIMITS, NARRATIVE_PROMPT_VERSION } from "@/lib/narrative/schema";
 import type { ProjectSnapshot } from "@/lib/project-snapshot";
@@ -40,8 +40,17 @@ import { MAX_SNAPSHOT_BYTES, validateProjectSnapshot } from "./validation";
 import { compareExploreRows, decodeExploreCursor, encodeExploreCursor, isAfterExploreCursor } from "./explore-cursor";
 import { DEFAULT_STORY_BACKGROUND_ID, isStoryBackgroundId } from "@/lib/background-options";
 import { notifyFollowersOfStoryUpdate } from "@/lib/social/store";
+import { builderRoleLabel, isBuilderRole, type BuilderRole } from "@/lib/identity/builder-roles";
+import { GUIDE_VERSION, isGuideKey, isGuideState, type GuideKey, type GuideState, type GuidanceRecord } from "@/lib/guidance/contracts";
 
 const DEFAULT_MONTHLY_LLM_CAP_MICRO_USD = 1_000_000; // $1.00/month/user, subsidized default
+const PRO_MONTHLY_LLM_CAP_MICRO_USD = 5_000_000; // $5.00/month/user - a first number, not a considered business decision; revisit before Pro is a paid tier.
+/** Anti-abuse ceiling on stored reports per account - see acceptSnapshot. Same on every plan; storage cost is ours regardless of tier. */
+const MAX_STORED_REPORTS_PER_ACCOUNT = 500;
+
+function monthlyLlmCapMicroUsd(plan: "free" | "pro"): number {
+  return effectivePlan(plan) === "pro" ? PRO_MONTHLY_LLM_CAP_MICRO_USD : DEFAULT_MONTHLY_LLM_CAP_MICRO_USD;
+}
 
 type SessionRow = {
   id: string;
@@ -244,7 +253,7 @@ function cleanSession(row: SessionRow): UploadSessionView {
     creatorId: row.creator_id,
     projectLabel: row.project_label,
     narrativeModel: row.narrative_model,
-    narrativeMode: row.narrative_mode === "local" || row.narrative_mode === "off" ? row.narrative_mode : "cloud",
+    narrativeMode: row.narrative_mode === "local" || row.narrative_mode === "byok" || row.narrative_mode === "off" ? row.narrative_mode : "cloud",
     status: row.status as UploadSessionStatus,
     createdAt: row.created_at,
     expiresAt: row.expires_at,
@@ -371,7 +380,7 @@ async function reportById(reportId: string) {
 async function userByAuthSubject(authSubject: string) {
   const user = await (await database())
     .prepare(
-      "SELECT id, handle, display_name, avatar_url, bio, role, status FROM buildstory_users WHERE auth_subject = ? AND deleted_at IS NULL",
+      "SELECT id, handle, display_name, avatar_url, bio, builder_role, role, status FROM buildstory_users WHERE auth_subject = ? AND deleted_at IS NULL",
     )
     .bind(authSubject)
     .first<{
@@ -380,6 +389,7 @@ async function userByAuthSubject(authSubject: string) {
       display_name: string;
       avatar_url: string | null;
       bio: string | null;
+      builder_role: string | null;
       role: string;
       status: string;
     }>();
@@ -515,10 +525,10 @@ export async function ensureUser(session: {
   const now = new Date().toISOString();
   const existing = await db
     .prepare(
-      "SELECT id, handle, display_name, avatar_url, role, status, handle_changed_at FROM buildstory_users WHERE auth_subject = ?",
+      "SELECT id, handle, display_name, avatar_url, role, status, handle_changed_at, builder_role, onboarding_completed_at, plan FROM buildstory_users WHERE auth_subject = ?",
     )
     .bind(session.creatorId)
-    .first<{ id: string; handle: string; display_name: string; avatar_url: string | null; role: string; status: string; handle_changed_at: string | null }>();
+    .first<{ id: string; handle: string; display_name: string; avatar_url: string | null; role: string; status: string; handle_changed_at: string | null; builder_role: string | null; onboarding_completed_at: string | null; plan: string }>();
   if (existing) {
     if (existing.status !== "active") throw new D1IngestionError("account_suspended", "This creator account is suspended.", 403);
     return {
@@ -529,6 +539,9 @@ export async function ensureUser(session: {
       avatarUrl: existing.avatar_url,
       role: existing.role as UserRecord["role"],
       handleChangedAt: existing.handle_changed_at,
+      builderRole: isBuilderRole(existing.builder_role) ? existing.builder_role : null,
+      onboardingCompletedAt: existing.onboarding_completed_at,
+      plan: existing.plan === "pro" ? "pro" : "free",
     };
   }
 
@@ -539,9 +552,9 @@ export async function ensureUser(session: {
       .prepare(
         `INSERT INTO buildstory_users (
           id, auth_subject, email, handle, handle_lower, display_name, avatar_url,
-          role, status, created_at, updated_at
+          role, status, builder_role, onboarding_completed_at, created_at, updated_at
         )
-        SELECT ?, ?, ?, ?, ?, ?, ?, 'member', 'active', ?, ?
+        SELECT ?, ?, ?, ?, ?, ?, ?, 'member', 'active', ?, ?, ?, ?
         WHERE NOT EXISTS (SELECT 1 FROM buildstory_users WHERE auth_subject = ?)
           AND NOT EXISTS (SELECT 1 FROM buildstory_users WHERE handle_lower = ?)`,
       )
@@ -553,6 +566,8 @@ export async function ensureUser(session: {
         candidate.toLocaleLowerCase("en-US"),
         session.name,
         session.image,
+        null,
+        null,
         now,
         now,
         session.creatorId,
@@ -568,12 +583,15 @@ export async function ensureUser(session: {
         avatarUrl: session.image,
         role: "member",
         handleChangedAt: null,
+        builderRole: null,
+        onboardingCompletedAt: null,
+        plan: "free",
       };
     }
     const raced = await db
-      .prepare("SELECT id, handle, display_name, avatar_url, role, status, handle_changed_at FROM buildstory_users WHERE auth_subject = ?")
+      .prepare("SELECT id, handle, display_name, avatar_url, role, status, handle_changed_at, builder_role, onboarding_completed_at, plan FROM buildstory_users WHERE auth_subject = ?")
       .bind(session.creatorId)
-      .first<{ id: string; handle: string; display_name: string; avatar_url: string | null; role: string; status: string; handle_changed_at: string | null }>();
+      .first<{ id: string; handle: string; display_name: string; avatar_url: string | null; role: string; status: string; handle_changed_at: string | null; builder_role: string | null; onboarding_completed_at: string | null; plan: string }>();
     if (raced) {
       if (raced.status !== "active") throw new D1IngestionError("account_suspended", "This creator account is suspended.", 403);
       return {
@@ -584,6 +602,9 @@ export async function ensureUser(session: {
         avatarUrl: raced.avatar_url,
         role: raced.role as UserRecord["role"],
         handleChangedAt: raced.handle_changed_at,
+        builderRole: isBuilderRole(raced.builder_role) ? raced.builder_role : null,
+        onboardingCompletedAt: raced.onboarding_completed_at,
+        plan: raced.plan === "pro" ? "pro" : "free",
       };
     }
     // Otherwise the candidate handle itself collided; loop to the next one.
@@ -680,6 +701,8 @@ export type ProfileUpdateResult = {
   bio: string | null;
   avatarUrl: string | null;
   handleChangedAt: string | null;
+  builderRole: BuilderRole | null;
+  onboardingCompletedAt: string | null;
 };
 
 type ProfileRow = {
@@ -689,6 +712,8 @@ type ProfileRow = {
   bio: string | null;
   avatar_url: string | null;
   handle_changed_at: string | null;
+  builder_role: string | null;
+  onboarding_completed_at: string | null;
 };
 
 function profileUpdateResultFromRow(row: ProfileRow): ProfileUpdateResult {
@@ -699,6 +724,8 @@ function profileUpdateResultFromRow(row: ProfileRow): ProfileUpdateResult {
     bio: row.bio,
     avatarUrl: row.avatar_url,
     handleChangedAt: row.handle_changed_at,
+    builderRole: isBuilderRole(row.builder_role) ? row.builder_role : null,
+    onboardingCompletedAt: row.onboarding_completed_at,
   };
 }
 
@@ -710,11 +737,11 @@ function profileUpdateResultFromRow(row: ProfileRow): ProfileUpdateResult {
  */
 export async function updateProfile(
   userId: string,
-  update: { bio?: string; displayName?: string; handle?: string },
+  update: { bio?: string; displayName?: string; handle?: string; builderRole?: BuilderRole | null },
 ): Promise<ProfileUpdateResult> {
   const db = await database();
   const existing = await db
-    .prepare("SELECT id, handle, display_name, bio, avatar_url, handle_changed_at FROM buildstory_users WHERE id = ?")
+    .prepare("SELECT id, handle, display_name, bio, avatar_url, handle_changed_at, builder_role, onboarding_completed_at FROM buildstory_users WHERE id = ?")
     .bind(userId)
     .first<ProfileRow>();
   if (!existing) throw new D1IngestionError("not_found", "Account not found.", 404);
@@ -732,6 +759,14 @@ export async function updateProfile(
     if (!displayName) throw new D1IngestionError("invalid_display_name", "Display name cannot be empty.", 422);
     sets.push("display_name = ?");
     values.push(displayName);
+  }
+
+  if (update.builderRole !== undefined) {
+    if (update.builderRole !== null && !isBuilderRole(update.builderRole)) {
+      throw new D1IngestionError("invalid_builder_role", "Choose one of the available builder roles.", 422);
+    }
+    sets.push("builder_role = ?");
+    values.push(update.builderRole);
   }
 
   if (update.handle !== undefined && update.handle.trim().toLocaleLowerCase("en-US") !== existing.handle.toLocaleLowerCase("en-US")) {
@@ -765,10 +800,85 @@ export async function updateProfile(
   await db.prepare(`UPDATE buildstory_users SET ${sets.join(", ")} WHERE id = ?`).bind(...values).run();
 
   const updated = await db
-    .prepare("SELECT id, handle, display_name, bio, avatar_url, handle_changed_at FROM buildstory_users WHERE id = ?")
+    .prepare("SELECT id, handle, display_name, bio, avatar_url, handle_changed_at, builder_role, onboarding_completed_at FROM buildstory_users WHERE id = ?")
     .bind(userId)
     .first<ProfileRow>();
   return profileUpdateResultFromRow(updated!);
+}
+
+/** Initial profile setup. The first handle selection does not spend the later one-time handle change. */
+export async function completeOnboarding(
+  userId: string,
+  update: { displayName: string; handle: string; bio?: string | null; builderRole?: BuilderRole | null },
+): Promise<ProfileUpdateResult> {
+  const db = await database();
+  const existing = await db
+    .prepare("SELECT id, handle, display_name, bio, avatar_url, handle_changed_at, builder_role, onboarding_completed_at FROM buildstory_users WHERE id = ?")
+    .bind(userId)
+    .first<ProfileRow>();
+  if (!existing) throw new D1IngestionError("not_found", "Account not found.", 404);
+
+  const displayName = update.displayName.trim().slice(0, MAX_DISPLAY_NAME_LENGTH);
+  if (!displayName) throw new D1IngestionError("invalid_display_name", "Display name cannot be empty.", 422);
+  const handle = update.handle.trim().toLocaleLowerCase("en-US");
+  if (handle.length < 3 || handle.length > 32 || !HANDLE_PATTERN.test(handle)) {
+    throw new D1IngestionError("invalid_handle", "Handles must be 3-32 characters: lowercase letters, numbers, and single hyphens between them.", 422);
+  }
+  if (isReservedHandle(handle)) throw new D1IngestionError("handle_reserved", "That handle is reserved.", 422);
+  if (update.builderRole !== undefined && update.builderRole !== null && !isBuilderRole(update.builderRole)) {
+    throw new D1IngestionError("invalid_builder_role", "Choose one of the available builder roles.", 422);
+  }
+  const taken = await db
+    .prepare("SELECT id FROM buildstory_users WHERE handle_lower = ? AND id != ?")
+    .bind(handle, userId)
+    .first();
+  if (taken) throw new D1IngestionError("handle_taken", "That handle is already taken.", 422);
+
+  if (existing.onboarding_completed_at) {
+    const same = existing.handle.toLocaleLowerCase("en-US") === handle
+      && existing.display_name === displayName
+      && (existing.bio ?? null) === (update.bio?.trim().slice(0, MAX_BIO_LENGTH) || null)
+      && (isBuilderRole(existing.builder_role) ? existing.builder_role : null) === (update.builderRole ?? null);
+    if (same) return profileUpdateResultFromRow(existing);
+    throw new D1IngestionError("onboarding_already_completed", "Onboarding is already complete. Update your profile from Settings.", 409);
+  }
+
+  const now = new Date().toISOString();
+  await db
+    .prepare(`UPDATE buildstory_users
+      SET display_name = ?, handle = ?, handle_lower = ?, bio = ?, builder_role = ?, onboarding_completed_at = ?, updated_at = ?
+      WHERE id = ? AND onboarding_completed_at IS NULL`)
+    .bind(displayName, handle, handle, update.bio?.trim().slice(0, MAX_BIO_LENGTH) || null, update.builderRole ?? null, now, now, userId)
+    .run();
+  const updated = await db
+    .prepare("SELECT id, handle, display_name, bio, avatar_url, handle_changed_at, builder_role, onboarding_completed_at FROM buildstory_users WHERE id = ?")
+    .bind(userId)
+    .first<ProfileRow>();
+  return profileUpdateResultFromRow(updated!);
+}
+
+export async function listGuidance(userId: string): Promise<GuidanceRecord[]> {
+  const rows = await (await database())
+    .prepare("SELECT guide_key, guide_version, state, updated_at FROM buildstory_user_guidance WHERE user_id = ? ORDER BY guide_key")
+    .bind(userId)
+    .all<{ guide_key: string; guide_version: number; state: string; updated_at: string }>();
+  return rows.results.flatMap((row) => isGuideKey(row.guide_key) && isGuideState(row.state)
+    ? [{ guideKey: row.guide_key, guideVersion: row.guide_version, state: row.state, updatedAt: row.updated_at }]
+    : []);
+}
+
+export async function setGuidance(userId: string, guideKey: GuideKey, guideVersion: number, state: GuideState): Promise<GuidanceRecord> {
+  if (!isGuideKey(guideKey) || !isGuideState(state) || guideVersion !== GUIDE_VERSION) {
+    throw new D1IngestionError("invalid_guidance", "That guide is not available.", 422);
+  }
+  const db = await database();
+  const now = new Date().toISOString();
+  await db.prepare(`INSERT INTO buildstory_user_guidance (id, user_id, guide_key, guide_version, state, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id, guide_key, guide_version) DO UPDATE SET state = excluded.state, updated_at = excluded.updated_at`)
+    .bind(makeId("gde"), userId, guideKey, guideVersion, state, now, now)
+    .run();
+  return { guideKey, guideVersion, state, updatedAt: now };
 }
 
 /**
@@ -882,6 +992,11 @@ function currentBudgetPeriodKey(): string {
  * accepted tradeoff for not having to reserve/refund around a variable-cost
  * external call.
  */
+async function planForUser(db: D1Database, userId: string): Promise<"free" | "pro"> {
+  const row = await db.prepare("SELECT plan FROM buildstory_users WHERE id = ?").bind(userId).first<{ plan: string }>();
+  return row?.plan === "pro" ? "pro" : "free";
+}
+
 async function hasNarrativeBudget(db: D1Database, ownerUserId: string): Promise<boolean> {
   const row = await db
     .prepare(
@@ -893,7 +1008,13 @@ async function hasNarrativeBudget(db: D1Database, ownerUserId: string): Promise<
   return row.spent_micro_usd < row.cap_micro_usd;
 }
 
-/** Race-safe get-or-create-then-add, mirroring the ensureProject slug-allocation pattern. */
+/**
+ * Race-safe get-or-create-then-add, mirroring the ensureProject slug-allocation
+ * pattern. The cap is captured once, at first spend of the period, from the
+ * plan in effect at that moment - matching the file's existing "historical
+ * cost figures don't silently re-price" stance in pricing.ts. A mid-period
+ * upgrade to Pro therefore takes effect next period, not retroactively.
+ */
 async function recordNarrativeSpend(db: D1Database, ownerUserId: string, costMicroUsd: number) {
   const periodKey = currentBudgetPeriodKey();
   const now = new Date().toISOString();
@@ -904,13 +1025,14 @@ async function recordNarrativeSpend(db: D1Database, ownerUserId: string, costMic
     .bind(costMicroUsd, now, ownerUserId, periodKey)
     .run();
   if (changes(bumped) === 1) return;
+  const capMicroUsd = monthlyLlmCapMicroUsd(await planForUser(db, ownerUserId));
   const inserted = await db
     .prepare(
       `INSERT INTO buildstory_llm_budgets (user_id, period_key, spent_micro_usd, cap_micro_usd, updated_at)
        SELECT ?, ?, ?, ?, ?
        WHERE NOT EXISTS (SELECT 1 FROM buildstory_llm_budgets WHERE user_id = ? AND period_key = ?)`,
     )
-    .bind(ownerUserId, periodKey, costMicroUsd, DEFAULT_MONTHLY_LLM_CAP_MICRO_USD, now, ownerUserId, periodKey)
+    .bind(ownerUserId, periodKey, costMicroUsd, capMicroUsd, now, ownerUserId, periodKey)
     .run();
   if (changes(inserted) === 1) return;
   // Someone else's insert won the race between our UPDATE and INSERT attempts; the row exists now.
@@ -1141,7 +1263,7 @@ export async function createUploadSession(
   apiBaseUrl = "http://localhost:3000/",
   ownerUserId: string | null = null,
   narrativeModel: string | null = null,
-  narrativeMode: "local" | "cloud" | "off" = "cloud",
+  narrativeMode: "local" | "byok" | "cloud" | "off" = "local",
   targetProjectId: string | null = null,
 ): Promise<{
   session: UploadSessionView;
@@ -1239,7 +1361,7 @@ export async function getUploadSession(
 export async function claimUploadSession(
   sessionId: string,
   userCode: string,
-  narrativeModes?: Array<"local" | "cloud" | "off">,
+  narrativeModes?: Array<"local" | "byok" | "cloud" | "off">,
 ): Promise<ScannerClaimResponse> {
   const row = await sessionById(sessionId);
   const codeHash = await hashToken(userCode.trim().toUpperCase());
@@ -1306,7 +1428,14 @@ export async function claimUploadSession(
       schemaVersion: PROJECT_SNAPSHOT_SCHEMA_VERSION,
       maxBytes: MAX_SNAPSHOT_BYTES,
       },
-    ...(narrativeModes ? { narrative: { mode: row.narrative_mode === "local" || row.narrative_mode === "off" ? row.narrative_mode : "cloud", model: row.narrative_model } } : {}),
+    ...(narrativeModes
+      ? {
+          narrative: {
+            mode: row.narrative_mode === "local" || row.narrative_mode === "byok" || row.narrative_mode === "off" ? row.narrative_mode : "cloud",
+            model: row.narrative_model,
+          },
+        }
+      : {}),
   };
 }
 
@@ -1366,6 +1495,25 @@ export async function acceptSnapshot(
       409,
     );
   }
+  // Anti-abuse only, not a plan lever: scanning through local/BYOK/off mode is
+  // unlimited on every tier (that compute cost is the creator's, not ours),
+  // but every accepted upload - a new project's first report or an existing
+  // project's next chapter alike - still persists a full snapshot_json and
+  // source_snapshot_json into D1, which is a real, unbounded storage cost on
+  // our side. The ceiling is set well above any real creator's use and
+  // matches the LIMIT 500 already assumed throughout exportAccountData, so a
+  // truncated export can't silently happen before this refusal would.
+  const reportCount = await (await database())
+    .prepare("SELECT COUNT(*) AS count FROM buildstory_reports WHERE owner_user_id = ?")
+    .bind(user.id)
+    .first<{ count: number }>();
+  if ((reportCount?.count ?? 0) >= MAX_STORED_REPORTS_PER_ACCOUNT) {
+    throw new D1IngestionError(
+      "report_limit_reached",
+      `This account has reached its ${MAX_STORED_REPORTS_PER_ACCOUNT}-report storage limit. Delete an existing project or report before scanning a new one.`,
+      403,
+    );
+  }
   if (row.target_project_id) {
     const targetProject = await (await database())
       .prepare("SELECT owner_user_id, repository_fingerprint, name FROM buildstory_projects WHERE id = ?")
@@ -1406,7 +1554,7 @@ export async function acceptSnapshot(
     id: user.id,
     name: user.display_name,
     handle: user.handle,
-    role: user.bio ?? "AI-assisted software builder",
+    role: builderRoleLabel(isBuilderRole(user.builder_role) ? user.builder_role : null) ?? user.bio ?? "AI-assisted software builder",
   });
   const db = await database();
 
@@ -1526,7 +1674,11 @@ export async function acceptSnapshot(
   }
   if (validated.snapshot.generatedNarrative) {
     await storeLocalNarrative(reportId, user.id, validated.snapshot.generatedNarrative, row.narrative_model);
-  } else if (row.narrative_mode === "local") {
+  } else if (row.narrative_mode === "local" || row.narrative_mode === "byok") {
+    // Generation was attempted on the creator's machine (Ollama or a BYOK
+    // provider) and produced nothing - record it as failed rather than
+    // falling through to the narrativeEvidence branch, which local/byok
+    // scans never carry.
     await storeLocalNarrative(reportId, user.id, undefined, row.narrative_model);
   } else if (validated.snapshot.narrativeEvidence && validated.snapshot.narrativeEvidence.excerpts.length > 0) {
     await createNarrativeJob(reportId, user.id);

@@ -3,13 +3,14 @@ import { OllamaModelStatus } from "@/components/creator/ollama-model-status";
 import { ScannerConnectionFlow } from "@/components/creator/scanner-connection-flow";
 import { requireCreator } from "@/lib/auth/runtime";
 import { isHostedCliEnabled, isLocalApiEnabled } from "@/lib/ingestion/local-api";
-import { listUploadSessions } from "@/lib/ingestion/store";
+import { ensureUser, listUploadSessions } from "@/lib/ingestion/store";
+import { cloudNarrativeAvailable } from "@/lib/narrative/entitlement";
 
 export const metadata: Metadata = { title: "Create story" };
 
 export default async function ConnectScannerPage() {
   const creator = await requireCreator("/studio/connect");
-  const sessions = await listUploadSessions(creator.creatorId);
+  const [user, sessions] = await Promise.all([ensureUser(creator), listUploadSessions(creator.creatorId)]);
   // On a hosted deployment the CLI is pinned to BUILDSTORY_PUBLIC_ORIGIN, not to
   // a loopback server, and records are durable rather than disposable. Describing
   // the local-development shape to a hosted creator is simply inaccurate.
@@ -29,7 +30,7 @@ export default async function ConnectScannerPage() {
           </p>
         </div>
       </header>
-      <div className="mock-boundary-banner">
+      <div className="mock-boundary-banner" data-guide="create-privacy">
         {hosted ? (
           <>
             <strong>Pinned HTTPS handoff · explicit consent.</strong>
@@ -44,11 +45,11 @@ export default async function ConnectScannerPage() {
           </>
         )}
       </div>
-      <OllamaModelStatus discoveryAvailable={localDiscovery} />
-      <ScannerConnectionFlow
+      <OllamaModelStatus discoveryAvailable={localDiscovery} cloudAvailable={cloudNarrativeAvailable(user.id)} />
+      <div data-guide="create-scanner"><ScannerConnectionFlow
         initialSessions={sessions}
         scannerEnabled={localDiscovery || hosted}
-      />
+      /></div>
     </main>
   );
 }

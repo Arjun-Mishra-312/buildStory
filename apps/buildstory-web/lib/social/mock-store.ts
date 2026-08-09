@@ -1,3 +1,4 @@
+import { effectivePlan } from "@/lib/narrative/entitlement";
 import { sanitizePublicText } from "@/lib/publication/sanitization";
 import {
   REACTION_KINDS,
@@ -16,6 +17,7 @@ import {
   type ReactionKind,
   type ReactionSummary,
 } from "./contracts";
+import type { BuilderRole } from "@/lib/identity/builder-roles";
 
 const MAX_COMMENT_BODY_LENGTH = 1_000;
 const MAX_CONTENT_REPORT_NOTE_LENGTH = 500;
@@ -26,10 +28,12 @@ type StoredUser = {
   displayName: string;
   avatarUrl: string | null;
   bio: string | null;
+  builderRole: BuilderRole | null;
   role: string;
   followerCount: number;
   followingCount: number;
   storyCount: number;
+  plan: "free" | "pro";
 };
 
 type StoredReport = {
@@ -126,9 +130,11 @@ function profileFor(user: StoredUser): PublicProfile {
     displayName: user.displayName,
     avatarUrl: user.avatarUrl,
     bio: user.bio,
+    builderRole: user.builderRole,
     followerCount: user.followerCount,
     followingCount: user.followingCount,
     storyCount,
+    plan: effectivePlan(user.plan),
   };
 }
 
@@ -139,7 +145,9 @@ export function registerProfile(user: {
   displayName: string;
   avatarUrl: string | null;
   bio: string | null;
+  builderRole?: BuilderRole | null;
   role?: string;
+  plan?: "free" | "pro";
 }) {
   const existing = store.users.get(user.id);
   store.users.set(user.id, {
@@ -148,7 +156,9 @@ export function registerProfile(user: {
     displayName: user.displayName,
     avatarUrl: user.avatarUrl,
     bio: user.bio,
+    builderRole: user.builderRole ?? existing?.builderRole ?? null,
     role: user.role ?? existing?.role ?? "member",
+    plan: user.plan ?? existing?.plan ?? "free",
     followerCount: existing?.followerCount ?? 0,
     followingCount: existing?.followingCount ?? 0,
     storyCount: existing?.storyCount ?? 0,

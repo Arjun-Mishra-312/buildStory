@@ -6,6 +6,7 @@ import { EditorialIllustration } from "@/components/editorial-illustration";
 import { getCreatorSession } from "@/lib/auth/runtime";
 import { ensureUser, listStoriesByOwner } from "@/lib/ingestion/store";
 import { getFollowState, getProfileByHandle, listFollowers, listFollowing } from "@/lib/social/store";
+import { builderRoleLabel } from "@/lib/identity/builder-roles";
 
 type PageProps = { params: Promise<{ handle: string }> };
 
@@ -48,8 +49,9 @@ export default async function ProfilePage({ params }: PageProps) {
       <div className="profile-card profile-card--balanced">
         <span className="avatar avatar--large">{profile.displayName.slice(0, 1).toUpperCase()}</span>
         <span className="section-index">( BUILDER PROFILE )</span>
-        <h1>{profile.displayName}</h1>
+        <h1>{profile.displayName}{profile.plan === "pro" ? <span className="plan-badge">Pro</span> : null}</h1>
         <p className="profile-card__handle">@{profile.handle}</p>
+        {profile.builderRole ? <p className="profile-card__role">{builderRoleLabel(profile.builderRole)}</p> : null}
         {profile.bio ? <p>{profile.bio}</p> : <p>AI-assisted software builder.</p>}
         <div className="profile-card__stats">
           <span><strong>{profile.storyCount}</strong> stories</span>
@@ -57,6 +59,13 @@ export default async function ProfilePage({ params }: PageProps) {
           <span><strong>{follow.followingCount ?? profile.followingCount}</strong> following</span>
         </div>
         <ProfileFollowButton handle={profile.handle} initialFollowed={follow.isFollowedByViewer} isSelf={viewer?.id === profile.id} />
+        {viewer?.id === profile.id ? (
+          <div className="profile-card__owner-actions" aria-label="Profile owner actions">
+            <Link className="button button--secondary button--small" href="/studio/settings">Edit profile</Link>
+            <Link className="button button--secondary button--small" href="/studio/projects">Manage projects</Link>
+            <Link className="button button--primary button--small" href="/studio/connect">Create story</Link>
+          </div>
+        ) : null}
       </div>
       <div className="profile-stories">
         <span className="section-index">( PUBLISHED STORIES )</span>

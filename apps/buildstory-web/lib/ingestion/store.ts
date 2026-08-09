@@ -4,6 +4,8 @@ import type {
   ReportMediaKind,
   UploadSessionStatus,
 } from "./contracts";
+import type { BuilderRole } from "@/lib/identity/builder-roles";
+import type { GuideKey, GuideState } from "@/lib/guidance/contracts";
 import type { ArtifactLinksUpdate } from "./artifact-links";
 import type { NarrativeMode } from "./scanner-project-snapshot";
 
@@ -96,9 +98,24 @@ export async function getPublicProjectVerification(handle: string, slug: string)
 
 export async function updateProfile(
   userId: string,
-  update: { bio?: string; displayName?: string; handle?: string },
+  update: { bio?: string; displayName?: string; handle?: string; builderRole?: BuilderRole | null },
 ) {
   return (await backend()).updateProfile(userId, update);
+}
+
+export async function completeOnboarding(
+  userId: string,
+  update: { displayName: string; handle: string; bio?: string | null; builderRole?: BuilderRole | null },
+) {
+  return (await backend()).completeOnboarding(userId, update);
+}
+
+export async function listGuidance(userId: string) {
+  return (await backend()).listGuidance(userId);
+}
+
+export async function setGuidance(userId: string, guideKey: GuideKey, guideVersion: number, state: GuideState) {
+  return (await backend()).setGuidance(userId, guideKey, guideVersion, state);
 }
 
 export async function getUploadSession(creatorId: string, sessionId: string) {

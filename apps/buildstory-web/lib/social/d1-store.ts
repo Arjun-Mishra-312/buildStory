@@ -1,4 +1,5 @@
 import { getD1 } from "@/db";
+import { effectivePlan } from "@/lib/narrative/entitlement";
 import { sanitizePublicText } from "@/lib/publication/sanitization";
 import {
   isReactionKind,
@@ -19,6 +20,7 @@ import {
   type ReactionKind,
   type ReactionSummary,
 } from "./contracts";
+import type { BuilderRole } from "@/lib/identity/builder-roles";
 
 const MAX_COMMENT_BODY_LENGTH = 1_000;
 const MAX_CONTENT_REPORT_NOTE_LENGTH = 500;
@@ -49,11 +51,13 @@ type UserRow = {
   display_name: string;
   avatar_url: string | null;
   bio: string | null;
+  builder_role: string | null;
   role: string;
   status: string;
   follower_count: number;
   following_count: number;
   story_count: number;
+  plan: string;
 };
 
 const PUBLIC_STORY_COUNT_SQL = `(SELECT COUNT(*) FROM buildstory_reports sr
@@ -67,9 +71,13 @@ function profileFromRow(row: UserRow): PublicProfile {
     displayName: row.display_name,
     avatarUrl: row.avatar_url,
     bio: row.bio,
+    builderRole: (row.builder_role as BuilderRole | null) ?? null,
     followerCount: row.follower_count,
     followingCount: row.following_count,
     storyCount: row.story_count,
+    // effectivePlan applied at read time, so the badge reflects the
+    // BUILDSTORY_LAUNCH_PRO_FOR_ALL promotion without writing to the column.
+    plan: effectivePlan(row.plan === "pro" ? "pro" : "free"),
   };
 }
 
@@ -80,7 +88,7 @@ function authorFromRow(row: { id: string; handle: string; display_name: string; 
 async function userById(id: string): Promise<UserRow | null> {
   const row = await (await database())
     .prepare(
-      `SELECT u.id, u.handle, u.display_name, u.avatar_url, u.bio, u.role, u.status, u.follower_count, u.following_count, ${PUBLIC_STORY_COUNT_SQL} FROM buildstory_users u WHERE u.id = ? AND u.status = 'active' AND u.deleted_at IS NULL`,
+      `SELECT u.id, u.handle, u.display_name, u.avatar_url, u.bio, u.builder_role, u.role, u.status, u.follower_count, u.following_count, u.plan, ${PUBLIC_STORY_COUNT_SQL} FROM buildstory_users u WHERE u.id = ? AND u.status = 'active' AND u.deleted_at IS NULL`,
     )
     .bind(id)
     .first<UserRow>();
@@ -95,7 +103,7 @@ export async function getProfile(userId: string): Promise<PublicProfile | null> 
 export async function getProfileByHandle(handle: string): Promise<PublicProfile | null> {
   const row = await (await database())
     .prepare(
-      `SELECT u.id, u.handle, u.display_name, u.avatar_url, u.bio, u.role, u.status, u.follower_count, u.following_count, ${PUBLIC_STORY_COUNT_SQL} FROM buildstory_users u WHERE u.handle_lower = ? AND u.status = 'active' AND u.deleted_at IS NULL`,
+      `SELECT u.id, u.handle, u.display_name, u.avatar_url, u.bio, u.builder_role, u.role, u.status, u.follower_count, u.following_count, u.plan, ${PUBLIC_STORY_COUNT_SQL} FROM buildstory_users u WHERE u.handle_lower = ? AND u.status = 'active' AND u.deleted_at IS NULL`,
     )
     .bind(handle.toLocaleLowerCase("en-US"))
     .first<UserRow>();
@@ -188,7 +196,7 @@ export async function getFollowState(targetUserId: string, viewerUserId: string 
 }
 
 const PROFILE_COLUMNS_PREFIXED =
-  `u.id, u.handle, u.display_name, u.avatar_url, u.bio, u.role, u.status, u.follower_count, u.following_count, ${PUBLIC_STORY_COUNT_SQL}`;
+  `u.id, u.handle, u.display_name, u.avatar_url, u.bio, u.builder_role, u.role, u.status, u.follower_count, u.following_count, ${PUBLIC_STORY_COUNT_SQL}`;
 
 export async function listFollowers(userId: string, limit = 50): Promise<PublicProfile[]> {
   const bounded = Math.min(Math.max(1, Math.trunc(limit)), 100);
@@ -230,7 +238,7 @@ export async function searchProfiles(query: string, limit = 20): Promise<PublicP
   const pattern = `%${escapeLikePattern(trimmed)}%`;
   const rows = await (await database())
     .prepare(
-      `SELECT u.id, u.handle, u.display_name, u.avatar_url, u.bio, u.role, u.status, u.follower_count, u.following_count, ${PUBLIC_STORY_COUNT_SQL}
+      `SELECT u.id, u.handle, u.display_name, u.avatar_url, u.bio, u.builder_role, u.role, u.status, u.follower_count, u.following_count, ${PUBLIC_STORY_COUNT_SQL}
        FROM buildstory_users u
        WHERE u.status = 'active' AND u.deleted_at IS NULL AND (u.handle LIKE ? ESCAPE '\\' OR u.display_name LIKE ? ESCAPE '\\')
        ORDER BY u.follower_count DESC LIMIT ?`,

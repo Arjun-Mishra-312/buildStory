@@ -22,9 +22,19 @@ export const users = sqliteTable(
     displayName: text("display_name").notNull(),
     avatarUrl: text("avatar_url"),
     bio: text("bio"),
+    builderRole: text("builder_role"),
+    onboardingCompletedAt: text("onboarding_completed_at"),
     /** Null until the user spends their one allowed handle change; set on that change. */
     handleChangedAt: text("handle_changed_at"),
     role: text("role").notNull().default("member"),
+    /**
+     * The account's real, durable plan. Separate from whether Pro benefits
+     * are CURRENTLY granted - see effectivePlan() in lib/narrative/entitlement.ts,
+     * which layers the BUILDSTORY_LAUNCH_PRO_FOR_ALL promotion on top of this
+     * column without ever writing to it, so ending the promotion is a var
+     * flip, not a data migration.
+     */
+    plan: text("plan").notNull().default("free"),
     status: text("status").notNull().default("active"),
     followerCount: integer("follower_count").notNull().default(0),
     followingCount: integer("following_count").notNull().default(0),
@@ -67,6 +77,30 @@ export const userIdentities = sqliteTable(
   (table) => [
     uniqueIndex("idx_buildstory_user_identities_provider_subject").on(table.provider, table.subject),
     index("idx_buildstory_user_identities_user").on(table.userId),
+  ],
+);
+
+/** Versioned, account-synced state for the first-visit Studio guides. */
+export const userGuidance = sqliteTable(
+  "buildstory_user_guidance",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    guideKey: text("guide_key").notNull(),
+    guideVersion: integer("guide_version").notNull(),
+    state: text("state").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_buildstory_user_guidance_user_key_version").on(
+      table.userId,
+      table.guideKey,
+      table.guideVersion,
+    ),
+    index("idx_buildstory_user_guidance_user").on(table.userId),
   ],
 );
 
@@ -125,7 +159,7 @@ export const uploadSessions = sqliteTable(
     projectLabel: text("project_label").notNull(),
     /**
      * Set when a creator explicitly starts this scan from an existing project's
-     * "Publish an update" flow, rather than the default "Create a story" flow. Purely
+     * "Scan for updates" flow, rather than the default "Create a story" flow. Purely
      * a validation hint at ingest time (see acceptSnapshot's fingerprint check in
      * lib/ingestion/*-store.ts) - it never changes which project a snapshot lands in,
      * since that is still resolved by repositoryFingerprint alone (ensureProject).

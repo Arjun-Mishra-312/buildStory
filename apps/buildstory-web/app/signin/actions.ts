@@ -9,7 +9,7 @@ export async function signInWithGoogle(formData: FormData) {
   const callbackUrl = safeReturnPath(
     formData.get("callbackUrl")?.toString(),
   );
-  await signIn("google", { redirectTo: callbackUrl });
+  await signIn("google", { redirectTo: `/onboarding?next=${encodeURIComponent(callbackUrl)}` });
 }
 
 export async function signInWithGithub(formData: FormData) {
@@ -17,7 +17,7 @@ export async function signInWithGithub(formData: FormData) {
   const callbackUrl = safeReturnPath(
     formData.get("callbackUrl")?.toString(),
   );
-  await signIn("github", { redirectTo: callbackUrl });
+  await signIn("github", { redirectTo: `/onboarding?next=${encodeURIComponent(callbackUrl)}` });
 }
 
 export async function signOutAction() {

@@ -31,4 +31,15 @@ const source = JSON.parse(readFileSync(path.join(packageRoot, "schema/project-sn
 const packagedVersion = packaged.properties?.schemaVersion?.const;
 const sourceVersion = source.properties?.schemaVersion?.const;
 if (packagedVersion !== sourceVersion) throw new Error(`Scanner artifact ${archive} embeds schema ${packagedVersion}; source requires ${sourceVersion}.`);
-console.log(`Scanner artifact ${archive} matches ProjectSnapshot schema ${sourceVersion}.`);
+
+// artifacts/README.md's install command and checksum are hand-maintained, not
+// derived - the schema check above only proves the .tgz itself is fresh, it
+// says nothing about whether the README still points at it. A repack that
+// forgets to update the README would otherwise pass silently, exactly the
+// gap that let it drift for two prior releases before this check existed.
+const readmePath = path.join(artifacts, "README.md");
+const readme = readFileSync(readmePath, "utf8");
+if (!readme.includes(archive)) {
+  throw new Error(`artifacts/README.md does not mention ${archive}. Update its install command and SHA-256 after repacking.`);
+}
+console.log(`Scanner artifact ${archive} matches ProjectSnapshot schema ${sourceVersion}, and artifacts/README.md names it.`);

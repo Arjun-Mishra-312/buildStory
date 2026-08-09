@@ -7,6 +7,8 @@ import { buildStoryFromSnapshot, publicBuildStoryFromSnapshot } from "@/lib/buil
 import { deriveNarrativeDisplayStatus } from "@/lib/ingestion/narrative-status";
 import { getProjectDetail, getProjectForVerification, getReport, listReportMedia, shouldUseDurableStore } from "@/lib/ingestion/store";
 import { computeChapterDelta } from "@/lib/story/chapter-delta";
+import { getProfile } from "@/lib/social/store";
+import { builderRoleLabel } from "@/lib/identity/builder-roles";
 
 export const metadata: Metadata = { title: "Review imported report" };
 
@@ -55,6 +57,7 @@ export default async function ImportedReportPage({ params }: PageProps) {
   const story = buildStoryFromSnapshot(report.snapshot);
   const narrativeStatus = deriveNarrativeDisplayStatus(report.sourceSnapshot, report.narrative);
   const media = await listReportMedia(report.id).catch(() => []);
+  const profile = await getProfile(creator.creatorId).catch(() => null);
   const projectVerification = await getProjectForVerification(creator.creatorId, report.projectId).catch(() => null);
   const isDurableStore = shouldUseDurableStore();
   // The real publication boundary, computed server-side from the currently-saved
@@ -98,6 +101,7 @@ export default async function ImportedReportPage({ params }: PageProps) {
         access="creator"
         reportId={report.id}
         projectId={report.projectId}
+        hasLiveChapter={Boolean(projectDetail?.reports.some((candidate) => candidate.chapterIndex !== null))}
         initialPublicationStatus={report.publication.status}
         initialSelectedPublicFields={report.selectedPublicFields}
         initialEditorial={report.editorial}
@@ -106,6 +110,7 @@ export default async function ImportedReportPage({ params }: PageProps) {
         initialArtifact={report.artifact}
         initialMedia={media}
         initialVerifiedRepoAt={projectVerification?.verifiedRepoAt ?? null}
+        ownerRoleOverride={profile?.builderRole ? builderRoleLabel(profile.builderRole) : null}
         narrative={report.narrative}
         narrativeStatus={narrativeStatus}
         reviewedEvidence={report.sourceSnapshot?.narrativeEvidence?.excerpts ?? []}

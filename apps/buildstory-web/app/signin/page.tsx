@@ -9,6 +9,7 @@ import {
   safeReturnPath,
 } from "@/lib/auth/runtime";
 import { signInWithGithub, signInWithGoogle } from "./actions";
+import { ensureUser } from "@/lib/ingestion/store";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,11 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
   const params = await searchParams;
   const callbackUrl = safeReturnPath(params.callbackUrl);
   const creator = await getCreatorSession();
-  if (creator) redirect(callbackUrl);
+  if (creator) {
+    const user = await ensureUser(creator);
+    if (!user.onboardingCompletedAt) redirect(`/onboarding?next=${encodeURIComponent(callbackUrl)}`);
+    redirect(callbackUrl);
+  }
 
   const mode = getAuthRuntimeMode();
 
@@ -58,6 +63,11 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
             </p>
           ) : null}
 
+          <p className="auth-card__consent">
+            By continuing you agree to the <Link href="/terms">Terms of Service</Link> and{" "}
+            <Link href="/privacy">Privacy Policy</Link>, and confirm you are at least 13 years old.
+          </p>
+
           {mode === "oauth" ? (
             <div className="auth-card__providers">
               {isGoogleOAuthConfigured() ? (
@@ -87,7 +97,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
               <p className="auth-notice">
                 Development creator mode is active. It is automatically unavailable in production.
               </p>
-              <Link className="button button--primary auth-card__button" href={callbackUrl}>
+                <Link className="button button--primary auth-card__button" href={`/onboarding?next=${encodeURIComponent(callbackUrl)}`}>
                 Continue as Mina Park <span aria-hidden="true">→</span>
               </Link>
             </>

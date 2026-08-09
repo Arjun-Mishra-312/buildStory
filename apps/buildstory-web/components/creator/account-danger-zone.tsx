@@ -56,7 +56,7 @@ export function AccountDangerZone({ handle, exportOnly = false, deleteOnly = fal
     <div className="account-settings">
       {!deleteOnly ? <section className="report-card">
         <header><span>DATA EXPORT</span><strong>Download everything tied to your account</strong></header>
-        <p>Profile, projects, reports, comments you&apos;ve written, reactions you&apos;ve given, and your follow graph, as one JSON file.</p>
+        <p>Profile, projects, reports, scan snapshots and AI-generated narrative text, upload session history, comments you&apos;ve written, reactions you&apos;ve given, and your follow graph, as one JSON file.</p>
         <button className="button button--secondary" type="button" onClick={() => void exportData()} disabled={exporting}>
           {exporting ? "Preparing export…" : "Export my data"}
         </button>

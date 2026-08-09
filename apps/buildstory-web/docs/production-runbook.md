@@ -82,6 +82,34 @@ The scanner accepts a hosted ingestion destination only when explicitly pinned p
 4. Apply forward-compatible migrations before routing traffic to code that needs them. Keep the previous application version available until readiness and public-route smoke tests pass. On the first run against a hand-migrated database, pass `--baseline <last-applied-tag>`; see `wrangler.deploy.jsonc` for how the current value was measured.
 5. Configure edge rate limits for Auth.js, creator mutation paths, and `/api/v1/cli/*` (now reachable in production). Do not add CORS allowances for CLI routes.
 6. Deploy only with explicit user/release approval. After deployment, verify health, readiness, Google callback, owner isolation, edit/publish, and a sanitized public projection.
+7. **First launch only — promote the operator to moderator.** Every account is created with `role = 'member'` and there is no in-product promotion path, so without this step `/studio/moderation` and `/api/content-reports` are unreachable by anyone and filed content reports can never be actioned. After the operator signs in for the first time (so their `buildstory_users` row exists), run:
+
+   ```powershell
+   npx wrangler d1 execute buildstory-d1 --remote -c wrangler.deploy.jsonc `
+     --command "UPDATE buildstory_users SET role = 'admin' WHERE handle = '<operator-handle>'"
+   ```
+
+   Replace `<operator-handle>` with the operator's own Buildstory handle. Confirm with a read-only `SELECT id, handle, role FROM buildstory_users WHERE handle = '<operator-handle>'` before and after.
+
+## Enable Cloud AI (optional, subsidized narrative path)
+
+Local and BYOK narrative modes need nothing from the operator — they call Ollama or the creator's own key, respectively, and work on day one. The subsidized **Cloud** mode is different: it calls a provider using an API key *you* pay for, on the creator's behalf, budgeted per-user by `buildstory_llm_budgets`. Until you do this, `narrativeProviderConfigured("cloud")` is false, `cloudNarrativeAvailable()` is false for every account, and the Cloud option simply doesn't appear in the dashboard — that's a safe default, not a bug to fix before launch.
+
+`BUILDSTORY_LLM_BASE_URL` (`https://api.openai.com/v1`) and `BUILDSTORY_LLM_MODEL` (`gpt-5.6-luna`) are already committed in `wrangler.deploy.jsonc`'s `vars` — non-secret, safe to have present even with no key set. The only step left is the key itself, which must never be committed:
+
+```powershell
+npx wrangler secret put BUILDSTORY_LLM_API_KEY -c wrangler.deploy.jsonc
+```
+
+This prompts on stdin (nothing lands in shell history) and applies to the running Worker immediately, no redeploy needed. As soon as it's set, Cloud appears in the dashboard for every account — there's no separate feature flag beyond the key's presence, and no `--dry-run` for a secret write, so double-check the key belongs to the account you intend to bill.
+
+To point at a different OpenAI-compatible provider, or to switch which model backs the free/default tier, edit `BUILDSTORY_LLM_BASE_URL`/`BUILDSTORY_LLM_MODEL` in `wrangler.deploy.jsonc` and redeploy — see `lib/narrative/pricing.ts` for the two priced models (`gpt-5.6-luna` default, `gpt-5.6-terra` Pro-only escalation) and update its per-token rates if you change providers, since the $1.00/$5.00 monthly caps in `lib/ingestion/d1-store.ts` assume those rates.
+
+To turn Cloud back off later (e.g. cost control), delete the secret rather than editing code:
+
+```powershell
+npx wrangler secret delete BUILDSTORY_LLM_API_KEY -c wrangler.deploy.jsonc
+```
 
 ## Health and readiness
 

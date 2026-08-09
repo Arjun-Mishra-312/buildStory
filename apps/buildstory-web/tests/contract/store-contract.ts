@@ -128,6 +128,17 @@ export function runStoreContract(name: string, backend: StoreBackend) {
     const exported = await account.exportAccountData(fixture.ownerUserId);
     assert.equal(exported.profile.id, fixture.ownerUserId);
     assert.equal(exported.reports.some((item: { id: string }) => item.id === fixture.reportId), true);
+    // The scan data itself must be in the export, not just report metadata -
+    // it's the most personal thing Buildstory holds and was previously
+    // missing here even though Settings promised "scanner records". The
+    // seeded Orbit Notes fixture predates source-snapshot storage on the
+    // mock-store backend (sourceSnapshot: null there by design), so this
+    // only asserts the export entry exists and is correctly keyed - the
+    // d1-store backend's own seed carries a real snapshot and is asserted
+    // more strongly by narrative.test.ts and account.test.ts.
+    const exportedScan = exported.scans.find((item: { reportId: string }) => item.reportId === fixture.reportId);
+    assert.ok(exportedScan, "export includes a scan entry for the seeded report");
+    assert.equal(exported.uploadSessions.length > 0, true, "export includes upload session history");
     await rejectsCode(() => ingestion.getReport(fixture.followerSession.creatorId, fixture.reportId), "not_found");
 
     await rejectsCode(() => ingestion.updateReport(fixture.ownerSession.creatorId, fixture.reportId, { category: "not-a-category" }), "invalid_category");

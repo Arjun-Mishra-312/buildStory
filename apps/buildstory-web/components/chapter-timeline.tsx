@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ChapterDelta } from "@/lib/story/chapter-delta";
+import { GuideTooltip } from "./guidance/studio-guide";
 
 export type ChapterSummary = {
   reportId: string;
@@ -39,7 +40,7 @@ export function ChapterTimeline({
 
   return (
     <nav className="chapter-timeline section-wrap" aria-label="Build chapters">
-      <span className="section-index">( {chapters.length} CHAPTERS )</span>
+      <span className="section-index">( {chapters.length} CHAPTERS ) <GuideTooltip label="chapters">Each chapter is a published version of the project after a reviewed scan.</GuideTooltip></span>
       <ol>
         {chapters.map((chapter) => {
           // Sourced from the stored, gated ChapterDelta (see lib/story/chapter-delta.ts) -

@@ -5,5 +5,6 @@ import { requireCreator } from "@/lib/auth/runtime";
 export async function GET() {
   const creator = await requireCreator("/u/me");
   const user = await ensureUser(creator);
+  if (!user.onboardingCompletedAt) redirect("/onboarding?next=/u/me");
   redirect(`/u/${user.handle}`);
 }

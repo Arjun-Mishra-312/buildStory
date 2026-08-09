@@ -19,6 +19,13 @@ export function isSupportedNarrativeModel(model: string): model is SupportedNarr
   return model in PRICING_MICRO_USD_PER_TOKEN;
 }
 
+/** The escalation tier gated to Pro accounts on the subsidized cloud path only - never a BYOK restriction, since a BYOK model choice costs the operator nothing. */
+const PRO_ONLY_NARRATIVE_MODELS = new Set<SupportedNarrativeModel>(["gpt-5.6-terra"]);
+
+export function isProOnlyNarrativeModel(model: string): boolean {
+  return isSupportedNarrativeModel(model) && PRO_ONLY_NARRATIVE_MODELS.has(model);
+}
+
 /** Returns whole micro-USD (1 USD = 1,000,000 micro-USD), rounded up so a fractional cost never reads as free. */
 export function estimateCostMicroUsd(model: string, inputTokens: number, outputTokens: number): number {
   const pricing = isSupportedNarrativeModel(model) ? PRICING_MICRO_USD_PER_TOKEN[model] : PRICING_MICRO_USD_PER_TOKEN["gpt-5.6-luna"];

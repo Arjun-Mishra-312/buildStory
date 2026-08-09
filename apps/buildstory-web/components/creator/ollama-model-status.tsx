@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { GuideTooltip } from "@/components/guidance/studio-guide";
+import { NarrativeModeDisclosure } from "./narrative-mode-disclosure";
 
 type Model = {
   name: string;
@@ -81,7 +83,14 @@ function formatBytes(value: number | null) {
  * generation itself is unaffected: buildstory-scan talks to Ollama directly
  * from the creator's machine at scan time.
  */
-export function OllamaModelStatus({ discoveryAvailable = true }: { discoveryAvailable?: boolean }) {
+export function OllamaModelStatus({
+  discoveryAvailable = true,
+  cloudAvailable = false,
+}: {
+  discoveryAvailable?: boolean;
+  /** Server-derived: only true when a cloud narrative provider is actually configured and the account is entitled. Never guessed client-side, because the failure mode is uploaded excerpts. */
+  cloudAvailable?: boolean;
+}) {
   const [discovery, setDiscovery] = useState<Discovery | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
@@ -89,7 +98,7 @@ export function OllamaModelStatus({ discoveryAvailable = true }: { discoveryAvai
   const [narrativeMode, setNarrativeMode] = useStoredPreference(
     NARRATIVE_MODE_PREFERENCE_KEY,
     "local",
-    (value): value is "local" | "cloud" | "off" => value === "local" || value === "cloud" || value === "off",
+    (value): value is "local" | "byok" | "cloud" | "off" => value === "local" || value === "byok" || value === "cloud" || value === "off",
   );
 
   useEffect(() => {
@@ -129,6 +138,16 @@ export function OllamaModelStatus({ discoveryAvailable = true }: { discoveryAvai
     return () => { window.clearTimeout(timeout); controller.abort(); };
   }, [refreshToken, discoveryAvailable]);
 
+  useEffect(() => {
+    // The Cloud option is server-gated (see cloudAvailable) because the
+    // failure mode of offering it when unconfigured is uploaded excerpts
+    // (see the launch audit). If a stale localStorage value from a prior
+    // session/deployment still says "cloud" but this deployment cannot
+    // honor it, fall back to Local rather than rendering an unselectable
+    // option or silently keeping cloud selected.
+    if (!cloudAvailable && narrativeMode === "cloud") setNarrativeMode("local");
+  }, [cloudAvailable, narrativeMode, setNarrativeMode]);
+
   const installedModels = discovery?.models.filter((model) => !model.remote) ?? [];
   const systemSummary = discovery
     ? [
@@ -155,21 +174,28 @@ export function OllamaModelStatus({ discoveryAvailable = true }: { discoveryAvai
         ) : null}
       </header>
 
-      <div className="ollama-model-status__choice">
-        <label htmlFor="narrative-mode-choice">Narrative generation mode</label>
+      <div className="ollama-model-status__choice" data-guide="create-narrative">
+        <label htmlFor="narrative-mode-choice">Narrative generation mode <GuideTooltip label="narrative generation mode">Local keeps excerpts on this machine; bring-your-own-key sends excerpts only to a cloud model you configure yourself; cloud uploads reviewed excerpts through Buildstory; off produces deterministic metrics without narrative prose.</GuideTooltip></label>
         <select
           id="narrative-mode-choice"
           value={narrativeMode}
           onChange={(event) => {
-            const value = event.target.value as "local" | "cloud" | "off";
+            const value = event.target.value as "local" | "byok" | "cloud" | "off";
             setNarrativeMode(value);
           }}
         >
           <option value="local">Local — excerpts never leave this machine</option>
-          <option value="cloud">Cloud — reviewed excerpts are uploaded</option>
+          <option value="byok">Bring your own key — excerpts go only to your chosen provider</option>
+          {cloudAvailable ? <option value="cloud">Cloud — reviewed excerpts are uploaded through Buildstory</option> : null}
           <option value="off">Off — deterministic profile only</option>
         </select>
-        <small>Local is the default. Cloud is an explicit opt-in and may be gated separately later.</small>
+        <small>
+          Local is the default.{" "}
+          {cloudAvailable
+            ? "Bring-your-own-key and Cloud are explicit opt-ins."
+            : "Bring-your-own-key is an explicit opt-in; Cloud is not available on this deployment yet."}
+        </small>
+        <NarrativeModeDisclosure mode={narrativeMode} />
       </div>
 
       {!discoveryAvailable ? (

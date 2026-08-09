@@ -2,6 +2,7 @@ import type { ProjectSnapshot } from "@/lib/project-snapshot";
 import type { PROJECT_SNAPSHOT_SCHEMA_VERSION, ScannerProjectSnapshot, NarrativeMode, ReportStoryPackV2 } from "./scanner-project-snapshot";
 import type { StoryBackgroundId } from "@/lib/background-options";
 import type { ChapterDelta } from "@/lib/story/chapter-delta";
+import type { BuilderRole } from "@/lib/identity/builder-roles";
 
 export type UploadSessionStatus =
   | "awaiting_scanner"
@@ -77,6 +78,10 @@ export type UserRecord = {
   role: "member" | "moderator" | "admin";
   /** Null until the user spends their one allowed handle change. */
   handleChangedAt: string | null;
+  builderRole: BuilderRole | null;
+  onboardingCompletedAt: string | null;
+  /** The account's real, durable plan - see effectivePlan() for how a launch-wide promotion can grant Pro benefits without changing this. */
+  plan: "free" | "pro";
 };
 
 export type ProjectRecord = {

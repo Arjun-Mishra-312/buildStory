@@ -49,7 +49,7 @@ export default async function StudioPage() {
           <h1>Good morning, {creator.name.split(" ")[0]}.</h1>
           <p>Your private build queue, reports, and publication state in one place.</p>
         </div>
-        <Link className="button button--primary" href="/studio/connect">
+        <Link className="button button--primary" href="/studio/connect" data-guide="studio-create">
           Create a story <span aria-hidden="true">↗</span>
         </Link>
       </header>
@@ -62,7 +62,7 @@ export default async function StudioPage() {
       </section>
 
       <div className="dashboard-grid">
-        <section className="dashboard-projects">
+        <section className="dashboard-projects" data-guide="studio-reports">
           <header><span>YOUR PROJECTS</span><Link href="/studio/connect">Create story +</Link></header>
           {readyCards.length ? readyCards.map(({ session, story }) => (
             <Link
@@ -105,7 +105,7 @@ export default async function StudioPage() {
           )}
         </section>
 
-        <aside className="dashboard-activity">
+        <aside className="dashboard-activity" data-guide="studio-activity">
           <header><span>INGESTION ACTIVITY</span><small>{sessions.length} total</small></header>
           <div className="activity-list">
             {sessions.slice(0, 5).map((session) => (

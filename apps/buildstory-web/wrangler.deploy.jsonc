@@ -71,13 +71,23 @@
   // AUTH_GOOGLE_SECRET (and the optional AUTH_GITHUB_* pair) are set with
   // `wrangler secret put ... -c wrangler.deploy.jsonc` and must never appear
   // here - this file is committed.
+  //
+  // BUILDSTORY_LLM_BASE_URL/MODEL are the non-secret half of the subsidized
+  // Cloud narrative path (see docs/production-runbook.md's "Enable Cloud AI"
+  // step). The secret half, BUILDSTORY_LLM_API_KEY, is set separately with
+  // `wrangler secret put`. Until that secret is set,
+  // narrativeProviderConfigured("cloud") is false and the Cloud option stays
+  // hidden in the dashboard - having the base URL/model here with no key set
+  // is a safe, inert state, not a partial enablement.
   "vars": {
     "BUILDSTORY_STORE": "d1",
     "BUILDSTORY_DEV_AUTH_BYPASS": "false",
     "BUILDSTORY_LOCAL_API_ENABLED": "false",
     "BUILDSTORY_PUBLIC_ORIGIN": "https://buildstory.dev",
     "BUILDSTORY_ALLOWED_HOSTS": "buildstory.dev",
-    "BUILDSTORY_LOG_LEVEL": "info"
+    "BUILDSTORY_LOG_LEVEL": "info",
+    "BUILDSTORY_LLM_BASE_URL": "https://api.openai.com/v1",
+    "BUILDSTORY_LLM_MODEL": "gpt-5.6-luna"
   },
 
   "d1_databases": [
