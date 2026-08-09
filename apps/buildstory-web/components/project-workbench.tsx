@@ -109,9 +109,16 @@ function providerName(provider: string): string {
   return "Codex";
 }
 
-function narrativeFailureMessage(code: string | null | undefined): string {
+function narrativeFailureMessage(code: string | null | undefined, validationFailure?: NarrativeRecord["validationFailure"]): string {
+  // Content-free path:rule pairs only (see NarrativeRecord.validationFailure)
+  // - safe to show directly, and turns "it failed" into the one line that
+  // names which constraint the provider kept missing.
+  const diagnostic = validationFailure?.issues.length ? ` (${validationFailure.stage}: ${validationFailure.issues.join(", ")})` : "";
   if (code === "llm_invalid_schema" || code === "llm_invalid_json" || code === "llm_invalid_response") {
-    return "The provider completed the request, but its structured result still failed Buildstory's schema or evidence-reference validation after one repair attempt. Provider usage may have been charged. The reviewed excerpts were erased, so generating a replacement requires a fresh reviewed scan.";
+    return `The provider's structured result kept failing Buildstory's schema or evidence-reference validation after automatic repair and retry attempts. Provider usage may have been charged. The reviewed excerpts were erased, so generating a replacement requires a fresh reviewed scan.${diagnostic}`;
+  }
+  if (code === "llm_insufficient_output") {
+    return `The provider's result passed schema validation but didn't contain enough model-written content for a usable report. Provider usage may have been charged. The reviewed excerpts were erased, so generating a replacement requires a fresh reviewed scan.${diagnostic}`;
   }
   if (code === "llm_model_or_zdr_unavailable") {
     return "No eligible Zero Data Retention route was available for the configured model. Buildstory did not relax ZDR or switch models. Start a fresh reviewed scan after the route is available.";
@@ -119,7 +126,7 @@ function narrativeFailureMessage(code: string | null | undefined): string {
   if (code === "evidence_expired") {
     return "The reviewed evidence expired before generation completed and has been erased. Start a fresh reviewed scan to try again.";
   }
-  return "The narrative model could not generate a valid story for this scan. No further attempts are made automatically, and the reviewed excerpts have been erased. A replacement requires a fresh reviewed scan.";
+  return `The narrative model could not generate a valid story for this scan. No further attempts are made automatically, and the reviewed excerpts have been erased. A replacement requires a fresh reviewed scan.${diagnostic}`;
 }
 
 function PrivacyVideoEmbed({ video, projectName }: { video: NonNullable<ReturnType<typeof resolveVideoEmbed>>; projectName: string }) {
@@ -787,38 +794,40 @@ export function ProjectWorkbench({
           </span>
         </div>
 
-        <div className="view-switcher" role="tablist" aria-label="Project views" data-guide="workbench-views">
-          <button
-            id="public-tab"
-            role="tab"
-            type="button"
-            aria-selected={view === "public"}
-            aria-controls="public-panel"
-            className={view === "public" ? "is-active" : undefined}
-            onClick={() => setView("public")}
-          >
-            <span className="view-status view-status--public" /> Public page
-          </button>
-          <button
-            id="private-tab"
-            role="tab"
-            type="button"
-            aria-selected={view === "private"}
-            aria-controls="private-panel"
-            className={view === "private" ? "is-active" : undefined}
-            onClick={() => { setView("private"); setEditing(false); }}
-          >
-            <span className="view-status view-status--private" /> Private report
-          </button>
-          <GuideTooltip label="public and private views">Public is the reader-facing story; Private is the complete report.</GuideTooltip>
-        </div>
-
-        <div className="project-console-bar__actions" data-guide="workbench-actions">
+        <div className="project-console-bar__center">
+          <div className="view-switcher" role="tablist" aria-label="Project views" data-guide="workbench-views">
+            <button
+              id="public-tab"
+              role="tab"
+              type="button"
+              aria-selected={view === "public"}
+              aria-controls="public-panel"
+              className={view === "public" ? "is-active" : undefined}
+              onClick={() => setView("public")}
+            >
+              <span className="view-status view-status--public" /> Public page
+            </button>
+            <button
+              id="private-tab"
+              role="tab"
+              type="button"
+              aria-selected={view === "private"}
+              aria-controls="private-panel"
+              className={view === "private" ? "is-active" : undefined}
+              onClick={() => { setView("private"); setEditing(false); }}
+            >
+              <span className="view-status view-status--private" /> Private report
+            </button>
+            <GuideTooltip label="public and private views">Public is the reader-facing story; Private is the complete report.</GuideTooltip>
+          </div>
           {view === "public" && !editing ? (
             <button className="button button--secondary button--small project-console-bar__edit" type="button" onClick={startEditing}>
               Edit public page
             </button>
           ) : null}
+        </div>
+
+        <div className="project-console-bar__actions" data-guide="workbench-actions">
           {projectId ? <Link className="button button--secondary button--small project-console-bar__scan" href={`/studio/projects/${projectId}/update`}>{isLive || hasLiveChapter ? "Scan for updates" : "Scan project updates"}</Link> : null}
           {isLive ? <button className="button button--text button--small project-console-bar__more" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((value) => !value)}>More</button> : null}
           {isLive ? <div className={`project-console-bar__utilities${moreOpen ? " is-open" : ""}`}>
@@ -1538,7 +1547,7 @@ export function ProjectWorkbench({
                     <p>This report was generated with an older narrative payload. Regenerate it with the current scanner to populate evidence-linked moments, decisions, learnings, traits, and growth cards.</p>
                   </section>
                 ) : resolvedNarrativeStatus === "narrative_failed" ? (
-                  <p>{narrativeFailureMessage(narrative?.failureCode)}</p>
+                  <p>{narrativeFailureMessage(narrative?.failureCode, narrative?.validationFailure)}</p>
                 ) : (
                   <div className="story-pack-skeleton" aria-label="Generating story pack" aria-busy="true">
                     <div className="story-pack-skeleton__hero" />

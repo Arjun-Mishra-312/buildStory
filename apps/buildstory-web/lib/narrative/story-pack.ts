@@ -22,20 +22,20 @@ export const STORY_PACK_OUTPUT_SCHEMA = {
     buildArc: {
       type: "array", minItems: 3, maxItems: 3, items: {
         type: "object", additionalProperties: false, required: ["phase", "headline", "summary", "sourceRefs"],
-        properties: { phase: { enum: ["discover", "decide", "deliver"] }, headline: { type: "string", minLength: 1, maxLength: 100 }, summary: { type: "string", minLength: 1, maxLength: 260 }, sourceRefs: { type: "array", minItems: 1, maxItems: 4, items: { type: "string", minLength: 1, maxLength: 40 } } },
+        properties: { phase: { type: "string", enum: ["discover", "decide", "deliver"] }, headline: { type: "string", minLength: 1, maxLength: 100 }, summary: { type: "string", minLength: 1, maxLength: 260 }, sourceRefs: { type: "array", minItems: 1, maxItems: 4, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 40 } } },
       },
     },
     moments: {
       type: "array", minItems: 3, maxItems: 5, items: {
         type: "object", additionalProperties: false, required: ["phase", "kind", "title", "whatHappened", "whyItMattered", "sourceRefs"],
-        properties: { phase: { enum: ["discover", "decide", "deliver"] }, kind: { enum: ["discovery", "decision", "breakthrough", "delivery"] }, title: { type: "string", minLength: 1, maxLength: 120 }, whatHappened: { type: "string", minLength: 1, maxLength: 400 }, whyItMattered: { type: "string", minLength: 1, maxLength: 400 }, sourceRefs: { type: "array", minItems: 1, maxItems: 4, items: { type: "string", minLength: 1, maxLength: 40 } } },
+        properties: { phase: { type: "string", enum: ["discover", "decide", "deliver"] }, kind: { type: "string", enum: ["discovery", "decision", "breakthrough", "delivery"] }, title: { type: "string", minLength: 1, maxLength: 120 }, whatHappened: { type: "string", minLength: 1, maxLength: 400 }, whyItMattered: { type: "string", minLength: 1, maxLength: 400 }, sourceRefs: { type: "array", minItems: 1, maxItems: 4, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 40 } } },
       },
     },
-    turningPoint: { type: "object", additionalProperties: false, required: ["quote", "sourceRefs"], properties: { quote: { type: "string", minLength: 1, maxLength: 300 }, sourceRefs: { type: "array", minItems: 1, maxItems: 4, items: { type: "string", minLength: 1, maxLength: 40 } } } },
-    decisions: { type: "array", minItems: 2, maxItems: 4, items: { type: "object", additionalProperties: false, required: ["title", "rationale", "outcome", "sourceRefs"], properties: { title: { type: "string", minLength: 1, maxLength: 120 }, rationale: { type: "string", minLength: 1, maxLength: 300 }, outcome: { type: "string", minLength: 1, maxLength: 300 }, sourceRefs: { type: "array", minItems: 1, maxItems: 4, items: { type: "string", minLength: 1, maxLength: 40 } } } } },
-    learnings: { type: "array", minItems: 2, maxItems: 4, items: { type: "object", additionalProperties: false, required: ["title", "detail", "sourceRefs"], properties: { title: { type: "string", minLength: 1, maxLength: 120 }, detail: { type: "string", minLength: 1, maxLength: 300 }, sourceRefs: { type: "array", minItems: 1, maxItems: 4, items: { type: "string", minLength: 1, maxLength: 40 } } } } },
-    standoutTraits: { type: "array", minItems: 2, maxItems: 4, items: { type: "object", additionalProperties: false, required: ["title", "detail", "sourceRefs"], properties: { title: { type: "string", minLength: 1, maxLength: 120 }, detail: { type: "string", minLength: 1, maxLength: 300 }, sourceRefs: { type: "array", minItems: 1, maxItems: 4, items: { type: "string", minLength: 1, maxLength: 40 } } } } },
-    growthEdge: { type: "object", additionalProperties: false, required: ["title", "observation", "nextStep", "sourceRefs"], properties: { title: { type: "string", minLength: 1, maxLength: 120 }, observation: { type: "string", minLength: 1, maxLength: 400 }, nextStep: { type: "string", minLength: 1, maxLength: 300 }, sourceRefs: { type: "array", minItems: 1, maxItems: 4, items: { type: "string", minLength: 1, maxLength: 40 } } } },
+    turningPoint: { type: "object", additionalProperties: false, required: ["quote", "sourceRefs"], properties: { quote: { type: "string", minLength: 1, maxLength: 300 }, sourceRefs: { type: "array", minItems: 1, maxItems: 4, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 40 } } } },
+    decisions: { type: "array", minItems: 2, maxItems: 4, items: { type: "object", additionalProperties: false, required: ["title", "rationale", "outcome", "sourceRefs"], properties: { title: { type: "string", minLength: 1, maxLength: 120 }, rationale: { type: "string", minLength: 1, maxLength: 300 }, outcome: { type: "string", minLength: 1, maxLength: 300 }, sourceRefs: { type: "array", minItems: 1, maxItems: 4, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 40 } } } } },
+    learnings: { type: "array", minItems: 2, maxItems: 4, items: { type: "object", additionalProperties: false, required: ["title", "detail", "sourceRefs"], properties: { title: { type: "string", minLength: 1, maxLength: 120 }, detail: { type: "string", minLength: 1, maxLength: 300 }, sourceRefs: { type: "array", minItems: 1, maxItems: 4, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 40 } } } } },
+    standoutTraits: { type: "array", minItems: 2, maxItems: 4, items: { type: "object", additionalProperties: false, required: ["title", "detail", "sourceRefs"], properties: { title: { type: "string", minLength: 1, maxLength: 120 }, detail: { type: "string", minLength: 1, maxLength: 300 }, sourceRefs: { type: "array", minItems: 1, maxItems: 4, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 40 } } } } },
+    growthEdge: { type: "object", additionalProperties: false, required: ["title", "observation", "nextStep", "sourceRefs"], properties: { title: { type: "string", minLength: 1, maxLength: 120 }, observation: { type: "string", minLength: 1, maxLength: 400 }, nextStep: { type: "string", minLength: 1, maxLength: 300 }, sourceRefs: { type: "array", minItems: 1, maxItems: 4, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 40 } } } },
   },
 } as const;
 
@@ -44,8 +44,8 @@ const STORY_PACK_FINDING_SCHEMA = {
   properties: {
     title: { type: "string", minLength: 1, maxLength: 120 },
     summary: { type: "string", minLength: 1, maxLength: 600 },
-    sourceRefs: { type: "array", minItems: 1, maxItems: 6, items: { type: "string", minLength: 1, maxLength: 40 } },
-    confidence: { enum: ["high", "medium", "low"] },
+    sourceRefs: { type: "array", minItems: 1, maxItems: 6, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 40 } },
+    confidence: { type: "string", enum: ["high", "medium", "low"] },
   },
 } as const;
 
@@ -53,7 +53,7 @@ const STORY_PACK_RECOMMENDATION_SCHEMA = {
   type: "object", additionalProperties: false, required: ["title", "summary", "sourceRefs", "confidence", "priority", "rationale"],
   properties: {
     ...STORY_PACK_FINDING_SCHEMA.properties,
-    priority: { enum: ["now", "next", "later"] },
+    priority: { type: "string", enum: ["now", "next", "later"] },
     rationale: { type: "string", minLength: 1, maxLength: 600 },
   },
 } as const;
@@ -125,6 +125,8 @@ export type StoryPackComponent = "story" | "insights" | "deep-narrative" | "deep
 export type StoryPackValidation = {
   ok: boolean;
   errors: string[];
+  /** Recoverable issues (e.g. over-length strings) that normalization already fixes losslessly. Never blocks `ok`. */
+  warnings: string[];
 };
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -133,11 +135,16 @@ function record(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function stringError(value: unknown, path: string, min: number, max: number): string | null {
+// Over-length strings are recoverable: normalization's `clean()` already
+// truncates them losslessly via sanitizePublicText. Treating them as fatal
+// spent a repair call (and, on Deep, the whole generation) on a violation
+// the pipeline was always going to fix anyway. Wrong type or too-short is
+// still fatal - there's nothing to recover from an absent or empty value.
+function stringError(value: unknown, path: string, min: number, max: number, warnings: string[]): string | null {
   if (typeof value !== "string") return `${path} must be a string.`;
   const length = value.trim().length;
   if (length < min) return `${path} must contain at least ${min} character${min === 1 ? "" : "s"}.`;
-  if (length > max) return `${path} must contain at most ${max} characters.`;
+  if (length > max) { warnings.push(`${path} must contain at most ${max} characters.`); return null; }
   return null;
 }
 
@@ -164,18 +171,20 @@ function listError(value: unknown, path: string, min: number, max: number): stri
   return errors;
 }
 
-function validateStoryComponent(value: Record<string, unknown>, allowed: Set<string>, maxMoments = 5): string[] {
+function validateStoryComponent(value: Record<string, unknown>, allowed: Set<string>, warnings: string[], maxMoments = 5, allowLegacyBypass = true): string[] {
   // Keep the bounded rollout compatibility path for older providers that
   // still return the pre-V2 flat section names. They are normalized into the
   // structured pack immediately after this check and never reach storage as
-  // unvalidated layout/content instructions.
-  if (!value.hero && ("headline" in value || "narrative" in value || typeof value.turningPoint === "string")) return [];
+  // unvalidated layout/content instructions. Deep callers disable this: a
+  // legacy-flat response passing as "valid" for a Deep report means a paid,
+  // high-effort generation silently ships as 100% metric-derived fallback.
+  if (allowLegacyBypass && !value.hero && ("headline" in value || "narrative" in value || typeof value.turningPoint === "string")) return [];
   const errors: string[] = [];
   const hero = record(value.hero);
   if (!hero) errors.push("hero must be an object.");
   else {
-    const headline = stringError(hero.headline, "hero.headline", 1, 120); if (headline) errors.push(headline);
-    const summary = stringError(hero.summary, "hero.summary", 1, 480); if (summary) errors.push(summary);
+    const headline = stringError(hero.headline, "hero.headline", 1, 120, warnings); if (headline) errors.push(headline);
+    const summary = stringError(hero.summary, "hero.summary", 1, 480, warnings); if (summary) errors.push(summary);
   }
   const arc = value.buildArc;
   errors.push(...listError(arc, "buildArc", 3, 3));
@@ -188,8 +197,8 @@ function validateStoryComponent(value: Record<string, unknown>, allowed: Set<str
       const entry = record(item); const path = `buildArc[${index}]`;
       if (!entry) { errors.push(`${path} must be an object.`); return; }
       if (!["discover", "decide", "deliver"].includes(String(entry.phase))) errors.push(`${path}.phase is unsupported.`);
-      const headline = stringError(entry.headline, `${path}.headline`, 1, 100); if (headline) errors.push(headline);
-      const summary = stringError(entry.summary, `${path}.summary`, 1, 260); if (summary) errors.push(summary);
+      const headline = stringError(entry.headline, `${path}.headline`, 1, 100, warnings); if (headline) errors.push(headline);
+      const summary = stringError(entry.summary, `${path}.summary`, 1, 260, warnings); if (summary) errors.push(summary);
       errors.push(...refsError(entry.sourceRefs, `${path}.sourceRefs`, allowed));
     });
   }
@@ -200,21 +209,21 @@ function validateStoryComponent(value: Record<string, unknown>, allowed: Set<str
     if (!["discover", "decide", "deliver"].includes(String(entry.phase))) errors.push(`${path}.phase is unsupported.`);
     if (!["discovery", "decision", "breakthrough", "delivery"].includes(String(entry.kind))) errors.push(`${path}.kind is unsupported.`);
     for (const [key, max] of [["title", 120], ["whatHappened", 400], ["whyItMattered", 400]] as const) {
-      const issue = stringError(entry[key], `${path}.${key}`, 1, max); if (issue) errors.push(issue);
+      const issue = stringError(entry[key], `${path}.${key}`, 1, max, warnings); if (issue) errors.push(issue);
     }
     errors.push(...refsError(entry.sourceRefs, `${path}.sourceRefs`, allowed));
   });
   const turning = record(value.turningPoint);
   if (!turning) errors.push("turningPoint must be an object.");
   else {
-    const quote = stringError(turning.quote, "turningPoint.quote", 1, 300); if (quote) errors.push(quote);
+    const quote = stringError(turning.quote, "turningPoint.quote", 1, 300, warnings); if (quote) errors.push(quote);
     errors.push(...refsError(turning.sourceRefs, "turningPoint.sourceRefs", allowed));
   }
   return errors;
 }
 
-function validateInsightsComponent(value: Record<string, unknown>, allowed: Set<string>): string[] {
-  if (!value.decisions && ("decisionPatterns" in value || "standoutTraits" in value || typeof value.growthEdge === "string")) return [];
+function validateInsightsComponent(value: Record<string, unknown>, allowed: Set<string>, warnings: string[], allowLegacyBypass = true): string[] {
+  if (allowLegacyBypass && !value.decisions && ("decisionPatterns" in value || "standoutTraits" in value || typeof value.growthEdge === "string")) return [];
   const errors: string[] = [];
   const decisions = value.decisions;
   errors.push(...listError(decisions, "decisions", 2, 4));
@@ -222,7 +231,7 @@ function validateInsightsComponent(value: Record<string, unknown>, allowed: Set<
     const entry = record(item); const path = `decisions[${index}]`;
     if (!entry) { errors.push(`${path} must be an object.`); return; }
     for (const [key, max] of [["title", 120], ["rationale", 300], ["outcome", 300]] as const) {
-      const issue = stringError(entry[key], `${path}.${key}`, 1, max); if (issue) errors.push(issue);
+      const issue = stringError(entry[key], `${path}.${key}`, 1, max, warnings); if (issue) errors.push(issue);
     }
     errors.push(...refsError(entry.sourceRefs, `${path}.sourceRefs`, allowed));
   });
@@ -232,8 +241,8 @@ function validateInsightsComponent(value: Record<string, unknown>, allowed: Set<
     if (Array.isArray(list)) list.forEach((item, index) => {
       const entry = record(item); const path = `${name}[${index}]`;
       if (!entry) { errors.push(`${path} must be an object.`); return; }
-      const title = stringError(entry.title, `${path}.title`, 1, 120); if (title) errors.push(title);
-      const detail = stringError(entry.detail, `${path}.detail`, 1, 300); if (detail) errors.push(detail);
+      const title = stringError(entry.title, `${path}.title`, 1, 120, warnings); if (title) errors.push(title);
+      const detail = stringError(entry.detail, `${path}.detail`, 1, 300, warnings); if (detail) errors.push(detail);
       errors.push(...refsError(entry.sourceRefs, `${path}.sourceRefs`, allowed));
     });
   }
@@ -241,19 +250,19 @@ function validateInsightsComponent(value: Record<string, unknown>, allowed: Set<
   if (!growth) errors.push("growthEdge must be an object.");
   else {
     for (const [key, max] of [["title", 120], ["observation", 400], ["nextStep", 300]] as const) {
-      const issue = stringError(growth[key], `growthEdge.${key}`, 1, max); if (issue) errors.push(issue);
+      const issue = stringError(growth[key], `growthEdge.${key}`, 1, max, warnings); if (issue) errors.push(issue);
     }
     errors.push(...refsError(growth.sourceRefs, "growthEdge.sourceRefs", allowed));
   }
   return errors;
 }
 
-function validateFinding(value: unknown, path: string, allowed: Set<string>, recommendation = false): string[] {
+function validateFinding(value: unknown, path: string, allowed: Set<string>, warnings: string[], recommendation = false): string[] {
   const entry = record(value);
   if (!entry) return [`${path} must be an object.`];
   const errors: string[] = [];
-  const title = stringError(entry.title, `${path}.title`, 1, 120); if (title) errors.push(title);
-  const summary = stringError(entry.summary, `${path}.summary`, 1, 600); if (summary) errors.push(summary);
+  const title = stringError(entry.title, `${path}.title`, 1, 120, warnings); if (title) errors.push(title);
+  const summary = stringError(entry.summary, `${path}.summary`, 1, 600, warnings); if (summary) errors.push(summary);
   if (!["high", "medium", "low"].includes(String(entry.confidence))) errors.push(`${path}.confidence is unsupported.`);
   // Deep findings deliberately allow up to six references in their JSON
   // schema. Keeping the post-generation validator at the base-story limit of
@@ -261,16 +270,16 @@ function validateFinding(value: unknown, path: string, allowed: Set<string>, rec
   errors.push(...refsError(entry.sourceRefs, `${path}.sourceRefs`, allowed, 6));
   if (recommendation) {
     if (!["now", "next", "later"].includes(String(entry.priority))) errors.push(`${path}.priority is unsupported.`);
-    const rationale = stringError(entry.rationale, `${path}.rationale`, 1, 600); if (rationale) errors.push(rationale);
+    const rationale = stringError(entry.rationale, `${path}.rationale`, 1, 600, warnings); if (rationale) errors.push(rationale);
   }
   return errors;
 }
 
-function validateDeepComponent(value: Record<string, unknown>, allowed: Set<string>, includeBase = true): string[] {
-  const errors = includeBase ? [...validateStoryComponent(value, allowed, 12), ...validateInsightsComponent(value, allowed)] : [];
+function validateDeepComponent(value: Record<string, unknown>, allowed: Set<string>, warnings: string[], includeBase = true): string[] {
+  const errors = includeBase ? [...validateStoryComponent(value, allowed, warnings, 12, false), ...validateInsightsComponent(value, allowed, warnings, false)] : [];
   const deep = record(value.deepAnalysis);
   if (!deep) return [...errors, "deepAnalysis must be an object."];
-  errors.push(...validateFinding(deep.executiveSynthesis, "deepAnalysis.executiveSynthesis", allowed));
+  errors.push(...validateFinding(deep.executiveSynthesis, "deepAnalysis.executiveSynthesis", allowed, warnings));
   for (const [name, max, recommendation] of [
     ["decisionReview", 8, false],
     ["frictionAndRecovery", 6, false],
@@ -281,35 +290,40 @@ function validateDeepComponent(value: Record<string, unknown>, allowed: Set<stri
   ] as const) {
     const entries = deep[name];
     errors.push(...listError(entries, `deepAnalysis.${name}`, 0, max));
-    if (Array.isArray(entries)) entries.forEach((entry, index) => errors.push(...validateFinding(entry, `deepAnalysis.${name}[${index}]`, allowed, recommendation)));
+    if (Array.isArray(entries)) entries.forEach((entry, index) => errors.push(...validateFinding(entry, `deepAnalysis.${name}[${index}]`, allowed, warnings, recommendation)));
   }
   return errors;
 }
 
 export function validateDeepAnalysisComponent(value: unknown, allowedRefs: Set<string>): StoryPackValidation {
   const candidate = record(value);
-  if (!candidate) return { ok: false, errors: ["response must be a JSON object."] };
-  const errors = validateDeepComponent({ deepAnalysis: candidate }, allowedRefs, false);
-  return { ok: errors.length === 0, errors: errors.slice(0, 20) };
+  if (!candidate) return { ok: false, errors: ["response must be a JSON object."], warnings: [] };
+  const warnings: string[] = [];
+  const errors = validateDeepComponent({ deepAnalysis: candidate }, allowedRefs, warnings, false);
+  return { ok: errors.length === 0, errors: errors.slice(0, 20), warnings: [...new Set(warnings)].slice(0, 20) };
 }
 
 /**
  * Post-generation validation shared by the cloud repair loop and the local
  * Ollama path. The API schema catches transport-level violations; this
  * validator additionally verifies source provenance and component cardinality
- * before normalization can produce a report.
+ * before normalization can produce a report. The legacy flat-shape bypass is
+ * only available for "story"/"insights" - "deep-narrative" and "deep" always
+ * validate the structured shape, since a Deep report silently passing as a
+ * legacy shape would ship a paid generation as unvalidated fallback content.
  */
 export function validateStoryPackComponent(value: unknown, component: StoryPackComponent, allowedRefs: Set<string>): StoryPackValidation {
   const candidate = record(value);
-  if (!candidate) return { ok: false, errors: ["response must be a JSON object."] };
+  if (!candidate) return { ok: false, errors: ["response must be a JSON object."], warnings: [] };
+  const warnings: string[] = [];
   const errors = component === "story"
-    ? validateStoryComponent(candidate, allowedRefs)
+    ? validateStoryComponent(candidate, allowedRefs, warnings)
     : component === "insights"
-      ? validateInsightsComponent(candidate, allowedRefs)
+      ? validateInsightsComponent(candidate, allowedRefs, warnings)
       : component === "deep-narrative"
-        ? [...validateStoryComponent(candidate, allowedRefs, 12), ...validateInsightsComponent(candidate, allowedRefs)]
-        : validateDeepComponent(candidate, allowedRefs);
-  return { ok: errors.length === 0, errors: errors.slice(0, 20) };
+        ? [...validateStoryComponent(candidate, allowedRefs, warnings, 12, false), ...validateInsightsComponent(candidate, allowedRefs, warnings, false)]
+        : validateDeepComponent(candidate, allowedRefs, warnings);
+  return { ok: errors.length === 0, errors: errors.slice(0, 20), warnings: [...new Set(warnings)].slice(0, 20) };
 }
 
 function clean(path: string, value: unknown, max: number, fallback: string, fallbacks: string[]): string {

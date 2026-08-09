@@ -35,10 +35,14 @@ export class NarrativeProviderError extends Error {
     public status: number | null = null,
     public usage: NarrativeFailureUsage | null = null,
     public validationDiagnostic: NarrativeValidationDiagnostic | null = null,
+    /** Raw provider content that failed JSON.parse, so a repair turn can echo it back. Never persisted. */
+    public rawContent: string | null = null,
   ) {
     super(message);
   }
 }
+
+type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
 export type NarrativeGenerationResult = {
   sections: NarrativeSections & NarrativeProfileSections;
@@ -176,7 +180,16 @@ function providerErrorWithUsage(error: NarrativeProviderError, usage: NarrativeF
     error.status,
     addFailureUsage(usage, error.usage ?? emptyFailureUsage()),
     error.validationDiagnostic,
+    error.rawContent,
   );
+}
+
+// Keep repair-turn context small: this is provider-facing (goes back to the
+// same ZDR/deny-data-collection endpoint that just produced it, never
+// persisted), but an unbounded echo could blow past the request's own
+// max_tokens budget on a pathologically large response.
+function truncateForEcho(text: string, max = 12_000): string {
+  return text.length > max ? `${text.slice(0, max)}\n…(truncated)` : text;
 }
 
 function legacyCompatiblePayload(storyValue: unknown, profileValue: unknown, snapshot: ScannerProjectSnapshot): Record<string, unknown> {
@@ -207,7 +220,7 @@ async function requestCompletion(
   baseUrl: string,
   apiKey: string,
   model: string,
-  messages: Array<{ role: "system" | "user"; content: string }>,
+  messages: ChatMessage[],
   responseFormat: unknown,
   isOllama: boolean,
   analysisTier: AnalysisTier,
@@ -278,12 +291,18 @@ async function requestCompletion(
     costMicroUsd: typeof payload.usage?.cost === "number" && Number.isFinite(payload.usage.cost) ? Math.max(0, Math.round(payload.usage.cost * 1_000_000)) : null,
     requestIds: payload.id ? [payload.id] : [],
   };
-  if (!content) throw new NarrativeProviderError("llm_empty_response", "Narrative provider returned no message content.", false, null, responseUsage);
+  // Both are one repair attempt away from succeeding rather than a
+  // structural failure: an empty response or truncated/malformed JSON is
+  // often a one-off from the provider, and a blind retry - or, for invalid
+  // JSON, a repair turn that can see the malformed content - regularly
+  // recovers. Marking these non-retryable meant the very first miss ended
+  // the narrative job and scrubbed the reviewed evidence bundle.
+  if (!content) throw new NarrativeProviderError("llm_empty_response", "Narrative provider returned no message content.", true, null, responseUsage);
   let value: unknown;
   try {
     value = JSON.parse(content);
   } catch {
-    throw new NarrativeProviderError("llm_invalid_json", "Narrative provider response was not valid JSON.", false, null, responseUsage);
+    throw new NarrativeProviderError("llm_invalid_json", "Narrative provider response was not valid JSON.", true, null, responseUsage, null, content);
   }
   return {
     value,
@@ -335,29 +354,30 @@ function validationDiagnostic(
     if (/must be an (array|object)/i.test(error) || /must be a string/i.test(error)) return "type";
     return "schema";
   };
-  const path = (error: string): string => {
-    const candidate = error.split(/ must | is unsupported| references | duplicates /i, 1)[0]?.trim() || "response";
-    return candidate.replace(/\[\d+\]/g, "[]").replace(/[^A-Za-z0-9_.\[\]-]/g, "").slice(0, 120) || "response";
-  };
-  const issues = errors.map((error) => `${path(error)}:${rule(error)}`);
+  const issues = errors.map((error) => `${diagnosticPath(error)}:${rule(error)}`);
   if (unknownReferenceCount > 0 && !issues.some((issue) => issue.endsWith(":unknown_source_ref"))) {
     issues.push("sourceRefs:unknown_source_ref");
   }
   return { stage, issues: [...new Set(issues)].slice(0, 8) };
 }
 
+function diagnosticPath(error: string): string {
+  const candidate = error.split(/ must | is unsupported| references | duplicates /i, 1)[0]?.trim() || "response";
+  return candidate.replace(/\[\d+\]/g, "[]").replace(/[^A-Za-z0-9_.\[\]-]/g, "").slice(0, 120) || "response";
+}
+
 async function requestWithRepair(
   baseUrl: string,
   apiKey: string,
   model: string,
-  messages: Array<{ role: "system" | "user"; content: string }>,
+  messages: ChatMessage[],
   responseFormat: unknown,
   isOllama: boolean,
   analysisTier: AnalysisTier,
   allowedRefs: Set<string>,
   component: StoryPackComponent | "combined" | "analysis-map" | "deep-report",
   maxTokens?: number,
-): Promise<Completion> {
+): Promise<Completion & { warnings: string[] }> {
   let currentMessages = messages;
   let totals = emptyFailureUsage();
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -369,7 +389,14 @@ async function requestWithRepair(
       if (error.code !== "llm_invalid_json" && error.code !== "llm_empty_response") throw providerErrorWithUsage(error, totals);
       totals = addFailureUsage(totals, error.usage ?? emptyFailureUsage());
       if (attempt === 1) throw new NarrativeProviderError(error.code, error.message, error.retryable, error.status, totals);
-      currentMessages = [...messages, { role: "user", content: "Validation feedback: return a single valid JSON object matching the supplied schema. Do not include prose or markdown." }];
+      // Echo the malformed content back as an assistant turn so the repair
+      // request can see and fix what it actually wrote, rather than
+      // regenerating blind from the original prompt with no memory of the
+      // failed attempt.
+      const echo: ChatMessage[] = error.code === "llm_invalid_json" && error.rawContent
+        ? [{ role: "assistant", content: truncateForEcho(error.rawContent) }]
+        : [];
+      currentMessages = [...messages, ...echo, { role: "user", content: "Validation feedback: return a single valid JSON object matching the supplied schema. Do not include prose or markdown." }];
       continue;
     }
     totals = addFailureUsage(totals, completionUsage(result));
@@ -381,6 +408,7 @@ async function requestWithRepair(
       validation = {
         ok: storyValidation.ok && insightValidation.ok,
         errors: [...storyValidation.errors, ...insightValidation.errors],
+        warnings: [...storyValidation.warnings, ...insightValidation.warnings],
       };
     } else if (component === "analysis-map") {
       validation = validateDeepAnalysisComponent(result.value, allowedRefs);
@@ -391,18 +419,25 @@ async function requestWithRepair(
       validation = {
         ok: storyValidation.ok && insightValidation.ok && deepValidation.ok,
         errors: [...storyValidation.errors, ...insightValidation.errors, ...deepValidation.errors],
+        warnings: [...storyValidation.warnings, ...insightValidation.warnings, ...deepValidation.warnings],
       };
     } else if (component === "deep-narrative") {
       validation = validateStoryPackComponent(result.value, "deep-narrative", allowedRefs);
     } else {
       validation = validateStoryPackComponent(result.value, component, allowedRefs);
     }
-    if (!invalid.length && validation.ok) return { ...result, ...totals };
+    if (!invalid.length && validation.ok) return { ...result, ...totals, warnings: validation.warnings };
     if (attempt === 1) {
       throw new NarrativeProviderError(
         "llm_invalid_schema",
         "Narrative provider returned an invalid schema after repair.",
-        false,
+        // A schema miss is a one-off in practice (see the audit that led to
+        // this fix: the model was never told the cardinality/length rules it
+        // was being graded on). Marking it non-retryable meant the very
+        // first miss was terminal, scrubbing the reviewed evidence bundle
+        // and forcing a full re-scan for what is usually a recoverable
+        // generation. The queue's own attempt cap still bounds total cost.
+        true,
         null,
         totals,
         validationDiagnostic(component, validation.errors, invalid.length),
@@ -412,10 +447,27 @@ async function requestWithRepair(
       invalid.length ? `unknown sourceRefs: ${invalid.join(", ")}` : "",
       validation.errors.length ? `schema issues: ${validation.errors.slice(0, 8).join("; ")}` : "",
     ].filter(Boolean).join(". ");
-    currentMessages = [...messages, { role: "user", content: `Validation feedback: ${feedback}. Return one JSON object matching the supplied schema and use only the provided source references.` }];
+    // Echo the model's own failed output back as an assistant turn instead
+    // of discarding it. Without this the "repair" was a blind regeneration
+    // from identical priors - the model could not see what it had actually
+    // produced, only a prose description of what was wrong with it.
+    currentMessages = [
+      ...messages,
+      { role: "assistant", content: truncateForEcho(JSON.stringify(result.value)) },
+      { role: "user", content: `Validation feedback: ${feedback}. Return one JSON object matching the supplied schema and use only the provided source references.` },
+    ];
   }
   throw new NarrativeProviderError("llm_invalid_response", "Narrative provider returned an unusable response after repair.");
 }
+
+// If any of these core, non-repeatable fields fell back to metric-derived
+// boilerplate, the Deep report has no usable model-written content for the
+// section that defines it - shipping it as `status: 'ready'` would bill the
+// creator for two high-effort passes and deliver a report indistinguishable
+// from a failure. Cardinality lists (moments, decisions, ...) already have a
+// validated minimum count, so they're not included here; a single fallback
+// entry among several real ones isn't the same failure mode.
+const CORE_DEEP_FALLBACK_PATHS = ["hero.headline", "hero.summary", "turningPoint.quote", "growthEdge.title", "growthEdge.observation", "growthEdge.nextStep"];
 
 export async function generateNarrative(
   snapshot: ScannerProjectSnapshot,
@@ -495,6 +547,7 @@ export async function generateNarrative(
   };
   let storyValue: unknown;
   let normalized: ReturnType<typeof normalizeStoryPack> | ReturnType<typeof normalizeDeepStoryPack>;
+  const requestWarnings: string[] = [];
   try {
     if (analysisTier === "deep") {
       const analysis = await requestWithRepair(
@@ -502,11 +555,13 @@ export async function generateNarrative(
         NARRATIVE_DEEP_ANALYSIS_RESPONSE_FORMAT, isOllama, analysisTier, allowedRefs, "analysis-map", 24_000,
       );
       addUsage(analysis);
+      requestWarnings.push(...analysis.warnings);
       const synthesis = await requestWithRepair(
         baseUrl, apiKey, model, buildDeepSynthesisMessages(snapshot, analysis.value),
         NARRATIVE_DEEP_SYNTHESIS_RESPONSE_FORMAT, isOllama, analysisTier, allowedRefs, "deep-narrative", 40_000,
       );
       addUsage(synthesis);
+      requestWarnings.push(...synthesis.warnings);
       const synthesisObject = synthesis.value && typeof synthesis.value === "object" && !Array.isArray(synthesis.value)
         ? synthesis.value as Record<string, unknown>
         : {};
@@ -525,14 +580,40 @@ export async function generateNarrative(
           { stage: "composition", issues: validationDiagnostic("deep-report", composedValidation.errors, 0).issues },
         );
       }
+      // Symmetric with the Standard branch below: normalize field-name
+      // variations (e.g. a flat `turningPoint` string) the same way even
+      // though the strict Deep validator above already requires the
+      // structured shape to have passed. Validation still runs on the raw
+      // composed value, not this compatibility-mapped one.
+      const compatibleComposedValue = legacyCompatiblePayload(composedValue, composedValue, snapshot);
       storyValue = composedValue;
-      normalized = normalizeDeepStoryPack(composedValue, snapshot);
+      normalized = normalizeDeepStoryPack(compatibleComposedValue, snapshot);
+      const coreFallback = normalized.fallbacksUsed.find((path) => CORE_DEEP_FALLBACK_PATHS.includes(path));
+      if (coreFallback) {
+        // Both passes validated as schema-legal, but normalization still had
+        // to fall back to metric-derived boilerplate for a field that
+        // defines the report (hero, turning point, or growth edge) - most
+        // often because the response was legacy-shaped and slipped past the
+        // (now-disabled-for-Deep) bypass at a layer that still allows it, or
+        // every source reference resolved to nothing usable. Shipping this
+        // as `status: 'ready'` would bill for two Deep passes and deliver
+        // what is functionally a failure.
+        throw new NarrativeProviderError(
+          "llm_insufficient_output",
+          "Deep narrative generation produced no usable model-written content for a core report section.",
+          false,
+          null,
+          null,
+          { stage: "synthesis", issues: [`${coreFallback}:insufficient_output`] },
+        );
+      }
     } else {
       const result = await requestWithRepair(
         baseUrl, apiKey, model, buildCombinedMessages(snapshot), NARRATIVE_COMBINED_RESPONSE_FORMAT,
         isOllama, analysisTier, allowedRefs, "combined", isOllama ? 3_000 : 4_000,
       );
       addUsage(result);
+      requestWarnings.push(...result.warnings);
       storyValue = result.value;
       normalized = normalizeStoryPack(legacyCompatiblePayload(result.value, result.value, snapshot), snapshot);
     }
@@ -577,7 +658,12 @@ export async function generateNarrative(
     cachedTokens,
     actualCostMicroUsd,
     requestIds: [...new Set(requestIds)],
-    fallbacksUsed: normalized.fallbacksUsed,
+    // Merge in recoverable over-length warnings (now non-fatal - see
+    // validateStoryPackComponent) so observability's fallback count still
+    // reflects that the string was truncated, without spending a repair
+    // call or failing the generation over something normalization already
+    // fixed losslessly.
+    fallbacksUsed: [...new Set([...normalized.fallbacksUsed, ...requestWarnings.map(diagnosticPath)])].sort(),
     invalidReferenceCount: unknownSourceRefs(storyValue, allowedRefs).length,
     generationLatencyMs: Date.now() - generationStartedAt,
   };

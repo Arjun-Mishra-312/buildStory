@@ -187,6 +187,8 @@ export type NarrativeRecord = {
   observability?: NarrativeObservability | null;
   fallbacksUsed?: string[];
   costMicroUsd: number;
+  /** Content-free {stage, issues} diagnostic for a failed generation. `issues` are `path:rule` pairs only - never model output or source IDs. */
+  validationFailure?: { stage: "analysis" | "synthesis" | "composition" | "standard"; issues: string[] } | null;
 };
 
 /** Facts about one scan, used to create or refresh a project's rollup fields. */

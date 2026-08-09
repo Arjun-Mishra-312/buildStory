@@ -345,6 +345,7 @@ function narrativeFromRow(row: NarrativeRow): NarrativeRecord {
     analysisTierRequested?: NarrativeRecord["analysisTierRequested"];
     analysisTierDelivered?: NarrativeRecord["analysisTierDelivered"];
     evidenceScrubbedAt?: string | null;
+    validationFailure?: NarrativeRecord["validationFailure"];
   } : null;
   const observability = storedRecord?.observability
     ? {
@@ -379,6 +380,7 @@ function narrativeFromRow(row: NarrativeRow): NarrativeRecord {
     observability,
     fallbacksUsed: row.fallbacks_used_json ? parseJson<string[]>(row.fallbacks_used_json, "narrative fallbacks") : [],
     costMicroUsd: row.cost_micro_usd,
+    validationFailure: storedRecord?.validationFailure ?? null,
   };
 }
 
@@ -1363,7 +1365,13 @@ export async function processNarrativeQueueJob(narrativeId: string) {
       .prepare("SELECT attempts FROM buildstory_narrative_jobs WHERE narrative_id = ?")
       .bind(narrativeId)
       .first<{ attempts: number }>();
-    const terminal = (error instanceof NarrativeProviderError && !error.retryable) || Number(job?.attempts ?? 1) >= 3;
+    // Deep runs two provider calls per attempt at high reasoning effort, so a
+    // requeue is twice as expensive as Standard's. Now that a schema/JSON
+    // miss is retryable (see NarrativeProviderError in provider.ts) instead
+    // of terminal on the first failure, Deep gets one requeue - not two -
+    // to bound the added cost of that change.
+    const maxAttempts = analysisTierForFailure === "deep" ? 2 : 3;
+    const terminal = (error instanceof NarrativeProviderError && !error.retryable) || Number(job?.attempts ?? 1) >= maxAttempts;
     const retryAt = new Date(Date.now() + 60_000).toISOString();
     if (terminal) {
       const terminalReceipt = sourceSnapshotForScrub?.narrativeEvidence ? {
@@ -1392,7 +1400,11 @@ export async function processNarrativeQueueJob(narrativeId: string) {
             sections: null,
             storyPack: null,
             analysisTierRequested: analysisTierForFailure,
-            analysisTierDelivered: "standard",
+            // Nothing was delivered on a terminal failure - hardcoding
+            // "standard" here made every failed Deep narrative
+            // indistinguishable from a failed Standard one in anything that
+            // read analysisTierDelivered instead of analysisTierRequested.
+            analysisTierDelivered: null,
             evidenceScrubbedAt: sourceSnapshotForScrub?.narrativeEvidence ? failureAtIso : null,
             ...(validationFailure ? { validationFailure } : {}),
           }), terminalReceipt ? failureAtIso : null, terminalReceipt ? JSON.stringify(terminalReceipt) : null,

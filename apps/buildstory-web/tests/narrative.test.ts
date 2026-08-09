@@ -10,7 +10,7 @@ import { sha256Digest } from "../lib/ingestion/local-contract";
 import { validateProjectSnapshot } from "../lib/ingestion/validation";
 import { defaultStoryPack } from "../lib/narrative/story-pack";
 import { generateNarrative, NarrativeProviderError } from "../lib/narrative/provider";
-import { buildDeepSynthesisMessages } from "../lib/narrative/prompt";
+import { buildCombinedMessages, buildDeepAnalysisMessages, buildDeepSynthesisMessages } from "../lib/narrative/prompt";
 import type { ReportStoryPackV2, ScannerProjectSnapshot } from "../lib/ingestion/scanner-project-snapshot";
 import scannerFixture from "./fixtures/scanner-project-snapshot.json";
 
@@ -506,4 +506,132 @@ test("deep synthesis does not resend reviewed excerpt text", () => {
   const serialized = JSON.stringify(buildDeepSynthesisMessages(snapshot, { supportedFinding: "bounded" }));
   assert.doesNotMatch(serialized, new RegExp(marker));
   assert.match(serialized, /ANALYSIS MAP/);
+});
+
+test("the OUTPUT CONTRACT block states the schema's own cardinality and length bounds, derived from the schema itself", () => {
+  const snapshot = { ...structuredClone(scannerFixture), narrativeEvidence } as unknown as ScannerProjectSnapshot;
+  const combined = buildCombinedMessages(snapshot).map((message) => message.content).join("\n");
+  assert.match(combined, /buildArc: exactly 3 items/);
+  assert.match(combined, /moments: 3-5 items/);
+  assert.match(combined, /hero\.headline: 1-120 chars/);
+  assert.match(combined, /buildArc must contain exactly one discover, one decide, and one deliver phase entry\./);
+  assert.match(combined, /Every sourceRefs entry must be copied exactly.*SOURCE CATALOG/);
+
+  const deepAnalysis = buildDeepAnalysisMessages(snapshot).map((message) => message.content).join("\n");
+  assert.match(deepAnalysis, /decisionReview: 0-8 items/);
+  assert.match(deepAnalysis, /executiveSynthesis\.confidence: one of high\/medium\/low/);
+
+  const deepSynthesis = buildDeepSynthesisMessages(snapshot, {}).map((message) => message.content).join("\n");
+  assert.match(deepSynthesis, /moments: 3-12 items/);
+});
+
+test("every excerpt label in the prompt resolves to a real SOURCE CATALOG ref", () => {
+  const snapshot = { ...structuredClone(scannerFixture), narrativeEvidence } as unknown as ScannerProjectSnapshot;
+  const allowedRefs = defaultStoryPack(snapshot).sources.map((source) => source.ref);
+  const combined = buildCombinedMessages(snapshot).map((message) => message.content).join("\n");
+  const labels = [...combined.matchAll(/\[(S\d\d|GIT) \| [a-z-]+\]/g)].map((match) => match[1]!);
+  assert.ok(labels.length > 0, "expected at least one labelled excerpt in the prompt");
+  for (const label of labels) assert.ok(allowedRefs.includes(label), `excerpt label ${label} must be a real SOURCE CATALOG ref`);
+});
+
+test("a repair turn echoes the model's own failed output back as an assistant message, not just prose feedback", async () => {
+  const tooFewMoments = { ...combinedStoryOutput(), moments: combinedStoryOutput().moments.slice(0, 2) };
+  const valid = combinedStoryOutput();
+  const stub = stubFetchOnce([openAiEnvelope(tooFewMoments), openAiEnvelope(valid)]);
+  const previousKey = process.env.BUILDSTORY_OPENROUTER_API_KEY;
+  const previousBaseUrl = process.env.BUILDSTORY_LLM_BASE_URL;
+  process.env.BUILDSTORY_OPENROUTER_API_KEY = "test-key";
+  process.env.BUILDSTORY_LLM_BASE_URL = "https://openrouter.ai/api/v1";
+  try {
+    const snapshot = { ...structuredClone(scannerFixture), narrativeEvidence } as unknown as ScannerProjectSnapshot;
+    const result = await generateNarrative(snapshot, null, { analysisTier: "standard" });
+    assert.equal(result.storyPack.moments.length, valid.moments.length);
+    assert.equal(stub.callCount(), 2);
+    const secondBody = JSON.parse(stub.requestBodies()[1]!) as { messages?: Array<{ role: string; content: string }> };
+    const assistantMessages = secondBody.messages?.filter((message) => message.role === "assistant") ?? [];
+    assert.equal(assistantMessages.length, 1, "the repair turn must include the model's own failed output as an assistant message");
+    assert.match(assistantMessages[0]!.content, /"moments"/);
+    assert.equal(secondBody.messages?.at(-1)?.role, "user");
+    assert.match(secondBody.messages?.at(-1)?.content ?? "", /moments/);
+  } finally {
+    stub.restore();
+    process.env.BUILDSTORY_OPENROUTER_API_KEY = previousKey;
+    process.env.BUILDSTORY_LLM_BASE_URL = previousBaseUrl;
+  }
+});
+
+test("an over-length Deep synthesis string is truncated as a recoverable warning, not spent on a repair call", async () => {
+  const snapshot = { ...structuredClone(scannerFixture), narrativeEvidence } as unknown as ScannerProjectSnapshot;
+  const sourceRef = defaultStoryPack(snapshot).sources[0]!.ref;
+  const finding = { title: "Evidence synthesis", summary: "The reviewed evidence supports this finding.", sourceRefs: [sourceRef], confidence: "high" };
+  const deepAnalysis = {
+    executiveSynthesis: finding,
+    decisionReview: [],
+    frictionAndRecovery: [],
+    engineeringPatterns: [],
+    risksAndEvidenceGaps: [],
+    nextBuildActions: [],
+    chapterChanges: [],
+  };
+  const base = combinedStoryOutput();
+  base.buildArc = base.buildArc.map((entry) => ({ ...entry, summary: "x".repeat(400) })); // buildArc[].summary maxLength is 260
+  const stub = stubFetchOnce([openAiEnvelope(deepAnalysis), openAiEnvelope(base)]);
+  const previousKey = process.env.BUILDSTORY_OPENROUTER_API_KEY;
+  const previousBaseUrl = process.env.BUILDSTORY_LLM_BASE_URL;
+  process.env.BUILDSTORY_OPENROUTER_API_KEY = "test-key";
+  process.env.BUILDSTORY_LLM_BASE_URL = "https://openrouter.ai/api/v1";
+  try {
+    const result = await generateNarrative(snapshot, null, { analysisTier: "deep" });
+    assert.equal(stub.callCount(), 2, "an over-length string must not spend a repair call - normalization already truncates it losslessly");
+    assert.ok(result.storyPack.buildArc.every((entry) => entry.summary.length <= 260));
+    assert.ok(result.fallbacksUsed.some((path) => path.includes("buildArc") && path.includes("summary")));
+  } finally {
+    stub.restore();
+    process.env.BUILDSTORY_OPENROUTER_API_KEY = previousKey;
+    process.env.BUILDSTORY_LLM_BASE_URL = previousBaseUrl;
+  }
+});
+
+test("a legacy flat narrative shape is validated strictly for Deep instead of silently passing", async () => {
+  const snapshot = { ...structuredClone(scannerFixture), narrativeEvidence } as unknown as ScannerProjectSnapshot;
+  const sourceRef = defaultStoryPack(snapshot).sources[0]!.ref;
+  const finding = { title: "Evidence synthesis", summary: "The reviewed evidence supports this finding.", sourceRefs: [sourceRef], confidence: "high" };
+  const deepAnalysis = {
+    executiveSynthesis: finding,
+    decisionReview: [],
+    frictionAndRecovery: [],
+    engineeringPatterns: [],
+    risksAndEvidenceGaps: [],
+    nextBuildActions: [],
+    chapterChanges: [],
+  };
+  // Pre-V2 flat shape: no hero/buildArc/moments/turningPoint object, no
+  // decisions/standoutTraits objects. Before gating the legacy bypass off
+  // for Deep (see validateStoryComponent/validateInsightsComponent in
+  // story-pack.ts), this shape passed "deep-narrative" validation with zero
+  // errors and shipped as a billed, "ready" Deep report.
+  const legacyFlat = {
+    headline: "Legacy shape",
+    narrative: "This is the old pre-V2 flat shape the model might still emit.",
+    turningPoint: "A flat string turning point, not an object.",
+    decisionPatterns: ["Some pattern"],
+    standoutTraits: ["Some trait"],
+    growthEdge: "A flat string growth edge.",
+  };
+  const stub = stubFetchOnce([openAiEnvelope(deepAnalysis), openAiEnvelope(legacyFlat), openAiEnvelope(legacyFlat)]);
+  const previousKey = process.env.BUILDSTORY_OPENROUTER_API_KEY;
+  const previousBaseUrl = process.env.BUILDSTORY_LLM_BASE_URL;
+  process.env.BUILDSTORY_OPENROUTER_API_KEY = "test-key";
+  process.env.BUILDSTORY_LLM_BASE_URL = "https://openrouter.ai/api/v1";
+  try {
+    await assert.rejects(
+      generateNarrative(snapshot, null, { analysisTier: "deep" }),
+      (error: unknown) => error instanceof NarrativeProviderError && error.code === "llm_invalid_schema",
+    );
+    assert.equal(stub.callCount(), 3);
+  } finally {
+    stub.restore();
+    process.env.BUILDSTORY_OPENROUTER_API_KEY = previousKey;
+    process.env.BUILDSTORY_LLM_BASE_URL = previousBaseUrl;
+  }
 });

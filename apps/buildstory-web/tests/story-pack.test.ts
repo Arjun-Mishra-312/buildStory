@@ -79,6 +79,21 @@ test("Deep narrative validation preserves up to twelve supported moments while S
   assert.equal(validateStoryPackComponent(narrative, "story", refs).ok, false);
 });
 
+test("an over-length string is a non-fatal warning, not a validation error", () => {
+  const pack = defaultStoryPack(snapshot);
+  const refs = new Set(pack.sources.map((source) => source.ref));
+  const overLong = { ...pack.hero, summary: "x".repeat(500) }; // hero.summary maxLength is 480
+  const result = validateStoryPackComponent({ ...pack, hero: overLong }, "story", refs);
+  assert.equal(result.ok, true, result.errors.join("; "));
+  assert.ok(result.warnings.some((warning) => warning.includes("hero.summary") && warning.includes("at most 480")));
+});
+
+test("the legacy flat-shape bypass only applies to story/insights, never deep-narrative or deep", () => {
+  const legacy = { headline: "Legacy", narrative: "Flat pre-V2 shape.", turningPoint: "A flat string, not an object." };
+  assert.equal(validateStoryPackComponent(legacy, "story", new Set()).ok, true, "story keeps the legacy bypass for backward compatibility");
+  assert.equal(validateStoryPackComponent(legacy, "deep-narrative", new Set()).ok, false, "deep-narrative must reject the legacy shape instead of silently passing a paid Deep generation as unvalidated fallback content");
+});
+
 test("public story projection exposes only safe fallback metadata and strips session/excerpt references", () => {
   const pack = defaultStoryPack(snapshot);
   const privateSnapshot = reportSnapshotFromScanner({

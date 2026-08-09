@@ -55,7 +55,7 @@ export function ScannerConnectionFlow({
   const [authorization, setAuthorization] = useState<DeviceAuthorization | null>(null);
   const [starting, setStarting] = useState(false);
   const [copied, setCopied] = useState<"install" | "connect" | "upload" | null>(null);
-  const [withEvidence, setWithEvidence] = useState(false);
+  const [withEvidence, setWithEvidence] = useState(true);
   const [narrativeMode, setNarrativeMode] = useState<"local" | "byok" | "cloud" | "off">("local");
   const [error, setError] = useState<string | null>(null);
 
