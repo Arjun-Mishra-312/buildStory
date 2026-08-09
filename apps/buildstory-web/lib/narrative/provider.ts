@@ -1,29 +1,34 @@
 import {
-  NARRATIVE_PROFILE_RESPONSE_FORMAT,
-  NARRATIVE_RESPONSE_FORMAT,
-  buildNarrativeMessages,
-  buildProfileMessages,
+  NARRATIVE_COMBINED_RESPONSE_FORMAT,
+  NARRATIVE_DEEP_ANALYSIS_RESPONSE_FORMAT,
+  NARRATIVE_DEEP_RESPONSE_FORMAT,
+  buildCombinedMessages,
+  buildDeepAnalysisMessages,
+  buildDeepSynthesisMessages,
 } from "./prompt";
 import type { NarrativeProfileSections, NarrativeSections } from "./schema";
 import { isOllamaAutoModel, isOllamaBaseUrl, resolveOllamaModel } from "./ollama";
-import type { ScannerProjectSnapshot } from "../ingestion/scanner-project-snapshot";
-import { defaultStoryPack, normalizeStoryPack, sectionsFromStoryPack, validateStoryPackComponent, type StoryPackComponent } from "./story-pack";
-import type { ReportStoryPackV2 } from "../ingestion/scanner-project-snapshot";
+import type { AnalysisTier, NarrativeProvider, ReportStoryPack, ScannerProjectSnapshot } from "../ingestion/scanner-project-snapshot";
+import { defaultStoryPack, normalizeDeepStoryPack, normalizeStoryPack, sectionsFromStoryPack, validateDeepAnalysisComponent, validateStoryPackComponent, type StoryPackComponent } from "./story-pack";
 import { sanitizePublicText } from "../publication/sanitization";
 
 export class NarrativeProviderError extends Error {
-  constructor(public code: string, message: string) {
+  constructor(public code: string, message: string, public retryable = false, public status: number | null = null) {
     super(message);
   }
 }
 
 export type NarrativeGenerationResult = {
   sections: NarrativeSections & NarrativeProfileSections;
-  storyPack: ReportStoryPackV2;
+  storyPack: ReportStoryPack;
   provider: string;
   model: string;
   inputTokens: number;
   outputTokens: number;
+  reasoningTokens: number;
+  cachedTokens: number;
+  actualCostMicroUsd: number | null;
+  requestIds: string[];
   fallbacksUsed: string[];
   invalidReferenceCount: number;
   generationLatencyMs: number;
@@ -42,10 +47,76 @@ export type NarrativeGenerationResult = {
 export function narrativeProviderConfigured(mode: "local" | "cloud" | "off" = "cloud"): boolean {
   if (mode !== "cloud") return false;
   const baseUrl = process.env.BUILDSTORY_LLM_BASE_URL;
-  return Boolean(process.env.BUILDSTORY_LLM_API_KEY || (baseUrl && isOllamaBaseUrl(baseUrl)));
+  return Boolean(
+    process.env.BUILDSTORY_OPENROUTER_API_KEY
+    || process.env.BUILDSTORY_LLM_API_KEY
+    || (baseUrl && isOllamaBaseUrl(baseUrl)),
+  );
 }
 
-type Completion = { value: unknown; inputTokens: number; outputTokens: number };
+export function configuredCloudNarrativeProvider(): NarrativeProvider {
+  const configuredProvider = process.env.BUILDSTORY_CLOUD_PROVIDER
+    ?? (process.env.BUILDSTORY_OPENROUTER_API_KEY ? "openrouter" : process.env.BUILDSTORY_LLM_API_KEY ? "openai" : "openrouter");
+  const defaultBaseUrl = configuredProvider === "openai"
+    ? "https://api.openai.com/v1"
+    : "https://openrouter.ai/api/v1";
+  const baseUrl = process.env.BUILDSTORY_LLM_BASE_URL ?? defaultBaseUrl;
+  if (isOllamaBaseUrl(baseUrl)) return "ollama";
+  try {
+    const hostname = new URL(baseUrl).hostname.toLocaleLowerCase("en-US");
+    if (hostname === "openrouter.ai") return "openrouter";
+    if (hostname === "api.openai.com") return "openai";
+  } catch {
+    // generateNarrative performs the authoritative URL validation and fails closed.
+  }
+  return "openai-compatible";
+}
+
+export function configuredCloudNarrativeModel(): string | null {
+  const provider = configuredCloudNarrativeProvider();
+  if (provider === "openrouter") return "deepseek/deepseek-v4-flash";
+  if (provider === "openai") return process.env.BUILDSTORY_LLM_MODEL || "gpt-5.6-luna";
+  return null;
+}
+
+let zdrReadinessCache: { ready: boolean; expiresAt: number } | null = null;
+export async function openRouterZdrModelReady(): Promise<boolean> {
+  if (zdrReadinessCache && zdrReadinessCache.expiresAt > Date.now()) return zdrReadinessCache.ready;
+  const apiKey = process.env.BUILDSTORY_OPENROUTER_API_KEY;
+  if (!apiKey) return false;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/endpoints/zdr", {
+      headers: { authorization: `Bearer ${apiKey}`, accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      return false;
+    }
+    const catalog = await response.json() as unknown;
+    const ready = JSON.stringify(catalog).includes("deepseek/deepseek-v4-flash");
+    zdrReadinessCache = { ready, expiresAt: Date.now() + 60_000 };
+    return ready;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+type Completion = {
+  value: unknown;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cachedTokens: number;
+  costMicroUsd: number | null;
+  requestIds: string[];
+  model: string;
+  provider: string;
+};
 
 function legacyCompatiblePayload(storyValue: unknown, profileValue: unknown, snapshot: ScannerProjectSnapshot): Record<string, unknown> {
   const story = storyValue && typeof storyValue === "object" && !Array.isArray(storyValue) ? storyValue as Record<string, unknown> : {};
@@ -78,25 +149,64 @@ async function requestCompletion(
   messages: Array<{ role: "system" | "user"; content: string }>,
   responseFormat: unknown,
   isOllama: boolean,
+  analysisTier: AnalysisTier,
+  maxTokens?: number,
 ): Promise<Completion> {
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model,
-      messages,
-      response_format: isOllama ? { type: "json_object" } : responseFormat,
-      ...(isOllama ? { think: false } : {}),
-      max_tokens: isOllama ? 2_000 : 1_500,
-    }),
-  });
+  const openRouter = !isOllama && new URL(baseUrl).hostname.toLocaleLowerCase("en-US") === "openrouter.ai";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 180_000);
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${apiKey}`,
+        ...(openRouter ? { "HTTP-Referer": process.env.BUILDSTORY_PUBLIC_ORIGIN ?? "https://buildstory.dev", "X-OpenRouter-Title": "Buildstory" } : {}),
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        response_format: isOllama ? { type: "json_object" } : responseFormat,
+        ...(isOllama ? { think: false } : {}),
+        ...(openRouter ? {
+          provider: { zdr: true, data_collection: "deny", require_parameters: true, allow_fallbacks: true },
+          ...(analysisTier === "deep" ? { reasoning: { effort: "high", exclude: true } } : {}),
+        } : !isOllama ? { store: false } : {}),
+        max_tokens: maxTokens ?? (isOllama ? 3_000 : analysisTier === "deep" ? 40_000 : 4_000),
+      }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) {
+      throw new NarrativeProviderError("llm_timeout", "Narrative provider timed out.", true);
+    }
+    throw new NarrativeProviderError("llm_unavailable", "Narrative provider was unreachable.", true);
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!response.ok) {
-    const bodyText = await response.text().catch(() => "");
-    throw new NarrativeProviderError("llm_request_failed", `Narrative provider returned ${response.status}: ${bodyText.slice(0, 500)}`);
+    await response.body?.cancel().catch(() => undefined);
+    const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+    const code = response.status === 401 || response.status === 403
+      ? "llm_auth_failed"
+      : response.status === 404
+        ? "llm_model_or_zdr_unavailable"
+        : "llm_request_failed";
+    throw new NarrativeProviderError(code, `Narrative provider returned HTTP ${response.status}.`, retryable, response.status);
   }
   const payload = await response.json() as {
+    id?: string;
+    model?: string;
+    provider?: string;
     choices?: Array<{ message?: { content?: string } }>;
-    usage?: { prompt_tokens?: number; completion_tokens?: number };
+    usage?: {
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      cost?: number;
+      completion_tokens_details?: { reasoning_tokens?: number };
+      prompt_tokens_details?: { cached_tokens?: number };
+    };
   };
   const content = payload.choices?.[0]?.message?.content;
   if (!content) throw new NarrativeProviderError("llm_empty_response", "Narrative provider returned no message content.");
@@ -110,6 +220,12 @@ async function requestCompletion(
     value,
     inputTokens: payload.usage?.prompt_tokens ?? 0,
     outputTokens: payload.usage?.completion_tokens ?? 0,
+    reasoningTokens: payload.usage?.completion_tokens_details?.reasoning_tokens ?? 0,
+    cachedTokens: payload.usage?.prompt_tokens_details?.cached_tokens ?? 0,
+    costMicroUsd: typeof payload.usage?.cost === "number" && Number.isFinite(payload.usage.cost) ? Math.max(0, Math.round(payload.usage.cost * 1_000_000)) : null,
+    requestIds: payload.id ? [payload.id] : [],
+    model: payload.model || model,
+    provider: openRouter ? "openrouter" : isOllama ? "ollama" : "openai",
   };
 }
 
@@ -138,23 +254,55 @@ async function requestWithRepair(
   messages: Array<{ role: "system" | "user"; content: string }>,
   responseFormat: unknown,
   isOllama: boolean,
+  analysisTier: AnalysisTier,
   allowedRefs: Set<string>,
-  component: StoryPackComponent,
+  component: StoryPackComponent | "combined" | "analysis-map" | "deep-report",
+  maxTokens?: number,
 ): Promise<Completion> {
   let currentMessages = messages;
+  const totals = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0, costMicroUsd: null as number | null, requestIds: [] as string[] };
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const result = await requestCompletion(baseUrl, apiKey, model, currentMessages, responseFormat, isOllama);
+      const result = await requestCompletion(baseUrl, apiKey, model, currentMessages, responseFormat, isOllama, analysisTier, maxTokens);
+      totals.inputTokens += result.inputTokens;
+      totals.outputTokens += result.outputTokens;
+      totals.reasoningTokens += result.reasoningTokens;
+      totals.cachedTokens += result.cachedTokens;
+      if (result.costMicroUsd !== null) totals.costMicroUsd = (totals.costMicroUsd ?? 0) + result.costMicroUsd;
+      totals.requestIds.push(...result.requestIds);
       const invalid = unknownSourceRefs(result.value, allowedRefs);
-      const validation = validateStoryPackComponent(result.value, component, allowedRefs);
-      if (!invalid.length && validation.ok) return result;
-      if (attempt === 1) return result;
+      let validation: ReturnType<typeof validateStoryPackComponent>;
+      if (component === "combined") {
+        const storyValidation = validateStoryPackComponent(result.value, "story", allowedRefs);
+        const insightValidation = validateStoryPackComponent(result.value, "insights", allowedRefs);
+        validation = {
+          ok: storyValidation.ok && insightValidation.ok,
+          errors: [...storyValidation.errors, ...insightValidation.errors],
+        };
+      } else if (component === "analysis-map") {
+        validation = validateDeepAnalysisComponent(result.value, allowedRefs);
+      } else if (component === "deep-report") {
+        const storyValidation = validateStoryPackComponent(result.value, "story", allowedRefs);
+        const insightValidation = validateStoryPackComponent(result.value, "insights", allowedRefs);
+        const deepValidation = validateStoryPackComponent(result.value, "deep", allowedRefs);
+        validation = {
+          ok: storyValidation.ok && insightValidation.ok && deepValidation.ok,
+          errors: [...storyValidation.errors, ...insightValidation.errors, ...deepValidation.errors],
+        };
+      } else {
+        validation = validateStoryPackComponent(result.value, component, allowedRefs);
+      }
+      if (!invalid.length && validation.ok) return { ...result, ...totals, requestIds: [...new Set(totals.requestIds)] };
+      if (attempt === 1) {
+        throw new NarrativeProviderError("llm_invalid_schema", "Narrative provider returned an invalid schema after repair.");
+      }
       const feedback = [
         invalid.length ? `unknown sourceRefs: ${invalid.join(", ")}` : "",
         validation.errors.length ? `schema issues: ${validation.errors.slice(0, 8).join("; ")}` : "",
       ].filter(Boolean).join(". ");
       currentMessages = [...messages, { role: "user", content: `Validation feedback: ${feedback}. Return one JSON object matching the supplied schema and use only the provided source references.` }];
     } catch (error) {
+      if (error instanceof NarrativeProviderError && error.code !== "llm_invalid_json" && error.code !== "llm_empty_response") throw error;
       if (attempt === 1) throw error;
       currentMessages = [...messages, { role: "user", content: "Validation feedback: return a single valid JSON object matching the supplied schema. Do not include prose or markdown." }];
     }
@@ -162,9 +310,18 @@ async function requestWithRepair(
   throw new NarrativeProviderError("llm_invalid_response", "Narrative provider returned an unusable response after repair.");
 }
 
-export async function generateNarrative(snapshot: ScannerProjectSnapshot, requestedModel?: string | null): Promise<NarrativeGenerationResult> {
+export async function generateNarrative(
+  snapshot: ScannerProjectSnapshot,
+  requestedModel?: string | null,
+  options: { analysisTier?: AnalysisTier; previousChapter?: unknown } = {},
+): Promise<NarrativeGenerationResult> {
   const generationStartedAt = Date.now();
-  const baseUrl = (process.env.BUILDSTORY_LLM_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
+  const configuredProvider = process.env.BUILDSTORY_CLOUD_PROVIDER
+    ?? (process.env.BUILDSTORY_OPENROUTER_API_KEY ? "openrouter" : process.env.BUILDSTORY_LLM_API_KEY ? "openai" : "openrouter");
+  const configuredBaseUrl = configuredProvider === "openai"
+    ? "https://api.openai.com/v1"
+    : "https://openrouter.ai/api/v1";
+  const baseUrl = (process.env.BUILDSTORY_LLM_BASE_URL ?? configuredBaseUrl).replace(/\/$/, "");
   let parsedBaseUrl: URL;
   try {
     parsedBaseUrl = new URL(baseUrl);
@@ -179,8 +336,18 @@ export async function generateNarrative(snapshot: ScannerProjectSnapshot, reques
     throw new NarrativeProviderError("llm_invalid_base_url", "BUILDSTORY_LLM_BASE_URL must be a credential-free HTTPS URL, or a credential-free HTTP URL on localhost during development.");
   }
   const isOllama = isOllamaBaseUrl(baseUrl);
-  const apiKey = process.env.BUILDSTORY_LLM_API_KEY ?? (isOllama ? "ollama-local" : undefined);
-  if (!apiKey) throw new NarrativeProviderError("llm_not_configured", "BUILDSTORY_LLM_API_KEY is not set.");
+  const openRouter = !isOllama && hostname === "openrouter.ai";
+  const hostedOpenAi = !isOllama && hostname === "api.openai.com";
+  if (!isOllama && !openRouter && !hostedOpenAi) {
+    throw new NarrativeProviderError("llm_provider_disabled", "Hosted inference must use an approved provider.");
+  }
+  if (hostedOpenAi && process.env.BUILDSTORY_ENABLE_HOSTED_OPENAI === "false") {
+    throw new NarrativeProviderError("llm_provider_disabled", "Hosted OpenAI is disabled.");
+  }
+  const apiKey = openRouter
+    ? process.env.BUILDSTORY_OPENROUTER_API_KEY
+    : process.env.BUILDSTORY_LLM_API_KEY ?? (isOllama ? "ollama-local" : undefined);
+  if (!apiKey) throw new NarrativeProviderError("llm_not_configured", openRouter ? "BUILDSTORY_OPENROUTER_API_KEY is not set." : "Narrative provider key is not set.");
   // requestedModel is honored only against a loopback Ollama endpoint - the
   // dev-only trick of pointing BUILDSTORY_LLM_BASE_URL at local Ollama to
   // exercise this code path without a real cloud key. Against a real
@@ -188,8 +355,10 @@ export async function generateNarrative(snapshot: ScannerProjectSnapshot, reques
   // upload-sessions route already never stores a model for a cloud session,
   // but this is the defense-in-depth backstop against any other caller.
   let model = isOllama
-    ? requestedModel?.trim() || process.env.BUILDSTORY_LLM_MODEL || "gpt-5.6-luna"
-    : process.env.BUILDSTORY_LLM_MODEL || "gpt-5.6-luna";
+    ? requestedModel?.trim() || process.env.BUILDSTORY_LLM_MODEL || "auto"
+    : openRouter
+      ? "deepseek/deepseek-v4-flash"
+      : process.env.BUILDSTORY_LLM_MODEL || "gpt-5.6-luna";
   if (isOllama && isOllamaAutoModel(model)) {
     try {
       model = await resolveOllamaModel();
@@ -198,36 +367,50 @@ export async function generateNarrative(snapshot: ScannerProjectSnapshot, reques
     }
   }
 
-  const provider = isOllama ? "ollama" : baseUrl.includes("openai.com") ? "openai" : "openai-compatible";
+  const provider = isOllama ? "ollama" : openRouter ? "openrouter" : "openai";
+  const analysisTier: AnalysisTier = isOllama ? "standard" : options.analysisTier ?? "standard";
   let inputTokens = 0;
   let outputTokens = 0;
-  const fallbacksUsed: string[] = [];
+  let reasoningTokens = 0;
+  let cachedTokens = 0;
+  let actualCostMicroUsd: number | null = null;
+  const requestIds: string[] = [];
 
   const allowedRefs = new Set(defaultStoryPack(snapshot).sources.map((source) => source.ref));
+  const addUsage = (result: Completion) => {
+    inputTokens += result.inputTokens;
+    outputTokens += result.outputTokens;
+    reasoningTokens += result.reasoningTokens;
+    cachedTokens += result.cachedTokens;
+    if (result.costMicroUsd !== null) actualCostMicroUsd = (actualCostMicroUsd ?? 0) + result.costMicroUsd;
+    requestIds.push(...result.requestIds);
+    model = result.model || model;
+  };
   let storyValue: unknown;
-  try {
-    const result = await requestWithRepair(baseUrl, apiKey, model, buildNarrativeMessages(snapshot), NARRATIVE_RESPONSE_FORMAT, isOllama, allowedRefs, "story");
-    inputTokens += result.inputTokens;
-    outputTokens += result.outputTokens;
+  let normalized: ReturnType<typeof normalizeStoryPack> | ReturnType<typeof normalizeDeepStoryPack>;
+  if (analysisTier === "deep") {
+    const analysis = await requestWithRepair(
+      baseUrl, apiKey, model, buildDeepAnalysisMessages(snapshot, options.previousChapter),
+      NARRATIVE_DEEP_ANALYSIS_RESPONSE_FORMAT, isOllama, analysisTier, allowedRefs, "analysis-map", 24_000,
+    );
+    addUsage(analysis);
+    const synthesis = await requestWithRepair(
+      baseUrl, apiKey, model, buildDeepSynthesisMessages(snapshot, analysis.value),
+      NARRATIVE_DEEP_RESPONSE_FORMAT, isOllama, analysisTier, allowedRefs, "deep-report", 40_000,
+    );
+    addUsage(synthesis);
+    storyValue = synthesis.value;
+    normalized = normalizeDeepStoryPack(synthesis.value, snapshot);
+  } else {
+    const result = await requestWithRepair(
+      baseUrl, apiKey, model, buildCombinedMessages(snapshot), NARRATIVE_COMBINED_RESPONSE_FORMAT,
+      isOllama, analysisTier, allowedRefs, "combined", isOllama ? 3_000 : 4_000,
+    );
+    addUsage(result);
     storyValue = result.value;
-  } catch {
-    storyValue = {};
-    fallbacksUsed.push("story");
+    normalized = normalizeStoryPack(legacyCompatiblePayload(result.value, result.value, snapshot), snapshot);
   }
-
-  let profileValue: unknown;
-  try {
-    const result = await requestWithRepair(baseUrl, apiKey, model, buildProfileMessages(snapshot), NARRATIVE_PROFILE_RESPONSE_FORMAT, isOllama, allowedRefs, "insights");
-    inputTokens += result.inputTokens;
-    outputTokens += result.outputTokens;
-    profileValue = result.value;
-  } catch {
-    profileValue = {};
-    fallbacksUsed.push("insights");
-  }
-
-  const normalized = normalizeStoryPack(legacyCompatiblePayload(storyValue, profileValue, snapshot), snapshot);
-  const profileObject = profileValue && typeof profileValue === "object" && !Array.isArray(profileValue) ? profileValue as Record<string, unknown> : {};
+  const profileObject = storyValue && typeof storyValue === "object" && !Array.isArray(storyValue) ? storyValue as Record<string, unknown> : {};
   const sections = sectionsFromStoryPack(normalized.storyPack);
   if (Array.isArray(profileObject.decisionPatterns)) {
     sections.decisionPatterns = profileObject.decisionPatterns
@@ -251,8 +434,12 @@ export async function generateNarrative(snapshot: ScannerProjectSnapshot, reques
     model,
     inputTokens,
     outputTokens,
-    fallbacksUsed: [...new Set([...fallbacksUsed, ...normalized.fallbacksUsed])].sort(),
-    invalidReferenceCount: unknownSourceRefs(storyValue, allowedRefs).length + unknownSourceRefs(profileValue, allowedRefs).length,
+    reasoningTokens,
+    cachedTokens,
+    actualCostMicroUsd,
+    requestIds: [...new Set(requestIds)],
+    fallbacksUsed: normalized.fallbacksUsed,
+    invalidReferenceCount: unknownSourceRefs(storyValue, allowedRefs).length,
     generationLatencyMs: Date.now() - generationStartedAt,
   };
 }

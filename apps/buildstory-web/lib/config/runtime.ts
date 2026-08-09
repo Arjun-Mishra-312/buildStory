@@ -105,6 +105,18 @@ export function productionRuntimeIssues(): RuntimeIssue[] {
       add("invalid_https_origin", "BUILDSTORY_LLM_BASE_URL");
     }
   }
+  if ((process.env.BUILDSTORY_CLOUD_PROVIDER ?? "openrouter") !== "openrouter") {
+    add("hosted_provider_must_be_openrouter", "BUILDSTORY_CLOUD_PROVIDER");
+  }
+  if (process.env.BUILDSTORY_LLM_BASE_URL !== "https://openrouter.ai/api/v1") {
+    add("hosted_base_url_must_be_openrouter", "BUILDSTORY_LLM_BASE_URL");
+  }
+  if (process.env.BUILDSTORY_LLM_MODEL !== "deepseek/deepseek-v4-flash") {
+    add("hosted_model_must_be_deepseek_v4_flash", "BUILDSTORY_LLM_MODEL");
+  }
+  if (process.env.BUILDSTORY_ENABLE_HOSTED_OPENAI !== "false") {
+    add("hosted_openai_must_be_disabled", "BUILDSTORY_ENABLE_HOSTED_OPENAI");
+  }
   if (
     process.env.BUILDSTORY_LOG_LEVEL &&
     !["error", "warn", "info"].includes(process.env.BUILDSTORY_LOG_LEVEL)

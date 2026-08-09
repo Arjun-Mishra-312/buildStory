@@ -3,11 +3,13 @@ import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } fr
 import handler from "vinext/server/app-router-entry";
 import { getD1 } from "../db";
 import { recomputeLeaderboard } from "../lib/leaderboard/d1-store";
+import { processNarrativeQueueJob } from "../lib/ingestion/d1-store";
 
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
   MEDIA?: R2Bucket;
+  NARRATIVE_QUEUE: Queue<{ narrativeId: string }>;
   BUILDSTORY_ALLOWED_HOSTS?: string;
   IMAGES: {
     input(stream: ReadableStream): {
@@ -97,7 +99,7 @@ async function secured(response: Response, request: Request) {
     const scriptHashes = await inlineScriptHashes(html);
     headers.set(
       "content-security-policy",
-      `default-src 'self'; base-uri 'self'; connect-src 'self' https://cloudflareinsights.com; font-src 'self' data:; form-action 'self'; frame-ancestors 'none'; frame-src https://www.youtube-nocookie.com https://player.vimeo.com https://www.loom.com; img-src 'self' blob: data: https:; object-src 'none'; script-src 'self'${scriptHashes ? ` ${scriptHashes}` : ""} https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'`,
+      `default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self' data:; form-action 'self'; frame-ancestors 'none'; frame-src https://www.youtube-nocookie.com https://player.vimeo.com https://www.loom.com; img-src 'self' blob: data: https:; object-src 'none'; script-src 'self'${scriptHashes ? ` ${scriptHashes}` : ""}; style-src 'self' 'unsafe-inline'`,
     );
     return new Response(html, {
       status: response.status,
@@ -108,7 +110,7 @@ async function secured(response: Response, request: Request) {
 
   headers.set(
     "content-security-policy",
-    "default-src 'self'; base-uri 'self'; connect-src 'self' https://cloudflareinsights.com; font-src 'self' data:; form-action 'self'; frame-ancestors 'none'; img-src 'self' blob: data: https:; object-src 'none'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'",
+    "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self' data:; form-action 'self'; frame-ancestors 'none'; img-src 'self' blob: data: https:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'",
   );
   // Re-wrapping a Response from its streamed .body (rather than a materialized
   // buffer) makes the edge serve it with Transfer-Encoding: chunked and no
@@ -167,7 +169,36 @@ const worker = {
         db.prepare("UPDATE buildstory_narrative_jobs SET status = 'pending', lease_until = NULL WHERE status = 'processing' AND lease_until < strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"),
         db.prepare("UPDATE buildstory_upload_sessions SET status = 'expired', status_detail = 'Connection expired.', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE status IN ('awaiting_scanner', 'scanner_authorized') AND expires_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"),
       ]);
+      const pending = await db.prepare(
+        `SELECT narrative_id FROM buildstory_narrative_jobs
+         WHERE status = 'pending' AND available_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         ORDER BY available_at ASC LIMIT 50`,
+      ).all<{ narrative_id: string }>();
+      const expired = await db.prepare(
+        `SELECT id FROM buildstory_narratives
+         WHERE status IN ('queued', 'generating') AND evidence_expires_at IS NOT NULL
+           AND evidence_expires_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now') LIMIT 50`,
+      ).all<{ id: string }>();
+      for (const row of expired.results) await processNarrativeQueueJob(row.id).catch(() => undefined);
+      for (const row of pending.results) await _env.NARRATIVE_QUEUE.send({ narrativeId: row.narrative_id });
     })().catch(() => undefined));
+  },
+  async queue(batch: MessageBatch<{ narrativeId: string }>): Promise<void> {
+    for (const message of batch.messages) {
+      const narrativeId = message.body?.narrativeId;
+      if (!narrativeId || Object.keys(message.body).length !== 1) {
+        message.ack();
+        continue;
+      }
+      try {
+        await processNarrativeQueueJob(narrativeId);
+        message.ack();
+      } catch (error) {
+        const retryable = error instanceof Error && "retryable" in error && error.retryable === true;
+        if (retryable && message.attempts < 3) message.retry({ delaySeconds: 60 });
+        else message.ack();
+      }
+    }
   },
 };
 

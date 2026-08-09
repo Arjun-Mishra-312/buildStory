@@ -5,7 +5,7 @@ import { publicBuildStoryFromSnapshot, type PublicBuildStoryViewModel } from "..
 import type { ProjectSnapshot } from "../lib/project-snapshot";
 import type { PublicFieldKey } from "../lib/ingestion/contracts";
 import type { BuilderProfile } from "../lib/ingestion/profile";
-import type { ReportStoryPackV2 } from "../lib/ingestion/scanner-project-snapshot";
+import type { ReportStoryPackV3 } from "../lib/ingestion/scanner-project-snapshot";
 
 /**
  * Regression net for the publication boundary (lib/build-story.ts's
@@ -40,6 +40,13 @@ const ALL_FIELDS: PublicFieldKey[] = [
   "storyLearnings",
   "storyTraits",
   "storyGrowthEdge",
+  "deepExecutiveSynthesis",
+  "deepDecisionReview",
+  "deepFrictionAndRecovery",
+  "deepEngineeringPatterns",
+  "deepRisksAndEvidenceGaps",
+  "deepNextBuildActions",
+  "deepChapterChanges",
   "decisionPatterns",
   "standoutTraits",
   "growthEdge",
@@ -66,8 +73,9 @@ const builderProfile: BuilderProfile = {
   },
 };
 
-const storyPack: ReportStoryPackV2 = {
-  version: "2.0.0",
+const storyPack: ReportStoryPackV3 = {
+  version: "3.0.0",
+  analysisTier: "deep",
   sources: [
     {
       ref: "src_1",
@@ -94,6 +102,16 @@ const storyPack: ReportStoryPackV2 = {
   learnings: [{ title: "Test earlier", detail: "Caught the merge bug two weeks late.", sourceRefs: ["src_1"] }],
   standoutTraits: [{ title: "Methodical", detail: "Verified every merge path before shipping.", sourceRefs: ["src_1"] }],
   growthEdge: { title: "Delegate more", observation: "Did every session solo.", nextStep: "Pair on the next release.", sourceRefs: ["src_1"] },
+  deepAnalysis: {
+    executiveSynthesis: { title: "Executive synthesis", summary: "The central build finding.", sourceRefs: ["src_1"], confidence: "high" },
+    decisionReview: [{ title: "Decision review", summary: "A supported decision.", sourceRefs: ["src_1"], confidence: "high" }],
+    frictionAndRecovery: [{ title: "Recovery", summary: "A supported recovery.", sourceRefs: ["src_1"], confidence: "medium" }],
+    engineeringPatterns: [{ title: "Engineering pattern", summary: "A supported pattern.", sourceRefs: ["src_1"], confidence: "high" }],
+    risksAndEvidenceGaps: [{ title: "Evidence gap", summary: "A supported gap.", sourceRefs: ["src_1"], confidence: "low" }],
+    nextBuildActions: [{ title: "Next action", summary: "A supported action.", sourceRefs: ["src_1"], confidence: "medium", priority: "next", rationale: "It follows from the evidence." }],
+    chapterChanges: [{ title: "Chapter change", summary: "A supported change.", sourceRefs: ["src_1"], confidence: "high" }],
+    coverage: { sessionsSeen: 1, excerptsUsed: 3, evidenceBytes: 900, windowStart: "2026-07-10T00:00:00.000Z", windowEnd: "2026-07-11T00:00:00.000Z" },
+  },
 };
 
 const snapshot: ProjectSnapshot = {
@@ -144,6 +162,13 @@ const accessors: Record<PublicFieldKey, (p: Public) => unknown> = {
   storyLearnings: (p) => p.storyPack?.learnings ?? [],
   storyTraits: (p) => p.storyPack?.standoutTraits ?? [],
   storyGrowthEdge: (p) => p.storyPack?.growthEdge.title ?? "",
+  deepExecutiveSynthesis: (p) => p.storyPack?.version === "3.0.0" ? p.storyPack.deepAnalysis?.executiveSynthesis ?? null : null,
+  deepDecisionReview: (p) => p.storyPack?.version === "3.0.0" ? p.storyPack.deepAnalysis?.decisionReview ?? [] : [],
+  deepFrictionAndRecovery: (p) => p.storyPack?.version === "3.0.0" ? p.storyPack.deepAnalysis?.frictionAndRecovery ?? [] : [],
+  deepEngineeringPatterns: (p) => p.storyPack?.version === "3.0.0" ? p.storyPack.deepAnalysis?.engineeringPatterns ?? [] : [],
+  deepRisksAndEvidenceGaps: (p) => p.storyPack?.version === "3.0.0" ? p.storyPack.deepAnalysis?.risksAndEvidenceGaps ?? [] : [],
+  deepNextBuildActions: (p) => p.storyPack?.version === "3.0.0" ? p.storyPack.deepAnalysis?.nextBuildActions ?? [] : [],
+  deepChapterChanges: (p) => p.storyPack?.version === "3.0.0" ? p.storyPack.deepAnalysis?.chapterChanges ?? [] : [],
   decisionPatterns: (p) => p.decisionPatterns,
   standoutTraits: (p) => p.standoutTraits,
   growthEdge: (p) => p.growthEdge,
@@ -173,6 +198,13 @@ const hiddenValue: Record<PublicFieldKey, unknown> = {
   storyLearnings: [],
   storyTraits: [],
   storyGrowthEdge: "",
+  deepExecutiveSynthesis: { title: "", summary: "", sourceRefs: [], confidence: "low" },
+  deepDecisionReview: [],
+  deepFrictionAndRecovery: [],
+  deepEngineeringPatterns: [],
+  deepRisksAndEvidenceGaps: [],
+  deepNextBuildActions: [],
+  deepChapterChanges: [],
   decisionPatterns: [],
   standoutTraits: [],
   growthEdge: "",
@@ -216,6 +248,30 @@ for (const field of ALL_FIELDS) {
 test("regression: 'narrative' no longer force-includes every story-pack section", () => {
   const narrativeOnly = project(["tagline", "narrative"]);
   assert.equal(narrativeOnly.storyPack, null, "no story-pack section was selected, so storyPack must be absent entirely");
+  assert.equal("storyPack" in (narrativeOnly.narrative ?? {}), false, "the nested narrative projection must not bypass the story-pack gates");
+});
+
+test("regression: private Git identifiers and fallback metadata do not cross an empty publication selection", () => {
+  const privateRevision = snapshot.repository.currentRevision.toUpperCase();
+  const hidden = project([]);
+  assert.equal(hidden.git.contributors, 0);
+  assert.equal(hidden.git.firstCommitSha, "not-collected");
+  assert.equal(hidden.git.lastCommitSha, "not-collected");
+  assert.equal(hidden.receiptId.includes(privateRevision), false);
+  assert.deepEqual(hidden.fallbacksUsed, []);
+});
+
+test("public story-pack sources are limited to references used by selected sections", () => {
+  const withUnusedSource = structuredClone(snapshot);
+  withUnusedSource.narrative!.storyPack!.sources.push({
+    ref: "src_unused",
+    provider: "cursor",
+    occurredAt: "2026-07-11T00:00:00.000Z",
+    evidenceRefs: ["ev_unused"],
+    metrics: { turns: 99, assistantMessages: 98, toolCalls: 97 },
+  });
+  const projected = publicBuildStoryFromSnapshot(withUnusedSource, ["storyMoments"], editorial, artifact, {});
+  assert.deepEqual(projected.storyPack?.sources.map((source) => source.ref), ["src_1"]);
 });
 
 test("regression: 'growthEdge' no longer force-includes 'storyGrowthEdge'", () => {

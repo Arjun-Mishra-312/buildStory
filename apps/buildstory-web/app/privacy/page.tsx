@@ -16,39 +16,41 @@ const sections: LegalSection[] = [
     paragraphs: [
       "When you sign in with Google, we receive your name, email address, and a profile photo URL. When you sign in with GitHub (an optional second identity provider), we receive the same categories of information from GitHub's OAuth response. We store this alongside an account record we create for you, including a handle you choose (or that's generated for you) and a display name you can edit.",
       <><em>Why:</em> to identify your account, let other builders find and follow you, and let you publish under a consistent identity.</>,
-      "If you sign in with both providers using the same verified email address, we link them to one account rather than creating two.",
+      "When you add GitHub sign-in to an existing account and GitHub supplies the same verified email address, we link that GitHub identity to the existing account. Do not assume identities will be merged in every provider order; contact us if you encounter a duplicate account.",
     ],
   },
   {
     heading: "What the local scanner sends us",
     paragraphs: [
-      "The buildstory-scan CLI runs entirely on your machine and reads your local Git history and local AI coding-session files (Claude Code, Codex, Cursor, and Google Antigravity) that you explicitly point it at. It never sends file contents, source code, diffs, prompts, AI responses, absolute file paths, or remote repository URLs to us. What it sends depends on which of four narrative modes you choose on the dashboard before scanning — each is a genuinely different data flow, not a label on the same flow:",
+      "The buildstory-scan process runs on your machine. It reads Git metadata without reading repository file bodies or diffs, and—only after explicit scan consent—parses supported local AI coding-session stores discovered in their standard locations or roots you provide. Raw transcript and tool-payload fields are discarded locally. The Buildstory Cloud exception below can upload a reviewed, redacted subset of conversation text; no mode uploads repository source files, diffs, absolute paths, or raw remote URLs to Buildstory. The four modes are genuinely different data flows:",
     ],
     list: [
-      <><strong>Local (the default).</strong> A small language model runs on your own machine through Ollama. Conversation excerpts are used only in your machine&rsquo;s memory during generation and are never sent anywhere. The AI-written narrative text the model produces is redacted on your machine and then uploaded to us — this is prose written from your private sessions, and it becomes part of your private report.</>,
-      <><strong>Bring your own key (BYOK).</strong> The scanner calls a cloud model you configure yourself, using an API key you hold. Redacted excerpts are sent from your machine directly to that provider, under that provider&rsquo;s own terms — never through Buildstory, and never seen or stored by us. We receive only the resulting redacted narrative text, exactly as in Local mode. We never receive your API key.</>,
-      <><strong>Buildstory Cloud.</strong> An explicit opt-in. After you type a confirmation on screen, a small, size-capped set of redacted excerpts from your AI coding sessions (file paths, URLs, and hostnames replaced with placeholders before anything leaves your machine) is uploaded to us and forwarded to our narrative provider to generate the narrative text. This is the only mode where Buildstory itself receives excerpt text.</>,
+      <><strong>Local.</strong> A small language model runs through Ollama on your machine and produces a standard-depth report. Selected excerpts are sent only over loopback, not to Buildstory or an external model provider. The AI-written narrative text is sanitized locally and uploaded as part of your private report.</>,
+      <><strong>Bring your own key (BYOK).</strong> Choose OpenRouter with DeepSeek V4 Flash or OpenAI GPT-5.6 Luna. Before any provider request, the CLI shows and requires confirmation of the exact redacted excerpts and deterministic facts that will be sent: the cleaned repository label; session, turn, tool-call, Git-change, and work-pattern aggregates; model name; archetype; and formula-derived profile scores. Eligible Deep uses a private analysis pass followed by V3 synthesis. Each component may make at most one bounded JSON-repair request. Standard is capped at 40 excerpts, 600 characters each and 20,000 characters total; Deep at 240 excerpts, 1,500 characters each and 700 KiB total, dynamically reduced to fit the upload grant. Requests go directly to your provider; Buildstory receives only the finished report and content-free receipt, never your key or excerpts. OpenRouter requests require ZDR routing and deny data collection. OpenAI requests send <code>store: false</code>, but retention follows your OpenAI organization policy.</>,
+      <><strong>Buildstory Cloud (recommended).</strong> Standard can upload up to 40 reviewed excerpts, 600 characters each and 20,000 characters total. Pro deep can upload up to 240 reviewed excerpts, 1,500 characters each and 700 KiB total, dynamically reduced within the 1 MiB upload limit. The same deterministic facts listed for BYOK are sent. For an update chapter, Deep also sends the prior stored chapter&apos;s build window, session and commit totals, usage aggregates, deterministic builder profile, and final retained narrative/story pack; it does not send the prior chapter&apos;s excerpts. Standard uses one generation request and at most one repair. Deep sends current excerpts in its analysis request and possible repair. Its synthesis request and possible repair do not directly include the excerpt strings, but do include deterministic facts, source metadata, and a model-produced analysis map that can summarize their content. Hosted generation uses only DeepSeek V4 Flash through OpenRouter with a ZDR-eligible endpoint required, data collection denied, and parameter support required; no different model or direct OpenAI fallback is allowed.</>,
       <><strong>Off.</strong> No AI narrative step runs at all. Only deterministic, scanner-computed metrics and profile scores are uploaded — counts, dates, and formula-derived numbers, never prose.</>,
     ],
   },
   {
     heading: "What's uploaded in every mode",
     list: [
-      "Aggregate counts and structural data: session counts, commit counts, lines added/removed, file-touch counts, active days, and similar numbers.",
-      "Model and tool names you used (e.g. “Claude Sonnet”, “Codex”), and how many turns/requests were attributed to each.",
-      "Deterministic, scanner-generated summary text (e.g. “Codex session with 3 user turns, 4 assistant messages, and 5 tool calls”) — never your own written text or the AI's own written text.",
+      "Repository metadata: a cleaned display name, branch, HEAD commit hash, detached/bare flags, an opaque repository fingerprint and remote-path hash (never the raw local path, remote URL, or host). These fields stay private unless the publication review expressly lists an aggregate derived from them; commit hashes are never put on the public page.",
+      "Time and activity metadata: exact scan/build/session timestamps, UTC offset when available, session duration/status, active days, and aggregate session/message/tool/subagent counts.",
+      "Usage and Git aggregates: model/tool names, request and token counts, static-table cost estimates and coverage, commits, insertions, deletions, file touches, branch and contributor counts, and working-tree status counts.",
+      "Source diagnostics and integrity data: providers and roots considered as counts, matched/included file and session counts, warnings, opaque session/evidence references, schema/scanner versions, consent record, hashes, and redaction/quality summaries.",
+      "Deterministic scanner summaries and milestones composed from counts and lifecycle metadata. Local and BYOK modes can also upload the sanitized model-written narrative. Buildstory Cloud additionally uploads only the reviewed excerpt bundle described above.",
     ],
   },
   {
     heading: "What you write and publish yourself",
     paragraphs: [
-      "Your public build story (tagline, description, reflection text), comments you post on other builders' stories, and reactions you give, are all collected as you create them and are visible to other users (comments and reactions) or to the public (anything you publish).",
+      "Before publication, Buildstory shows a final privacy review and requires acknowledgement. Project name, owner display name/handle/role, category, status, tech-stack labels, visual background, and an opaque public receipt ID are always public. Only optional categories checked in the review are copied from the private report. The review calls out AI-written prose, links, and uploaded images because those deserve a manual read. Your comments and reactions are visible to other users; published story fields are visible to anyone.",
     ],
   },
   {
     heading: "Cover images, screenshots, and generated share cards",
     paragraphs: [
-      "If you upload a cover image or screenshots for a report, we store the file in our object storage and serve it back through our CDN. Deleting the report or your account removes the reference to it; the underlying file is deleted on a best-effort basis and may occasionally be orphaned if deletion fails partway — this doesn't expose it publicly, but we note it for completeness. We also generate social share (Open Graph) card images from your published story's own public fields — nothing beyond what's already on the public page.",
+      "If you upload a cover image or screenshots for a report, we store the file in object storage. It is readable by you while private and by anyone only while its exact media ID is included in a frozen public story. Unpublishing revokes public route access. Deleting media or your account removes its database authorization first and then deletes the underlying object on a best-effort basis, so an object orphaned by a partial storage failure is not readable through the application route. We also generate social share (Open Graph) cards only from fields already frozen on the public page.",
     ],
   },
   {
@@ -72,7 +74,7 @@ const sections: LegalSection[] = [
   {
     heading: "Automatically collected technical data",
     paragraphs: [
-      "Standard web server logs (IP address, user agent, timestamps) as part of operating the Service securely and diagnosing problems. IP addresses are also used, keyed and time-windowed, to rate-limit requests and prevent abuse; these rate-limit records expire automatically and are not used to build a profile of you.",
+      "Standard web server logs (IP address, user agent, timestamps) are processed as part of operating the Service securely and diagnosing problems. A raw IP address may also appear inside a scoped, time-windowed rate-limit key for up to one hour; those records expire automatically and are not used to build a profile of you.",
       "We do not use third-party analytics or advertising trackers. This is a commitment, not just a description of today's configuration — if that ever changes (for example, by enabling Cloudflare's own web analytics), we will update this policy first, not after.",
     ],
   },
@@ -86,9 +88,11 @@ const sections: LegalSection[] = [
     heading: "Third parties we share data with",
     list: [
       "Google and, optionally, GitHub — for sign-in only (OAuth). Each provider's own privacy policy governs what that provider does with your account data.",
-      "Our narrative provider — only in Buildstory Cloud mode, and only the redacted excerpt bundle and deterministic build facts you explicitly reviewed and released. We do not permit that provider to use your data to train their models, per our agreement with them.",
+      "OpenRouter — our only hosted narrative gateway. Hosted requests use DeepSeek V4 Flash and require Zero Data Retention-eligible downstream endpoints, deny provider data collection, and require parameter support. Those controls prevent prompt/response retention by the selected model endpoint; OpenRouter still processes and may retain operational, account, billing, security, and request metadata under its own privacy policy. OpenRouter can route only among endpoints that satisfy the request controls.",
+      "OpenAI — only for a creator-selected BYOK request. The retained adapter sends store: false. OpenAI's API terms and the creator's organization settings govern retention; this is not covered by Buildstory's OpenRouter ZDR promise.",
       "Your own chosen cloud model provider — only in BYOK mode, and only because you configured your machine to call it directly. That is a relationship and a data flow between you and that provider; Buildstory is not a party to it and never sees the excerpts or your key. Your provider's own terms and privacy policy govern that flow.",
       "Cloudflare — our hosting, database (D1), object storage (R2), and edge-network infrastructure provider. Cloudflare processes all traffic and stored data as our infrastructure provider under their own data processing terms. This also means the Service is served from Cloudflare's global edge network and, in Buildstory Cloud mode, reaches our narrative provider, which may process data outside Canada — including in the United States.",
+      "YouTube, Vimeo, or Loom — only when a published story contains one of those video links and a visitor explicitly clicks the load button. Until that click no provider iframe is requested; after it, the provider receives the visitor's IP address and normal browser request data under its own policy.",
       "We do not sell your personal information, and we do not share it with anyone else for their own marketing purposes.",
     ],
   },
@@ -96,15 +100,14 @@ const sections: LegalSection[] = [
     heading: "How long we keep data",
     list: [
       "Account and published-content data is kept while your account is active.",
-      "If you delete your account (Settings → Delete account), we permanently delete your profile, projects, private and published build stories and their underlying scan snapshots, narrative text, uploaded evidence excerpts, comments, reactions, and follow relationships. This is immediate and irreversible — see the in-product confirmation flow. Cover images and screenshots in object storage are deleted on a best-effort basis, as noted above. We do not currently offer a grace period before deletion; if you're unsure, export your data first.",
-      "Comments you leave on someone else's story that has replies from other people may have their content removed but the row preserved (shown as “[deleted]”) so the surrounding conversation isn't broken — this matches ordinary comment-moderation behavior on most social platforms.",
+      "Hosted excerpt text is retained by Buildstory only while a narrative is queued, running, or retryable. It is erased from the live report and upload-session records on success or final failure, and is marked to expire two hours after the job is created; scheduled processing enforces that deadline. Only counts, byte size, policy and consent versions, and the scrub timestamp remain afterward. If you delete your account, we immediately remove the remaining live product records and public access. Infrastructure recovery copies may cycle out later. Object deletion is best-effort after route authorization is removed.",
       "As an anti-abuse measure (not a plan limit — see the Terms), an account may hold up to 500 stored reports. This has no bearing on retention of the reports you do have; it only prevents new scans once the ceiling is reached, with a clear message and no charge implied.",
     ],
   },
   {
     heading: "Your rights",
     list: [
-      "Access & export — Settings → Export my data gives you a JSON file of your profile, projects, scan snapshots and narrative text, uploaded evidence excerpts, upload-session records, published reports, comments you've written, reactions you've given, and your follow graph.",
+      "Access & export — Settings → Export my data gives you a JSON file of your profile, projects, scan snapshots and narrative text, any hosted evidence excerpts that have not yet been scrubbed, content-free evidence receipts, upload-session records, published reports, comments you've written, reactions you've given, and your follow graph.",
       "Deletion — Settings → Delete account, described above.",
       "Correction — edit your display name, bio, and published story content directly from your dashboard.",
       "We are based in British Columbia, Canada, and handle these requests under Canada's federal Personal Information Protection and Electronic Documents Act (PIPEDA) and British Columbia's Personal Information Protection Act (PIPA). If you're contacting us about a rights request that isn't already self-service in Settings, or with a complaint about how we've handled your information, email arjunmishra31204@gmail.com and we will respond within 30 days.",
@@ -127,7 +130,7 @@ const sections: LegalSection[] = [
   {
     heading: "Security",
     paragraphs: [
-      "Excerpts and secrets are redacted locally before anything leaves your machine (see the CLI's fail-closed redaction boundary, documented in the buildstory-scan package). Uploads are short-lived, one-use, and bearer-authenticated. If you believe you've found a security vulnerability in the Service, email arjunmishra31204@gmail.com — as a solo-operated project we can't commit to a formal bug-bounty program, but we take reports seriously and will acknowledge them promptly.",
+      "Recognized secrets, emails, locations, URLs, and hosts are redacted locally before an excerpt can leave your machine, followed by schema validation and a fail-closed location/secret scan. These controls do not identify every novel or low-entropy secret, personal name, proprietary idea, or pasted code fragment, so Cloud mode also requires human review. Upload grants are short-lived, bearer-authenticated, and server-side one-use. If you believe you've found a security vulnerability, email arjunmishra31204@gmail.com.",
     ],
   },
   {

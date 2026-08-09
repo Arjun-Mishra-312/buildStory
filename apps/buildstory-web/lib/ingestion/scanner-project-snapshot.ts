@@ -25,6 +25,8 @@ export type Sha256Digest = `sha256:${string}`;
  * contract.ts for the full rationale).
  */
 export type NarrativeMode = "local" | "byok" | "cloud" | "off";
+export type NarrativeProvider = "openrouter" | "openai" | "ollama" | "openai-compatible";
+export type AnalysisTier = "standard" | "deep";
 
 /**
  * Every AI coding-session source the scanner can read. gemini-antigravity
@@ -92,6 +94,39 @@ export type ReportStoryPackV2 = {
   growthEdge: { title: string; observation: string; nextStep: string; sourceRefs: string[] };
 };
 
+export type StoryPackConfidence = "high" | "medium" | "low";
+export type StoryPackFinding = {
+  title: string;
+  summary: string;
+  sourceRefs: string[];
+  confidence: StoryPackConfidence;
+};
+export type StoryPackRecommendation = StoryPackFinding & {
+  priority: "now" | "next" | "later";
+  rationale: string;
+};
+export type ReportStoryPackV3 = Omit<ReportStoryPackV2, "version"> & {
+  version: "3.0.0";
+  analysisTier: AnalysisTier;
+  deepAnalysis?: {
+    executiveSynthesis: StoryPackFinding;
+    decisionReview: StoryPackFinding[];
+    frictionAndRecovery: StoryPackFinding[];
+    engineeringPatterns: StoryPackFinding[];
+    risksAndEvidenceGaps: StoryPackFinding[];
+    nextBuildActions: StoryPackRecommendation[];
+    chapterChanges: StoryPackFinding[];
+    coverage: {
+      sessionsSeen: number;
+      excerptsUsed: number;
+      evidenceBytes: number;
+      windowStart: IsoDateTime;
+      windowEnd: IsoDateTime;
+    };
+  };
+};
+export type ReportStoryPack = ReportStoryPackV2 | ReportStoryPackV3;
+
 export type NarrativeExcerptRole =
   | "session-title"
   | "user-intent"
@@ -119,7 +154,8 @@ export interface NarrativeEvidenceBundle {
     maxExcerpts: number;
     maxCharsPerExcerpt: number;
     maxTotalChars: number;
-    excerptSelection: "deterministic-heuristic-v1";
+    maxTotalBytes?: number;
+    excerptSelection: "deterministic-heuristic-v1" | "deep-evidence-v2";
   };
   consent: {
     mode: "explicit-cli-review";
@@ -146,13 +182,13 @@ export type GeneratedNarrativeSections = {
 };
 
 export type GeneratedNarrative = {
-  version: "1.0.0" | "2.0.0";
+  version: "1.0.0" | "2.0.0" | "3.0.0";
   generatedAt: IsoDateTime;
   mode: "local";
   provider: string;
   model: string;
   sections: GeneratedNarrativeSections;
-  storyPack?: ReportStoryPackV2;
+  storyPack?: ReportStoryPack;
   fallbacksUsed: string[];
 };
 

@@ -26,6 +26,10 @@ const managedEnvironment = [
   "BUILDSTORY_DEV_AUTH_BYPASS",
   "BUILDSTORY_LOCAL_API_ENABLED",
   "BUILDSTORY_LOG_LEVEL",
+  "BUILDSTORY_CLOUD_PROVIDER",
+  "BUILDSTORY_LLM_BASE_URL",
+  "BUILDSTORY_LLM_MODEL",
+  "BUILDSTORY_ENABLE_HOSTED_OPENAI",
 ] as const;
 
 function withEnvironment(
@@ -61,6 +65,10 @@ test("production configuration accepts only the durable, hosted safety posture",
       BUILDSTORY_DEV_AUTH_BYPASS: "false",
       BUILDSTORY_LOCAL_API_ENABLED: "false",
       BUILDSTORY_LOG_LEVEL: "info",
+      BUILDSTORY_CLOUD_PROVIDER: "openrouter",
+      BUILDSTORY_LLM_BASE_URL: "https://openrouter.ai/api/v1",
+      BUILDSTORY_LLM_MODEL: "deepseek/deepseek-v4-flash",
+      BUILDSTORY_ENABLE_HOSTED_OPENAI: "false",
     },
     () => assert.deepEqual(productionRuntimeIssues(), []),
   );
@@ -81,6 +89,10 @@ test("production configuration accepts a matched GitHub pair alongside Google, a
       BUILDSTORY_DEV_AUTH_BYPASS: "false",
       BUILDSTORY_LOCAL_API_ENABLED: "false",
       BUILDSTORY_LOG_LEVEL: "info",
+      BUILDSTORY_CLOUD_PROVIDER: "openrouter",
+      BUILDSTORY_LLM_BASE_URL: "https://openrouter.ai/api/v1",
+      BUILDSTORY_LLM_MODEL: "deepseek/deepseek-v4-flash",
+      BUILDSTORY_ENABLE_HOSTED_OPENAI: "false",
     },
     () => assert.deepEqual(productionRuntimeIssues(), []),
   );
@@ -251,10 +263,13 @@ test("public text sanitization removes secrets, remote locations, and local path
     "https://private.example.invalid/repository",
     "git@github.com:private/repository.git",
     "C:\\Users\\builder\\private\\source.ts",
+    '"C:\\Users\\Jane Doe\\private source.ts"',
     "/home/builder/private/source.ts",
+    "jane.builder@example.ca",
+    '{"api_key":"lowentropy-secret"}',
     "token=sk-proj-abcdefghijklmnopqrstuvwxyz123456",
   ].join(" ");
   const sanitized = sanitizePublicText(input, 4_000);
   assert.ok(sanitized.findings.length >= 4);
-  assert.doesNotMatch(sanitized.value, /private\.example|github\.com|Users|\/home\/|sk-proj/i);
+  assert.doesNotMatch(sanitized.value, /private\.example|github\.com|Users|Jane Doe|\/home\/|sk-proj|jane\.builder|lowentropy-secret/i);
 });

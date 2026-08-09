@@ -1,5 +1,7 @@
 # Buildstory Terms of Service — DRAFT
 
+> **SUPERSEDED:** The normative current terms are `apps/buildstory-web/app/terms/page.tsx` (rendered at `/terms`).
+>
 > **This is a working draft, not a published or legally reviewed
 > agreement.** It was written by an engineering assistant from the
 > product's actual implemented behavior as of this draft's date, to give

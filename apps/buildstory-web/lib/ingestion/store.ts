@@ -7,7 +7,7 @@ import type {
 import type { BuilderRole } from "@/lib/identity/builder-roles";
 import type { GuideKey, GuideState } from "@/lib/guidance/contracts";
 import type { ArtifactLinksUpdate } from "./artifact-links";
-import type { NarrativeMode } from "./scanner-project-snapshot";
+import type { NarrativeMode, NarrativeProvider } from "./scanner-project-snapshot";
 
 type CreatorIdentity = { creatorId: string; name: string; email: string; image: string | null };
 
@@ -40,6 +40,7 @@ export async function createUploadSession(
   narrativeModel: string | null = null,
   narrativeMode: NarrativeMode = "cloud",
   targetProjectId: string | null = null,
+  narrativeProvider: NarrativeProvider | null = null,
 ) {
   return (await backend()).createUploadSession(
     creatorId,
@@ -49,6 +50,7 @@ export async function createUploadSession(
     narrativeModel,
     narrativeMode,
     targetProjectId,
+    narrativeProvider,
   );
 }
 
@@ -171,6 +173,10 @@ export async function updateReport(
 
 export async function listReportMedia(reportId: string) {
   return (await backend()).listReportMedia(reportId);
+}
+
+export async function canReadReportMedia(r2Key: string, creatorId: string | null) {
+  return (await backend()).canReadReportMedia(r2Key, creatorId);
 }
 
 export async function addReportMedia(

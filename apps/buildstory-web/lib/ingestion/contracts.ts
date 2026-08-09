@@ -1,5 +1,5 @@
 import type { ProjectSnapshot } from "@/lib/project-snapshot";
-import type { PROJECT_SNAPSHOT_SCHEMA_VERSION, ScannerProjectSnapshot, NarrativeMode, ReportStoryPackV2 } from "./scanner-project-snapshot";
+import type { AnalysisTier, NarrativeProvider, PROJECT_SNAPSHOT_SCHEMA_VERSION, ScannerProjectSnapshot, NarrativeMode, ReportStoryPack } from "./scanner-project-snapshot";
 import type { StoryBackgroundId } from "@/lib/background-options";
 import type { ChapterDelta } from "@/lib/story/chapter-delta";
 import type { BuilderRole } from "@/lib/identity/builder-roles";
@@ -39,33 +39,43 @@ export function isStoryCategory(value: unknown): value is StoryCategory {
   return typeof value === "string" && (STORY_CATEGORIES as readonly string[]).includes(value);
 }
 
-export type PublicFieldKey =
-  | "tagline"
-  | "description"
-  | "timeWindow"
-  | "sessionSummary"
-  | "milestones"
-  | "modelMix"
-  | "costEstimate"
-  | "toolUsage"
-  | "gitAggregates"
-  | "redactionSummary"
-  | "archetype"
-  | "profileScores"
-  | "workPatterns"
-  | "narrative"
-  | "storyBuildArc"
-  | "storyMoments"
-  | "storyTurningPoint"
-  | "storyDecisions"
-  | "storyLearnings"
-  | "storyTraits"
-  | "storyGrowthEdge"
-  | "decisionPatterns"
-  | "standoutTraits"
-  | "growthEdge"
-  | "artifactLinks"
-  | "artifactMedia";
+export const PUBLIC_FIELD_KEYS = [
+  "tagline",
+  "description",
+  "timeWindow",
+  "sessionSummary",
+  "milestones",
+  "modelMix",
+  "costEstimate",
+  "toolUsage",
+  "gitAggregates",
+  "redactionSummary",
+  "archetype",
+  "profileScores",
+  "workPatterns",
+  "narrative",
+  "storyBuildArc",
+  "storyMoments",
+  "storyTurningPoint",
+  "storyDecisions",
+  "storyLearnings",
+  "storyTraits",
+  "storyGrowthEdge",
+  "deepExecutiveSynthesis",
+  "deepDecisionReview",
+  "deepFrictionAndRecovery",
+  "deepEngineeringPatterns",
+  "deepRisksAndEvidenceGaps",
+  "deepNextBuildActions",
+  "deepChapterChanges",
+  "decisionPatterns",
+  "standoutTraits",
+  "growthEdge",
+  "artifactLinks",
+  "artifactMedia",
+] as const;
+
+export type PublicFieldKey = (typeof PUBLIC_FIELD_KEYS)[number];
 
 export type BuilderProfileDimension = "planning" | "steering" | "execution" | "engineering" | "productInstinct";
 
@@ -137,6 +147,8 @@ export type NarrativeObservability = {
   generationLatencyMs: number;
   inputTokens: number;
   outputTokens: number;
+  reasoningTokens: number;
+  cachedTokens: number;
   costMicroUsd: number;
   invalidReferenceCount: number;
   fallbackCount: number;
@@ -158,7 +170,18 @@ export type NarrativeRecord = {
     standoutTraits?: string[];
     growthEdge?: string;
   } | null;
-  storyPack?: ReportStoryPackV2 | null;
+  storyPack?: ReportStoryPack | null;
+  analysisTierRequested: AnalysisTier;
+  analysisTierDelivered: AnalysisTier | null;
+  evidenceScrubbedAt: string | null;
+  evidenceReceipt?: {
+    excerptCount: number;
+    sessionCount: number;
+    byteSize: number;
+    selectionPolicyVersion: string;
+    consentVersion: string;
+    scrubbedAt: string;
+  } | null;
   observability?: NarrativeObservability | null;
   fallbacksUsed?: string[];
   costMicroUsd: number;
@@ -191,6 +214,8 @@ export type UploadSessionView = {
   projectLabel: string;
   narrativeModel: string | null;
   narrativeMode: NarrativeMode;
+  narrativeProvider: NarrativeProvider | null;
+  analysisTier: AnalysisTier;
   status: UploadSessionStatus;
   createdAt: string;
   expiresAt: string;
@@ -204,7 +229,7 @@ export type ScannerClaimResponse = {
   sessionId: string;
   connectionId: string;
   uploadGrant: LocalUploadGrant;
-  narrative?: { mode: NarrativeMode; model: string | null };
+  narrative?: { mode: NarrativeMode; provider: NarrativeProvider | null; model: string | null; analysisTier: AnalysisTier };
 };
 
 export type SnapshotUploadReceipt = {
@@ -247,7 +272,7 @@ export type LocalConnectResponse = {
   uploadSessionId: string;
   connectionId: string;
   uploadGrant: LocalUploadGrant;
-  narrative?: { mode: NarrativeMode; model: string | null };
+  narrative?: { mode: NarrativeMode; provider: NarrativeProvider | null; model: string | null; analysisTier: AnalysisTier };
 };
 
 export type LocalSnapshotAcceptedResponse = {

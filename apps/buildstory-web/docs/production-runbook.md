@@ -95,20 +95,24 @@ The scanner accepts a hosted ingestion destination only when explicitly pinned p
 
 Local and BYOK narrative modes need nothing from the operator — they call Ollama or the creator's own key, respectively, and work on day one. The subsidized **Buildstory Cloud** mode is different: it calls a provider using an API key *you* pay for, on the creator's behalf, budgeted per-user by `buildstory_llm_budgets`. Until you do this, `narrativeProviderConfigured("cloud")` is false, `cloudNarrativeAvailable()` is false for every account, and the Buildstory Cloud option simply doesn't appear in the dashboard — that's a safe default, not a bug to fix before launch.
 
-`BUILDSTORY_LLM_BASE_URL` (`https://api.openai.com/v1`) and `BUILDSTORY_LLM_MODEL` (`gpt-5.6-luna`) are already committed in `wrangler.deploy.jsonc`'s `vars` — non-secret, safe to have present even with no key set. `gpt-5.6-luna` is deliberately the *only* model this path will ever call: there is no user-facing model choice on Buildstory Cloud (`lib/narrative/pricing.ts`'s `SupportedNarrativeModel` has exactly one member, and `generateNarrative` in `lib/narrative/provider.ts` ignores any requested model against a real provider), so nothing in the product ever names the model to a creator. The only step left is the key itself, which must never be committed:
+`BUILDSTORY_CLOUD_PROVIDER=openrouter`, `BUILDSTORY_LLM_BASE_URL=https://openrouter.ai/api/v1`, and `BUILDSTORY_LLM_MODEL=deepseek/deepseek-v4-flash` are committed in `wrangler.deploy.jsonc`; they are non-secret and inert until the key is set. Hosted requests require a ZDR-eligible endpoint, deny data collection, require parameter support, and permit fallback only among compliant downstream endpoints for the same model. The key must never be committed:
 
 ```powershell
-npx wrangler secret put BUILDSTORY_LLM_API_KEY -c wrangler.deploy.jsonc
+npx wrangler queues create buildstory-narratives
+npx wrangler queues create buildstory-narratives-dlq
+npx wrangler secret put BUILDSTORY_OPENROUTER_API_KEY -c wrangler.deploy.jsonc
 ```
+
+Before enabling traffic, disable OpenRouter prompt logging and input/output sharing, enable ZDR for the non-frontier model group, and confirm `/api/ready` reports `openRouterZdrModel: true`. A missing eligible DeepSeek endpoint keeps Cloud hidden and readiness failed.
 
 This prompts on stdin (nothing lands in shell history) and applies to the running Worker immediately, no redeploy needed. As soon as it's set, Buildstory Cloud appears in the dashboard for every account — there's no separate feature flag beyond the key's presence, and no `--dry-run` for a secret write, so double-check the key belongs to the account you intend to bill.
 
-To point at a different OpenAI-compatible provider, or to change which model this path calls, edit `BUILDSTORY_LLM_BASE_URL`/`BUILDSTORY_LLM_MODEL` in `wrangler.deploy.jsonc`, update `lib/narrative/pricing.ts`'s per-token rate for the new model, and redeploy - the $1.00/$5.00 monthly caps in `lib/ingestion/d1-store.ts` assume the current rate.
+The production hosted path is OpenRouter-only; the retained OpenAI adapter is inert unless an operator explicitly enables it for future non-public use. Arbitrary OpenAI-compatible hosts are rejected. Standard evidence is capped at 40 excerpts/600 characters each/20,000 characters total; deep evidence is capped at 240 excerpts/1,500 characters each/700 KiB total and is dynamically reduced to keep the complete snapshot below its upload grant. Each hosted deep report uses an analysis request and a synthesis request, each with at most one bounded schema-repair request; raw excerpts are omitted from synthesis.
 
 To turn Buildstory Cloud back off later (e.g. cost control), delete the secret rather than editing code:
 
 ```powershell
-npx wrangler secret delete BUILDSTORY_LLM_API_KEY -c wrangler.deploy.jsonc
+npx wrangler secret delete BUILDSTORY_OPENROUTER_API_KEY -c wrangler.deploy.jsonc
 ```
 
 ## Health and readiness
@@ -119,7 +123,7 @@ npx wrangler secret delete BUILDSTORY_LLM_API_KEY -c wrangler.deploy.jsonc
 
 ## Jobs and failure recovery
 
-Report generation is deterministic and bounded. D1 is the durable queue: pending jobs are claimed with a 30-second lease, status transitions are idempotent, and failures retry at most three times with content-free error codes. A terminal failure marks both report and session failed. There is no background retry of uploads and no second use of a consumed grant.
+Report generation is message-driven through Cloudflare Queues. Messages contain only `narrativeId`; the consumer uses batch size 1, concurrency 3, a 12-minute atomic D1 lease, three retries at 60-second intervals, and `buildstory-narratives-dlq`. The five-minute sweep re-enqueues pending/stale work and finalizes evidence older than two hours. Report pages poll status and never invoke inference. Terminal updates scrub excerpt text and preserve only the evidence receipt.
 
 For stuck jobs, inspect counts/status/timestamps only. Never print `snapshot_json`, `source_snapshot_json`, bearer hashes, device-code hashes, or user-provided strings into tickets or logs. Resolve the underlying provider problem, then use an audited maintenance procedure to move an eligible content-free job state back to `pending`; do not edit snapshot content.
 

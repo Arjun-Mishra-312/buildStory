@@ -61,7 +61,7 @@ export default async function UpdateProjectPage({ params }: PageProps) {
         <strong>Same repository required.</strong>
         <span>The scan must come from the repository your earlier chapters were built from. A different repository is rejected before it ever creates a new report.</span>
       </div>
-      <OllamaModelStatus discoveryAvailable={localDiscovery} cloudAvailable={cloudNarrativeAvailable(user.id)} />
+      <OllamaModelStatus discoveryAvailable={localDiscovery} cloudAvailable={await cloudNarrativeAvailable(user.id)} />
       <div data-guide="update-progress"><ScannerConnectionFlow
         initialSessions={sessions}
         scannerEnabled={localDiscovery || hosted}

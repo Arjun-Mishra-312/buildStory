@@ -8,6 +8,10 @@ import {
 } from "../lib/ingestion/mock-store";
 import { sha256Digest } from "../lib/ingestion/local-contract";
 import { validateProjectSnapshot } from "../lib/ingestion/validation";
+import { defaultStoryPack } from "../lib/narrative/story-pack";
+import { generateNarrative } from "../lib/narrative/provider";
+import { buildDeepSynthesisMessages } from "../lib/narrative/prompt";
+import type { ReportStoryPackV2, ScannerProjectSnapshot } from "../lib/ingestion/scanner-project-snapshot";
 import scannerFixture from "./fixtures/scanner-project-snapshot.json";
 
 // Pre-seeded by mock-store's createSeedStore() - reusing it means acceptSnapshot
@@ -92,10 +96,26 @@ function openAiEnvelope(sections: Record<string, unknown>) {
   };
 }
 
+function combinedStoryOutput(): Omit<ReportStoryPackV2, "version" | "sources"> {
+  const pack = defaultStoryPack(scannerFixture as unknown as ScannerProjectSnapshot);
+  return {
+    hero: pack.hero,
+    buildArc: pack.buildArc,
+    moments: pack.moments,
+    turningPoint: pack.turningPoint,
+    decisions: pack.decisions,
+    learnings: pack.learnings,
+    standoutTraits: pack.standoutTraits,
+    growthEdge: pack.growthEdge,
+  };
+}
+
 test("a scan with no narrative evidence never calls the LLM and has no narrative", async () => {
   const stub = stubFetchOnce({});
-  const previousKey = process.env.BUILDSTORY_LLM_API_KEY;
-  process.env.BUILDSTORY_LLM_API_KEY = "test-key";
+  const previousKey = process.env.BUILDSTORY_OPENROUTER_API_KEY;
+  const previousBaseUrl = process.env.BUILDSTORY_LLM_BASE_URL;
+  process.env.BUILDSTORY_OPENROUTER_API_KEY = "test-key";
+  process.env.BUILDSTORY_LLM_BASE_URL = "https://openrouter.ai/api/v1";
   try {
     const reportId = await acceptFreshSnapshot(structuredClone(scannerFixture));
     const report = await getReport(creatorId, reportId);
@@ -103,7 +123,8 @@ test("a scan with no narrative evidence never calls the LLM and has no narrative
     assert.equal(stub.callCount(), 0);
   } finally {
     stub.restore();
-    process.env.BUILDSTORY_LLM_API_KEY = previousKey;
+    process.env.BUILDSTORY_OPENROUTER_API_KEY = previousKey;
+    process.env.BUILDSTORY_LLM_BASE_URL = previousBaseUrl;
   }
 });
 
@@ -132,7 +153,7 @@ test("a locally generated narrative is stored ready without creating a cloud job
         },
         fallbacksUsed: [],
       },
-    });
+    }, "local");
     const report = await getReport(creatorId, reportId);
     assert.ok(report.narrative);
     assert.equal(report.narrative!.status, "ready");
@@ -194,43 +215,96 @@ test("local and cloud narrative generation are mutually exclusive - a snapshot c
   );
 });
 
+test("the upload session mode rejects content that belongs to a different narrative path", async () => {
+  const local = await createUploadSession(creatorId, "Local evidence mismatch", "http://localhost/", null, null, "local");
+  const localClaim = await claimUploadSession(local.deviceAuthorization.sessionId, local.deviceAuthorization.userCode);
+  const evidenceSnapshot = { ...structuredClone(scannerFixture), narrativeEvidence };
+  const evidenceRaw = JSON.stringify(evidenceSnapshot);
+  const evidenceDigest = await sha256Digest(evidenceRaw);
+  await assert.rejects(
+    () => acceptSnapshot(local.deviceAuthorization.sessionId, localClaim.uploadGrant.bearerToken, evidenceDigest, evidenceSnapshot),
+    /./,
+  );
+
+  const cloud = await createUploadSession(creatorId, "Cloud generated mismatch", "http://localhost/", null, null, "cloud");
+  const cloudClaim = await claimUploadSession(cloud.deviceAuthorization.sessionId, cloud.deviceAuthorization.userCode);
+  const generatedSnapshot = {
+    ...structuredClone(scannerFixture),
+    generatedNarrative: {
+      version: "1.0.0",
+      generatedAt: "2026-08-03T12:00:00.000Z",
+      mode: "local",
+      provider: "ollama",
+      model: "gemma4:12b",
+      sections: {
+        headline: "Wrong path",
+        narrative: "This must not enter a cloud session.",
+        turningPoint: "The server rejected it.",
+        learnings: ["Bind payloads to the selected mode."],
+        decisionPatterns: ["Fail closed."],
+        standoutTraits: ["Careful."],
+        growthEdge: "Keep testing boundaries.",
+      },
+      fallbacksUsed: [],
+    },
+  };
+  const generatedRaw = JSON.stringify(generatedSnapshot);
+  const generatedDigest = await sha256Digest(generatedRaw);
+  await assert.rejects(
+    () => acceptSnapshot(cloud.deviceAuthorization.sessionId, cloudClaim.uploadGrant.bearerToken, generatedDigest, generatedSnapshot),
+    /./,
+  );
+});
+
+test("Buildstory Cloud rejects an evidence policy above the disclosed server caps", () => {
+  const oversized = {
+    ...structuredClone(scannerFixture),
+    narrativeEvidence: {
+      ...structuredClone(narrativeEvidence),
+      policy: { ...narrativeEvidence.policy, maxExcerpts: 41 },
+    },
+  };
+  const result = validateProjectSnapshot(oversized);
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.ok(result.errors.some((message) => message.includes("$.narrativeEvidence")));
+});
+
 test("an evidence-bearing scan generates a narrative and sanitizes the model's output before storage", async () => {
-  const stub = stubFetchOnce([
-    openAiEnvelope({
-      headline: "Shipped the job queue",
-      narrative: "Built a lease-based job queue instead of a hosted broker.",
-      turningPoint: "Committed after testing it at /Users/dev/private/repo worked end to end.",
-      learnings: ["Bounded retries beat unbounded ones."],
-    }),
-    openAiEnvelope({
-      decisionPatterns: ["Tested the queue before committing."],
-      standoutTraits: ["Keeps retry behavior bounded."],
-      growthEdge: "Keep validating the product signal with more evidence.",
-    }),
-  ]);
-  const previousKey = process.env.BUILDSTORY_LLM_API_KEY;
-  process.env.BUILDSTORY_LLM_API_KEY = "test-key";
+  const combined = combinedStoryOutput();
+  combined.hero = { headline: "Shipped the job queue", summary: "Built a lease-based job queue instead of a hosted broker." };
+  combined.turningPoint = { ...combined.turningPoint, quote: "Committed after testing it at /Users/dev/private/repo worked end to end." };
+  combined.decisions[0] = { ...combined.decisions[0]!, title: "Queue testing", rationale: "Tested the queue before committing.", outcome: "Kept retry behavior bounded." };
+  const stub = stubFetchOnce(openAiEnvelope(combined));
+  const previousKey = process.env.BUILDSTORY_OPENROUTER_API_KEY;
+  const previousBaseUrl = process.env.BUILDSTORY_LLM_BASE_URL;
+  process.env.BUILDSTORY_OPENROUTER_API_KEY = "test-key";
+  process.env.BUILDSTORY_LLM_BASE_URL = "https://openrouter.ai/api/v1";
   try {
     const reportId = await acceptFreshSnapshot({
       ...structuredClone(scannerFixture),
       narrativeEvidence,
-    });
+    }, "cloud");
     const report = await getReport(creatorId, reportId);
     assert.ok(report.narrative);
     assert.equal(report.narrative!.status, "ready");
     assert.equal(report.narrative!.mode, "cloud");
     assert.ok(report.narrative!.costMicroUsd > 0);
     assert.equal(report.narrative!.sections!.headline, "Shipped the job queue");
-    assert.deepEqual(report.narrative!.sections!.decisionPatterns, ["Tested the queue before committing."]);
+    assert.match(report.narrative!.sections!.decisionPatterns?.[0] ?? "", /Tested the queue before committing/);
     // The scanner already redacts excerpts, but this proves the server-side
     // sanitizer still runs on the model's own generated prose as well - a
     // leaked-looking path in LLM output must not reach storage untouched.
     assert.match(report.narrative!.sections!.turningPoint, /\[REDACTED:absolute-path\]/);
     assert.doesNotMatch(report.narrative!.sections!.turningPoint, /\/Users\/dev\/private\/repo/);
-    assert.equal(stub.callCount(), 2);
+    assert.equal(stub.callCount(), 1);
+    const request = JSON.parse(stub.requestBodies()[0]!) as { store?: boolean; provider?: unknown; model?: string };
+    assert.equal(request.store, undefined);
+    assert.equal(request.model, "deepseek/deepseek-v4-flash");
+    assert.deepEqual(request.provider, { zdr: true, data_collection: "deny", require_parameters: true, allow_fallbacks: true });
   } finally {
     stub.restore();
-    process.env.BUILDSTORY_LLM_API_KEY = previousKey;
+    process.env.BUILDSTORY_OPENROUTER_API_KEY = previousKey;
+    process.env.BUILDSTORY_LLM_BASE_URL = previousBaseUrl;
   }
 });
 
@@ -239,12 +313,13 @@ test("Buildstory Cloud always requests the one supported model, even if a sessio
   // (model choice only means anything for local/BYOK), but this proves the
   // generation call itself ignores a stale/tampered value too - defense in
   // depth against any path other than that route.
-  const stub = stubFetchOnce([
-    openAiEnvelope({ headline: "Ignored the requested model", narrative: "Still used the one supported model.", turningPoint: "n/a", learnings: ["n/a"] }),
-    openAiEnvelope({ decisionPatterns: ["n/a"], standoutTraits: ["n/a"], growthEdge: "n/a" }),
-  ]);
-  const previousKey = process.env.BUILDSTORY_LLM_API_KEY;
-  process.env.BUILDSTORY_LLM_API_KEY = "test-key";
+  const combined = combinedStoryOutput();
+  combined.hero = { headline: "Ignored the requested model", summary: "Still used the one supported model." };
+  const stub = stubFetchOnce(openAiEnvelope(combined));
+  const previousKey = process.env.BUILDSTORY_OPENROUTER_API_KEY;
+  const previousBaseUrl = process.env.BUILDSTORY_LLM_BASE_URL;
+  process.env.BUILDSTORY_OPENROUTER_API_KEY = "test-key";
+  process.env.BUILDSTORY_LLM_BASE_URL = "https://openrouter.ai/api/v1";
   try {
     const reportId = await acceptFreshSnapshot(
       { ...structuredClone(scannerFixture), narrativeEvidence },
@@ -253,20 +328,59 @@ test("Buildstory Cloud always requests the one supported model, even if a sessio
     );
     const report = await getReport(creatorId, reportId);
     assert.equal(report.narrative!.status, "ready");
-    assert.equal(report.narrative!.model, "gpt-5.6-luna");
+    assert.equal(report.narrative!.model, "deepseek/deepseek-v4-flash");
     for (const body of stub.requestBodies()) {
-      assert.equal((JSON.parse(body) as { model?: string }).model, "gpt-5.6-luna");
+      assert.equal((JSON.parse(body) as { model?: string }).model, "deepseek/deepseek-v4-flash");
     }
+    assert.equal(stub.callCount(), 1);
   } finally {
     stub.restore();
-    process.env.BUILDSTORY_LLM_API_KEY = previousKey;
+    process.env.BUILDSTORY_OPENROUTER_API_KEY = previousKey;
+    process.env.BUILDSTORY_LLM_BASE_URL = previousBaseUrl;
+  }
+});
+
+test("deep hosted generation uses two high-reasoning OpenRouter calls and emits StoryPackV3", async () => {
+  const snapshot = { ...structuredClone(scannerFixture), narrativeEvidence } as unknown as ScannerProjectSnapshot;
+  const base = combinedStoryOutput();
+  const sourceRef = defaultStoryPack(snapshot).sources[0]!.ref;
+  const finding = { title: "Evidence synthesis", summary: "The reviewed evidence supports this finding.", sourceRefs: [sourceRef], confidence: "high" };
+  const deepAnalysis = {
+    executiveSynthesis: finding,
+    decisionReview: [finding],
+    frictionAndRecovery: [],
+    engineeringPatterns: [finding],
+    risksAndEvidenceGaps: [],
+    nextBuildActions: [{ ...finding, priority: "next", rationale: "Validate it in the next chapter." }],
+    chapterChanges: [],
+  };
+  const stub = stubFetchOnce([openAiEnvelope(deepAnalysis), openAiEnvelope({ ...base, deepAnalysis })]);
+  const previousKey = process.env.BUILDSTORY_OPENROUTER_API_KEY;
+  const previousBaseUrl = process.env.BUILDSTORY_LLM_BASE_URL;
+  process.env.BUILDSTORY_OPENROUTER_API_KEY = "test-key";
+  process.env.BUILDSTORY_LLM_BASE_URL = "https://openrouter.ai/api/v1";
+  try {
+    const result = await generateNarrative(snapshot, null, { analysisTier: "deep" });
+    assert.equal(result.storyPack.version, "3.0.0");
+    assert.equal(stub.callCount(), 2);
+    const requests = stub.requestBodies().map((body) => JSON.parse(body) as { model?: string; max_tokens?: number; reasoning?: unknown; provider?: unknown });
+    assert.deepEqual(requests.map((request) => request.max_tokens), [24_000, 40_000]);
+    assert.ok(requests.every((request) => request.model === "deepseek/deepseek-v4-flash"));
+    assert.ok(requests.every((request) => JSON.stringify(request.reasoning) === JSON.stringify({ effort: "high", exclude: true })));
+    assert.ok(requests.every((request) => JSON.stringify(request.provider) === JSON.stringify({ zdr: true, data_collection: "deny", require_parameters: true, allow_fallbacks: true })));
+  } finally {
+    stub.restore();
+    process.env.BUILDSTORY_OPENROUTER_API_KEY = previousKey;
+    process.env.BUILDSTORY_LLM_BASE_URL = previousBaseUrl;
   }
 });
 
 test("an evidence-bearing scan with no provider configured fails the narrative after bounded retries", async () => {
   const stub = stubFetchOnce({});
-  const previousKey = process.env.BUILDSTORY_LLM_API_KEY;
-  delete process.env.BUILDSTORY_LLM_API_KEY;
+  const previousKey = process.env.BUILDSTORY_OPENROUTER_API_KEY;
+  const previousBaseUrl = process.env.BUILDSTORY_LLM_BASE_URL;
+  delete process.env.BUILDSTORY_OPENROUTER_API_KEY;
+  process.env.BUILDSTORY_LLM_BASE_URL = "https://openrouter.ai/api/v1";
   try {
     const reportId = await acceptFreshSnapshot({
       ...structuredClone(scannerFixture),
@@ -282,6 +396,49 @@ test("an evidence-bearing scan with no provider configured fails the narrative a
     assert.equal(stub.callCount(), 0);
   } finally {
     stub.restore();
-    process.env.BUILDSTORY_LLM_API_KEY = previousKey;
+    process.env.BUILDSTORY_OPENROUTER_API_KEY = previousKey;
+    process.env.BUILDSTORY_LLM_BASE_URL = previousBaseUrl;
   }
+});
+
+test("OpenRouter requests enforce ZDR routing and deny provider data collection", async () => {
+  const combined = combinedStoryOutput();
+  const stub = stubFetchOnce(openAiEnvelope(combined));
+  const previous = {
+    openRouterKey: process.env.BUILDSTORY_OPENROUTER_API_KEY,
+    llmKey: process.env.BUILDSTORY_LLM_API_KEY,
+    cloudProvider: process.env.BUILDSTORY_CLOUD_PROVIDER,
+    baseUrl: process.env.BUILDSTORY_LLM_BASE_URL,
+  };
+  process.env.BUILDSTORY_OPENROUTER_API_KEY = "test-openrouter-key";
+  delete process.env.BUILDSTORY_LLM_API_KEY;
+  process.env.BUILDSTORY_CLOUD_PROVIDER = "openrouter";
+  process.env.BUILDSTORY_LLM_BASE_URL = "https://openrouter.ai/api/v1";
+  try {
+    await generateNarrative({ ...structuredClone(scannerFixture), narrativeEvidence } as unknown as ScannerProjectSnapshot, null, { analysisTier: "standard" });
+    const body = JSON.parse(stub.requestBodies()[0]!) as Record<string, unknown>;
+    assert.equal(body.model, "deepseek/deepseek-v4-flash");
+    assert.deepEqual(body.provider, { zdr: true, data_collection: "deny", require_parameters: true, allow_fallbacks: true });
+    assert.equal("store" in body, false);
+  } finally {
+    stub.restore();
+    process.env.BUILDSTORY_OPENROUTER_API_KEY = previous.openRouterKey;
+    process.env.BUILDSTORY_LLM_API_KEY = previous.llmKey;
+    process.env.BUILDSTORY_CLOUD_PROVIDER = previous.cloudProvider;
+    process.env.BUILDSTORY_LLM_BASE_URL = previous.baseUrl;
+  }
+});
+
+test("deep synthesis does not resend reviewed excerpt text", () => {
+  const marker = "PRIVATE_EXCERPT_MARKER_9b77";
+  const snapshot = {
+    ...structuredClone(scannerFixture),
+    narrativeEvidence: {
+      ...structuredClone(narrativeEvidence),
+      excerpts: [{ ...narrativeEvidence.excerpts[0]!, text: marker }],
+    },
+  } as unknown as ScannerProjectSnapshot;
+  const serialized = JSON.stringify(buildDeepSynthesisMessages(snapshot, { supportedFinding: "bounded" }));
+  assert.doesNotMatch(serialized, new RegExp(marker));
+  assert.match(serialized, /ANALYSIS MAP/);
 });

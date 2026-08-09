@@ -172,6 +172,16 @@ export function runStoreContract(name: string, backend: StoreBackend) {
     });
     assert.equal(media1.url, `/media/${fixture.reportId}/a.png`);
     assert.equal((await ingestion.listReportMedia(fixture.reportId)).length, 1, "media is listed for its report");
+    assert.equal(await ingestion.canReadReportMedia(media1.r2Key, fixture.ownerSession.creatorId), true, "the owner can read private media");
+    assert.equal(await ingestion.canReadReportMedia(media1.r2Key, null), false, "adding media does not expose it before a reviewed republish");
+    const reportWithMedia = await ingestion.getReport(fixture.ownerSession.creatorId, fixture.reportId);
+    await ingestion.updateReport(fixture.ownerSession.creatorId, fixture.reportId, {
+      selectedPublicFields: [...new Set([...reportWithMedia.selectedPublicFields, "artifactMedia"])],
+    });
+    await ingestion.publishReport(fixture.ownerSession.creatorId, fixture.reportId);
+    assert.equal(await ingestion.canReadReportMedia(media1.r2Key, null), true, "media becomes public only when frozen into the public projection");
+    await ingestion.unpublishReport(fixture.ownerSession.creatorId, fixture.reportId);
+    assert.equal(await ingestion.canReadReportMedia(media1.r2Key, null), false, "unpublishing revokes anonymous media reads");
     await ingestion.deleteReportMedia(fixture.ownerSession.creatorId, media1.id);
     assert.equal((await ingestion.listReportMedia(fixture.reportId)).length, 0, "deleted media no longer lists");
 

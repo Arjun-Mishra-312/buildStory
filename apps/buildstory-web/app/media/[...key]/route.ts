@@ -1,21 +1,19 @@
 import { getR2, MediaStorageUnavailableError } from "@/db/r2";
+import { getCreatorSession } from "@/lib/auth/runtime";
+import { canReadReportMedia } from "@/lib/ingestion/store";
 
 type RouteContext = { params: Promise<{ key: string[] }> };
 
-/**
- * Public, unauthenticated object serving for creator-uploaded artifact
- * media. Access control is by unguessable key (a random UUID filename), the
- * same model as most CDN-served attachments - there is no per-request
- * publication-status check here, since that would mean a database round
- * trip on every image load. Unpublishing a story hides the image from the
- * story page but does not itself revoke the URL; only actually deleting the
- * media (DELETE .../media/[mediaId]) removes the underlying object.
- */
+/** Media is readable only by its owner or while its exact ID is frozen into a public story. */
 export async function GET(_request: Request, context: RouteContext) {
   try {
     const { key } = await context.params;
     if (key.length < 2) return new Response("Not found.", { status: 404 });
     const r2Key = key.join("/");
+    const creator = await getCreatorSession();
+    if (!(await canReadReportMedia(r2Key, creator?.creatorId ?? null))) {
+      return new Response("Not found.", { status: 404 });
+    }
 
     const bucket = await getR2();
     const object = await bucket.get(r2Key);
@@ -23,7 +21,7 @@ export async function GET(_request: Request, context: RouteContext) {
 
     const headers = new Headers();
     object.writeHttpMetadata(headers);
-    headers.set("cache-control", "public, max-age=31536000, immutable");
+    headers.set("cache-control", "private, no-store");
     headers.set("x-content-type-options", "nosniff");
     return new Response(object.body, { headers });
   } catch (error) {

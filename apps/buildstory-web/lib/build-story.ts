@@ -1,6 +1,6 @@
 import type { ProjectSnapshot } from "./project-snapshot";
 import type { PublicFieldKey, StoryCategory } from "./ingestion/contracts";
-import type { ReportStoryPackV2 } from "./ingestion/scanner-project-snapshot";
+import type { ReportStoryPack, ReportStoryPackV2, ReportStoryPackV3, StoryPackFinding, StoryPackRecommendation } from "./ingestion/scanner-project-snapshot";
 import { NARRATIVE_FIELD_LIMITS } from "./narrative/schema";
 import { sanitizePublicText } from "./publication/sanitization";
 import { DEFAULT_STORY_BACKGROUND_ID, isStoryBackgroundId, type StoryBackgroundId } from "./background-options";
@@ -149,6 +149,13 @@ const STORY_PACK_FIELD_KEYS = [
   "storyLearnings",
   "storyTraits",
   "storyGrowthEdge",
+  "deepExecutiveSynthesis",
+  "deepDecisionReview",
+  "deepFrictionAndRecovery",
+  "deepEngineeringPatterns",
+  "deepRisksAndEvidenceGaps",
+  "deepNextBuildActions",
+  "deepChapterChanges",
 ] as const satisfies readonly PublicFieldKey[];
 
 function hasAnyStoryPackField(selected: Set<PublicFieldKey>): boolean {
@@ -156,21 +163,15 @@ function hasAnyStoryPackField(selected: Set<PublicFieldKey>): boolean {
 }
 
 function publicStoryPack(
-  pack: ReportStoryPackV2,
+  pack: ReportStoryPack,
   selected: Set<PublicFieldKey>,
-): ReportStoryPackV2 {
+): ReportStoryPack {
   const clean = (value: string, max = 900) => sanitizePublicText(value, max).value;
   const refs = (value: string[]) => [...new Set(value)].slice(0, 4);
   const hasAnyField = hasAnyStoryPackField(selected);
-  return {
+  const base: ReportStoryPackV2 = {
     version: "2.0.0",
-    sources: pack.sources.map((source) => ({
-      ref: source.ref,
-      provider: source.provider,
-      occurredAt: source.occurredAt,
-      evidenceRefs: refs(source.evidenceRefs),
-      metrics: source.metrics,
-    })),
+    sources: [],
     hero: {
       headline: hasAnyField ? clean(pack.hero.headline, 160) : "Evidence-backed build story",
       summary: hasAnyField ? clean(pack.hero.summary, 1_200) : "Selected story components from the validated build record.",
@@ -201,6 +202,77 @@ function publicStoryPack(
       ? { ...pack.growthEdge, title: clean(pack.growthEdge.title, 180), observation: clean(pack.growthEdge.observation), nextStep: clean(pack.growthEdge.nextStep), sourceRefs: refs(pack.growthEdge.sourceRefs) }
       : { title: "", observation: "", nextStep: "", sourceRefs: [] },
   };
+  const cleanFinding = (finding: StoryPackFinding): StoryPackFinding => ({
+    title: clean(finding.title, 180),
+    summary: clean(finding.summary, 900),
+    sourceRefs: refs(finding.sourceRefs),
+    confidence: finding.confidence,
+  });
+  const cleanRecommendation = (item: StoryPackRecommendation): StoryPackRecommendation => ({
+    ...cleanFinding(item),
+    priority: item.priority,
+    rationale: clean(item.rationale, 900),
+  });
+  const deep = pack.version === "3.0.0" ? pack.deepAnalysis : undefined;
+  const hasDeepSelection = Boolean(deep && [
+    "deepExecutiveSynthesis",
+    "deepDecisionReview",
+    "deepFrictionAndRecovery",
+    "deepEngineeringPatterns",
+    "deepRisksAndEvidenceGaps",
+    "deepNextBuildActions",
+    "deepChapterChanges",
+  ].some((field) => selected.has(field as PublicFieldKey)));
+  const projection: ReportStoryPack = deep && hasDeepSelection
+    ? {
+        ...base,
+        version: "3.0.0",
+        analysisTier: (pack as ReportStoryPackV3).analysisTier,
+        deepAnalysis: {
+          executiveSynthesis: selected.has("deepExecutiveSynthesis")
+            ? cleanFinding(deep.executiveSynthesis)
+            : { title: "", summary: "", sourceRefs: [], confidence: "low" },
+          decisionReview: selected.has("deepDecisionReview") ? deep.decisionReview.map(cleanFinding) : [],
+          frictionAndRecovery: selected.has("deepFrictionAndRecovery") ? deep.frictionAndRecovery.map(cleanFinding) : [],
+          engineeringPatterns: selected.has("deepEngineeringPatterns") ? deep.engineeringPatterns.map(cleanFinding) : [],
+          risksAndEvidenceGaps: selected.has("deepRisksAndEvidenceGaps") ? deep.risksAndEvidenceGaps.map(cleanFinding) : [],
+          nextBuildActions: selected.has("deepNextBuildActions") ? deep.nextBuildActions.map(cleanRecommendation) : [],
+          chapterChanges: selected.has("deepChapterChanges") ? deep.chapterChanges.map(cleanFinding) : [],
+          // Coverage is contextual provenance for any published deep finding.
+          // It is called out in every deep-field review label in the UI.
+          coverage: { ...deep.coverage },
+        },
+      } satisfies ReportStoryPackV3
+    : base;
+  const projectedDeep = projection.version === "3.0.0" ? projection.deepAnalysis : undefined;
+  const usedRefs = new Set<string>([
+    ...projection.buildArc.flatMap((item) => item.sourceRefs),
+    ...projection.moments.flatMap((item) => item.sourceRefs),
+    ...projection.turningPoint.sourceRefs,
+    ...projection.decisions.flatMap((item) => item.sourceRefs),
+    ...projection.learnings.flatMap((item) => item.sourceRefs),
+    ...projection.standoutTraits.flatMap((item) => item.sourceRefs),
+    ...projection.growthEdge.sourceRefs,
+    ...(projectedDeep ? [
+      ...projectedDeep.executiveSynthesis.sourceRefs,
+      ...projectedDeep.decisionReview.flatMap((item) => item.sourceRefs),
+      ...projectedDeep.frictionAndRecovery.flatMap((item) => item.sourceRefs),
+      ...projectedDeep.engineeringPatterns.flatMap((item) => item.sourceRefs),
+      ...projectedDeep.risksAndEvidenceGaps.flatMap((item) => item.sourceRefs),
+      ...projectedDeep.nextBuildActions.flatMap((item) => item.sourceRefs),
+      ...projectedDeep.chapterChanges.flatMap((item) => item.sourceRefs),
+    ] : []),
+  ]);
+  projection.sources = pack.sources
+    .filter((source) => usedRefs.has(source.ref))
+    .map((source) => ({
+      ref: source.ref,
+      provider: source.provider,
+      occurredAt: source.occurredAt,
+      evidenceRefs: refs(source.evidenceRefs),
+      metrics: source.metrics,
+    }));
+  return projection;
 }
 
 export type ArtifactMediaItem = { id: string; url: string; kind: "cover" | "screenshot" };
@@ -237,6 +309,10 @@ export function publicBuildStoryFromSnapshot(
   const publicReflection = editorial?.reflection
     ? sanitizePublicText(editorial.reflection, 260).value
     : "";
+  const projectedStoryPack = story.narrative?.storyPack && hasAnyStoryPackField(selected)
+    ? publicStoryPack(story.narrative.storyPack, selected)
+    : null;
+  const narrativeMetadataIsPublic = selected.has("narrative") || projectedStoryPack !== null;
   return {
     id: story.id,
     slug: story.slug,
@@ -277,14 +353,34 @@ export function publicBuildStoryFromSnapshot(
     coverage: selected.has("costEstimate") && selected.has("sessionSummary") ? story.coverage : null,
     tools: selected.has("toolUsage") ? story.tools : [],
     git: selected.has("gitAggregates")
-      ? story.git
-      : { ...story.git, commits: 0, additions: 0, deletions: 0, filesTouched: 0, branches: 0 },
+      ? {
+          commits: story.git.commits,
+          additions: story.git.additions,
+          deletions: story.git.deletions,
+          filesTouched: story.git.filesTouched,
+          branches: story.git.branches,
+          contributors: story.git.contributors,
+          firstCommitSha: "not-collected",
+          lastCommitSha: "not-collected",
+        }
+      : {
+          commits: 0,
+          additions: 0,
+          deletions: 0,
+          filesTouched: 0,
+          branches: 0,
+          contributors: 0,
+          firstCommitSha: "not-collected",
+          lastCommitSha: "not-collected",
+        },
     milestones: selected.has("milestones") ? story.milestones : [],
     redaction: {
       tokensRemoved: selected.has("redactionSummary") ? story.redaction.tokensRemoved : 0,
     },
     stack: story.stack,
-    receiptId: story.receiptId,
+    // Public receipts are stable but deliberately derived only from the already-public report ID.
+    // The private receipt contains the HEAD revision and must never cross this boundary.
+    receiptId: `BR-PUBLIC-${story.id.replace(/[^A-Za-z0-9]/g, "").slice(-12).toUpperCase()}`,
     profile: story.profile
       ? {
           scores: selected.has("profileScores") ? story.profile.scores : null,
@@ -303,15 +399,13 @@ export function publicBuildStoryFromSnapshot(
           ...(story.narrative.fallbacksUsed?.length
             ? { fallbacksUsed: [...new Set(story.narrative.fallbacksUsed)].slice(0, 40) }
             : {}),
-          ...(story.narrative.storyPack ? { storyPack: publicStoryPack(story.narrative.storyPack, selected) } : {}),
+          ...(projectedStoryPack ? { storyPack: projectedStoryPack } : {}),
         }
       : null,
-    fallbacksUsed: story.narrative?.fallbacksUsed?.length
+    fallbacksUsed: narrativeMetadataIsPublic && story.narrative?.fallbacksUsed?.length
       ? [...new Set(story.narrative.fallbacksUsed)].slice(0, 40)
       : [],
-    storyPack: story.narrative?.storyPack && hasAnyStoryPackField(selected)
-      ? publicStoryPack(story.narrative.storyPack, selected)
-      : null,
+    storyPack: projectedStoryPack,
     decisionPatterns: selected.has("decisionPatterns")
       ? (story.narrative?.decisionPatterns ?? []).map(
           (line) => sanitizePublicText(line, NARRATIVE_FIELD_LIMITS.decisionPatternItem).value,

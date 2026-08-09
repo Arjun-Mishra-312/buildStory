@@ -72,15 +72,15 @@
   // `wrangler secret put ... -c wrangler.deploy.jsonc` and must never appear
   // here - this file is committed.
   //
-  // BUILDSTORY_LLM_BASE_URL/MODEL are the non-secret half of the subsidized
+  // BUILDSTORY_CLOUD_PROVIDER and BUILDSTORY_LLM_BASE_URL/MODEL are the non-secret half of the subsidized
   // Buildstory Cloud narrative path (see docs/production-runbook.md's
-  // "Enable Buildstory Cloud" step). The secret half, BUILDSTORY_LLM_API_KEY,
+  // "Enable Buildstory Cloud" step). The secret half, BUILDSTORY_OPENROUTER_API_KEY,
   // is set separately with `wrangler secret put`. Until that secret is set,
   // narrativeProviderConfigured("cloud") is false and the Buildstory Cloud
   // option stays hidden in the dashboard - having the base URL/model here
   // with no key set is a safe, inert state, not a partial enablement.
-  // BUILDSTORY_LLM_MODEL is deliberately the only model this path will ever
-  // call - see lib/narrative/pricing.ts.
+  // OpenRouter requests pin DeepSeek V4 Flash and enforce ZDR/data-collection
+  // request controls in lib/narrative/provider.ts.
   "vars": {
     "BUILDSTORY_STORE": "d1",
     "BUILDSTORY_DEV_AUTH_BYPASS": "false",
@@ -88,8 +88,11 @@
     "BUILDSTORY_PUBLIC_ORIGIN": "https://buildstory.dev",
     "BUILDSTORY_ALLOWED_HOSTS": "buildstory.dev",
     "BUILDSTORY_LOG_LEVEL": "info",
-    "BUILDSTORY_LLM_BASE_URL": "https://api.openai.com/v1",
-    "BUILDSTORY_LLM_MODEL": "gpt-5.6-luna"
+    "BUILDSTORY_CLOUD_PROVIDER": "openrouter",
+    "BUILDSTORY_LLM_BASE_URL": "https://openrouter.ai/api/v1",
+    "BUILDSTORY_LLM_MODEL": "deepseek/deepseek-v4-flash",
+    "BUILDSTORY_ENABLE_HOSTED_OPENAI": "false",
+    "BUILDSTORY_LAUNCH_PRO_FOR_ALL": "true"
   },
 
   "d1_databases": [
@@ -99,6 +102,18 @@
       "database_id": "055b1689-e3e4-4b75-8077-331c54266920"
     }
   ],
+
+  "queues": {
+    "producers": [{ "binding": "NARRATIVE_QUEUE", "queue": "buildstory-narratives" }],
+    "consumers": [{
+      "queue": "buildstory-narratives",
+      "max_batch_size": 1,
+      "max_concurrency": 3,
+      "max_retries": 3,
+      "retry_delay": 60,
+      "dead_letter_queue": "buildstory-narratives-dlq"
+    }]
+  },
 
   // Single source of truth for the deployed hostname. prepare-deploy-config.ts
   // copies this verbatim and cross-checks it against vars.BUILDSTORY_PUBLIC_ORIGIN,

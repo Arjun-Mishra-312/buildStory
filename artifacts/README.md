@@ -1,18 +1,18 @@
 # Local package artifacts
 
-`buildstory-scan-0.9.1.tgz` is the current packed archive built from
+`buildstory-scan-0.9.2.tgz` is the current packed archive built from
 `packages/buildstory-scanner`. It is the same tarball `npm publish` uploads, so
 installing it locally exercises the real published layout.
 
 ```powershell
-npm install --global ./artifacts/buildstory-scan-0.9.1.tgz
+npm install --global ./artifacts/buildstory-scan-0.9.2.tgz
 buildstory-scan --version
 ```
 
 SHA-256 for the committed archive:
 
 ```text
-be5c9cef70dd4c5020bb9f5bf0482f3ae53f67d70e18ecb19d54c753085d3dc9
+f850e46e0db2f416fb5449afe9b1b0f5e17398b078608acf730ab0ebc49e43f9
 ```
 
 Rebuild it with `npm run package:scanner`; update this checksum whenever package
@@ -23,7 +23,7 @@ silently validating an older archive. It checks the embedded schema version
 and that this README names the current archive; keeping the checksum itself
 current is still a manual step every repack.
 
-`0.9.1` is copy-only: renames every user-facing "cloud"/"cloud mode" mention
+`0.9.2` is the public-launch privacy hardening release. It fixes BYOK capability negotiation, adds a mandatory pre-provider review, prevents untrusted upload error bodies from reaching terminal output, expands quoted-secret/email/path/host redaction, caps standard evidence at 40 excerpts/20,000 characters and Deep at 240 excerpts/700 KiB, preserves validated V3 Deep reports through final sanitization, and makes retry behavior explicit. `0.9.1` was copy-only: it renamed every user-facing "cloud"/"cloud mode" mention
 in CLI help text and confirmation prompts to "Buildstory Cloud", matching the
 web app. No behavior change from `0.9.0`.
 

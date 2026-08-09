@@ -1,5 +1,7 @@
 # Buildstory Privacy Policy — DRAFT
 
+> **SUPERSEDED:** Do not use this historical draft as a data-flow inventory. The normative audited policy is `apps/buildstory-web/app/privacy/page.tsx` (rendered at `/privacy`), which covers the current four modes, cloud caps/provider retention, publication review, and media revocation.
+>
 > **This is a working draft, not a published or legally reviewed policy.**
 > It was written by an engineering assistant from the product's actual
 > implemented behavior as of this draft's date, to give a lawyer and the

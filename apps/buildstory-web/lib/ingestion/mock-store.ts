@@ -4,7 +4,7 @@ import { baseHandleFrom, baseSlugFrom, candidateHandles, candidateSlugs, isReser
 import { normalizeArtifactUrl, type ArtifactLinksUpdate } from "@/lib/ingestion/artifact-links";
 import { isLoopbackHostname } from "@/lib/ingestion/local-api";
 import { mediaPublicUrl } from "@/lib/media/url";
-import { generateNarrative, narrativeProviderConfigured, NarrativeProviderError } from "@/lib/narrative/provider";
+import { configuredCloudNarrativeModel, configuredCloudNarrativeProvider, generateNarrative, narrativeProviderConfigured, NarrativeProviderError } from "@/lib/narrative/provider";
 import { canUseCloudNarrative, effectivePlan } from "@/lib/narrative/entitlement";
 import { estimateCostMicroUsd } from "@/lib/narrative/pricing";
 import { NARRATIVE_FIELD_LIMITS } from "@/lib/narrative/schema";
@@ -12,7 +12,7 @@ import { sanitizePublicText } from "@/lib/publication/sanitization";
 import { computeChapterDelta, publicChapterDelta, type ChapterDelta } from "@/lib/story/chapter-delta";
 import { notifyFollowersOfStoryUpdate } from "@/lib/social/store";
 import { getTrendingScoreForReport, registerProfile as registerSocialProfileRecord, registerReport as registerSocialReportRecord } from "@/lib/social/mock-store";
-import { MAX_MEDIA_PER_REPORT } from "./contracts";
+import { MAX_MEDIA_PER_REPORT, PUBLIC_FIELD_KEYS } from "./contracts";
 import { DEFAULT_STORY_BACKGROUND_ID, isStoryBackgroundId } from "@/lib/background-options";
 import { builderRoleLabel, isBuilderRole, type BuilderRole } from "@/lib/identity/builder-roles";
 import { GUIDE_VERSION, isGuideKey, isGuideState, type GuideKey, type GuideState, type GuidanceRecord } from "@/lib/guidance/contracts";
@@ -89,6 +89,9 @@ type StoredNarrative = {
   status: NarrativeStatus;
   sections: NarrativeRecord["sections"];
   storyPack: NarrativeRecord["storyPack"];
+  analysisTierRequested: NarrativeRecord["analysisTierRequested"];
+  analysisTierDelivered: NarrativeRecord["analysisTierDelivered"];
+  evidenceScrubbedAt: string | null;
   observability: NarrativeRecord["observability"];
   fallbacksUsed: string[];
   inputTokens: number;
@@ -96,6 +99,13 @@ type StoredNarrative = {
   costMicroUsd: number;
   attempts: number;
 };
+
+function narrativeConfig(mode: UploadSessionView["narrativeMode"], provider: UploadSessionView["narrativeProvider"] = null, pro = true): Pick<UploadSessionView, "narrativeProvider" | "analysisTier"> {
+  if (mode === "local") return { narrativeProvider: "ollama", analysisTier: "standard" };
+  if (mode === "byok") return { narrativeProvider: provider === "openai" ? "openai" : "openrouter", analysisTier: pro ? "deep" : "standard" };
+  if (mode === "cloud") return { narrativeProvider: configuredCloudNarrativeProvider(), analysisTier: pro ? "deep" : "standard" };
+  return { narrativeProvider: null, analysisTier: "standard" };
+}
 
 type StoredBudget = {
   spentMicroUsd: number;
@@ -231,6 +241,7 @@ function createSeedStore(): MockStore {
     projectLabel: orbitNotesSnapshot.identity.name,
     narrativeModel: null,
     narrativeMode: "cloud",
+    ...narrativeConfig("cloud"),
     status: "report_ready",
     createdAt: orbitNotesSnapshot.provenance.scannedAt,
     expiresAt: orbitNotesSnapshot.provenance.scannedAt,
@@ -318,6 +329,8 @@ function cleanSession(session: StoredUploadSession): UploadSessionView {
     projectLabel: session.projectLabel,
     narrativeModel: session.narrativeModel,
     narrativeMode: session.narrativeMode,
+    narrativeProvider: session.narrativeProvider,
+    analysisTier: session.analysisTier,
     status: session.status,
     createdAt: session.createdAt,
     expiresAt: session.expiresAt,
@@ -713,7 +726,7 @@ function recordNarrativeSpend(ownerUserId: string, costMicroUsd: number) {
   }
 }
 
-function createNarrativeJob(reportId: string, ownerUserId: string) {
+function createNarrativeJob(reportId: string, ownerUserId: string, analysisTierRequested: NarrativeRecord["analysisTierRequested"]) {
   store.narratives.set(reportId, {
     id: makeId("nar"),
     reportId,
@@ -724,6 +737,9 @@ function createNarrativeJob(reportId: string, ownerUserId: string) {
     status: "queued",
     sections: null,
     storyPack: null,
+    analysisTierRequested,
+    analysisTierDelivered: "standard",
+    evidenceScrubbedAt: null,
     observability: null,
     fallbacksUsed: [],
     inputTokens: 0,
@@ -761,6 +777,7 @@ async function runNarrativeJob(narrative: StoredNarrative, reportId: string): Pr
     const result = await generateNarrative(
       report.sourceSnapshot,
       store.sessions.get(report.uploadSessionId)?.narrativeModel,
+      { analysisTier: narrative.analysisTierRequested },
     );
     narrative.provider = result.provider;
     narrative.model = result.model;
@@ -780,6 +797,7 @@ async function runNarrativeJob(narrative: StoredNarrative, reportId: string): Pr
       growthEdge: sanitizePublicText(result.sections.growthEdge, NARRATIVE_FIELD_LIMITS.growthEdge).value,
     };
     narrative.storyPack = result.storyPack;
+    narrative.analysisTierDelivered = result.storyPack.version === "3.0.0" ? "deep" : "standard";
     narrative.observability = {
       providerCounts: Object.fromEntries(report.sourceSnapshot?.sourceSelection.providers.map((item) => [item.provider, item.sessionsIncluded]) ?? []),
       promptVersion: "narrative-v2",
@@ -787,14 +805,16 @@ async function runNarrativeJob(narrative: StoredNarrative, reportId: string): Pr
       generationLatencyMs: 0,
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
-      costMicroUsd: estimateCostMicroUsd(result.model, result.inputTokens, result.outputTokens),
+      reasoningTokens: result.reasoningTokens,
+      cachedTokens: result.cachedTokens,
+      costMicroUsd: result.actualCostMicroUsd ?? estimateCostMicroUsd(result.model, result.inputTokens, result.outputTokens),
       invalidReferenceCount: result.invalidReferenceCount,
       fallbackCount: result.fallbacksUsed.length,
     };
     narrative.fallbacksUsed = result.fallbacksUsed;
     narrative.inputTokens = result.inputTokens;
     narrative.outputTokens = result.outputTokens;
-    narrative.costMicroUsd = estimateCostMicroUsd(result.model, result.inputTokens, result.outputTokens);
+    narrative.costMicroUsd = result.actualCostMicroUsd ?? estimateCostMicroUsd(result.model, result.inputTokens, result.outputTokens);
     report.snapshot.narrative = narrative.sections
       ? {
           headline: narrative.sections.headline,
@@ -808,9 +828,20 @@ async function runNarrativeJob(narrative: StoredNarrative, reportId: string): Pr
         }
       : undefined;
     narrative.status = "ready";
+    if (report.sourceSnapshot.narrativeEvidence) {
+      delete report.sourceSnapshot.narrativeEvidence;
+      narrative.evidenceScrubbedAt = new Date().toISOString();
+    }
     recordNarrativeSpend(narrative.ownerUserId, narrative.costMicroUsd);
   } catch {
     narrative.status = narrative.attempts >= 3 ? "failed" : "queued";
+    if (narrative.status === "failed") {
+      const report = store.reports.get(reportId);
+      if (report?.sourceSnapshot?.narrativeEvidence) {
+        delete report.sourceSnapshot.narrativeEvidence;
+        narrative.evidenceScrubbedAt = new Date().toISOString();
+      }
+    }
   }
 }
 
@@ -845,6 +876,9 @@ function narrativeRecordFor(reportId: string): NarrativeRecord | null {
     status: narrative.status,
     sections: narrative.sections,
     storyPack: narrative.storyPack,
+    analysisTierRequested: narrative.analysisTierRequested,
+    analysisTierDelivered: narrative.analysisTierDelivered,
+    evidenceScrubbedAt: narrative.evidenceScrubbedAt,
     observability: narrative.observability,
     costMicroUsd: narrative.costMicroUsd,
     fallbacksUsed: narrative.fallbacksUsed,
@@ -872,6 +906,7 @@ export async function createUploadSession(
   narrativeModel: string | null = null,
   narrativeMode: "local" | "byok" | "cloud" | "off" = "local",
   targetProjectId: string | null = null,
+  narrativeProvider: UploadSessionView["narrativeProvider"] = null,
 ): Promise<{ session: UploadSessionView; deviceAuthorization: DeviceAuthorization }> {
   if (targetProjectId) {
     const project = store.projects.get(targetProjectId);
@@ -883,6 +918,8 @@ export async function createUploadSession(
   const expiresAt = new Date(createdAt.getTime() + 15 * 60_000);
   const id = makeId("upl");
   const deviceCode = makeDeviceCode();
+  const owner = ownerUserId ? store.users.get(ownerUserId) : null;
+  const pro = effectivePlan(owner?.plan === "pro" ? "pro" : "free") === "pro";
   const session: StoredUploadSession = {
     id,
     creatorId,
@@ -891,6 +928,7 @@ export async function createUploadSession(
     projectLabel: projectLabel.trim().slice(0, 120) || "New local project",
     narrativeModel,
     narrativeMode,
+    ...narrativeConfig(narrativeMode, narrativeProvider, pro),
     status: "awaiting_scanner",
     createdAt: createdAt.toISOString(),
     expiresAt: expiresAt.toISOString(),
@@ -986,7 +1024,12 @@ export async function claimUploadSession(
       schemaVersion: PROJECT_SNAPSHOT_SCHEMA_VERSION,
       maxBytes: MAX_SNAPSHOT_BYTES,
     },
-    ...(narrativeModes ? { narrative: { mode: session.narrativeMode, model: session.narrativeModel } } : {}),
+    ...(narrativeModes ? { narrative: {
+      mode: session.narrativeMode,
+      provider: session.narrativeProvider,
+      model: session.narrativeMode === "cloud" ? configuredCloudNarrativeModel() : session.narrativeModel,
+      analysisTier: session.analysisTier,
+    } } : {}),
   };
 }
 
@@ -1033,6 +1076,19 @@ export async function acceptSnapshot(
       422,
       validated.errors,
     );
+  }
+  const hasUploadedEvidence = Boolean(validated.snapshot.narrativeEvidence?.excerpts.length);
+  if (session.narrativeMode !== "cloud" && hasUploadedEvidence) {
+    throw new MockIngestionError("narrative_mode_mismatch", "This connection mode does not authorize conversation-excerpt uploads.", 422);
+  }
+  if ((session.narrativeMode === "cloud" || session.narrativeMode === "off") && validated.snapshot.generatedNarrative) {
+    throw new MockIngestionError("narrative_mode_mismatch", "This connection mode does not authorize an uploaded generated narrative.", 422);
+  }
+  if (hasUploadedEvidence) {
+    const expectedPolicy = session.analysisTier === "deep" ? "deep-evidence-v2" : "deterministic-heuristic-v1";
+    if (validated.snapshot.narrativeEvidence?.policy.excerptSelection !== expectedPolicy) {
+      throw new MockIngestionError("analysis_tier_mismatch", "The evidence-selection policy does not match the analysis tier authorized by this connection.", 422);
+    }
   }
 
   const user = Array.from(store.users.values()).find(
@@ -1168,6 +1224,9 @@ export async function acceptSnapshot(
       status: "ready",
       sections: validated.snapshot.generatedNarrative.sections,
       storyPack: validated.snapshot.generatedNarrative.storyPack ?? null,
+      analysisTierRequested: "standard",
+      analysisTierDelivered: validated.snapshot.generatedNarrative.storyPack?.version === "3.0.0" ? "deep" : "standard",
+      evidenceScrubbedAt: null,
       observability: null,
       fallbacksUsed: validated.snapshot.generatedNarrative.fallbacksUsed,
       inputTokens: 0,
@@ -1190,6 +1249,9 @@ export async function acceptSnapshot(
       status: "failed",
       sections: null,
       storyPack: null,
+      analysisTierRequested: "standard",
+      analysisTierDelivered: "standard",
+      evidenceScrubbedAt: null,
       observability: null,
       fallbacksUsed: [],
       inputTokens: 0,
@@ -1198,7 +1260,7 @@ export async function acceptSnapshot(
       attempts: 0,
     });
   } else if (validated.snapshot.narrativeEvidence && validated.snapshot.narrativeEvidence.excerpts.length > 0) {
-    createNarrativeJob(reportId, user.id);
+    createNarrativeJob(reportId, user.id, session.analysisTier);
   }
 
   return {
@@ -1335,35 +1397,8 @@ export function updateReport(
   }
 
   if (update.selectedPublicFields) {
-    const allowed: PublicFieldKey[] = [
-      "tagline",
-      "description",
-      "timeWindow",
-      "sessionSummary",
-      "milestones",
-      "modelMix",
-      "costEstimate",
-      "toolUsage",
-      "gitAggregates",
-      "redactionSummary",
-      "archetype",
-      "profileScores",
-      "workPatterns",
-      "narrative",
-      "storyBuildArc",
-      "storyMoments",
-      "storyTurningPoint",
-      "storyDecisions",
-      "storyLearnings",
-      "storyTraits",
-      "decisionPatterns",
-      "standoutTraits",
-      "growthEdge",
-      "artifactLinks",
-      "artifactMedia",
-    ];
     const unique = [...new Set(update.selectedPublicFields)];
-    if (unique.some((field) => !allowed.includes(field))) {
+    if (unique.some((field) => !PUBLIC_FIELD_KEYS.includes(field))) {
       throw new MockIngestionError("invalid_public_fields", "One or more public fields are invalid.", 422);
     }
     report.selectedPublicFields = unique;
@@ -1429,6 +1464,15 @@ export function listReportMedia(reportId: string): ReportMediaRecord[] {
   return Array.from(store.reportMedia.values())
     .filter((media) => media.reportId === reportId)
     .sort((left, right) => left.sortOrder - right.sortOrder);
+}
+
+/** Owner access or an exact media ID present in the frozen public projection. */
+export function canReadReportMedia(r2Key: string, creatorId: string | null): boolean {
+  const media = Array.from(store.reportMedia.values()).find((candidate) => candidate.r2Key === r2Key);
+  if (!media) return false;
+  const report = store.reports.get(media.reportId);
+  if (creatorId && report?.creatorId === creatorId) return true;
+  return store.publicStoryIndex.get(media.reportId)?.story.artifactMedia.some((candidate) => candidate.id === media.id) ?? false;
 }
 
 /**

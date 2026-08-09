@@ -32,6 +32,7 @@ type Discovery = {
 
 export const OLLAMA_MODEL_PREFERENCE_KEY = "buildstory:ollama-model";
 export const NARRATIVE_MODE_PREFERENCE_KEY = "buildstory:narrative-mode";
+export const NARRATIVE_PROVIDER_PREFERENCE_KEY = "buildstory:narrative-provider";
 
 function useStoredPreference<T extends string>(
   key: string,
@@ -97,12 +98,17 @@ export function OllamaModelStatus({
   const [chosenModel, setChosenModel] = useStoredPreference(OLLAMA_MODEL_PREFERENCE_KEY, "auto", (value): value is string => Boolean(value));
   const [narrativeMode, setNarrativeMode] = useStoredPreference(
     NARRATIVE_MODE_PREFERENCE_KEY,
-    "local",
+    "cloud",
     (value): value is "local" | "byok" | "cloud" | "off" => value === "local" || value === "byok" || value === "cloud" || value === "off",
+  );
+  const [narrativeProvider, setNarrativeProvider] = useStoredPreference(
+    NARRATIVE_PROVIDER_PREFERENCE_KEY,
+    "openrouter",
+    (value): value is "openrouter" | "openai" => value === "openrouter" || value === "openai",
   );
 
   useEffect(() => {
-    if (!discoveryAvailable) return;
+    if (!discoveryAvailable || narrativeMode !== "local") return;
     const controller = new AbortController();
     const timeout = window.setTimeout(() => {
       setError("The local model check timed out. You can continue with Automatic and retry when Ollama is running.");
@@ -136,7 +142,7 @@ export function OllamaModelStatus({
       });
 
     return () => { window.clearTimeout(timeout); controller.abort(); };
-  }, [refreshToken, discoveryAvailable]);
+  }, [refreshToken, discoveryAvailable, narrativeMode]);
 
   useEffect(() => {
     // The Cloud option is server-gated (see cloudAvailable) because the
@@ -163,7 +169,7 @@ export function OllamaModelStatus({
           <span className="section-index">( LOCAL NARRATIVE MODEL )</span>
           <h2>Keep the story model on this machine.</h2>
         </div>
-        {discoveryAvailable ? (
+        {discoveryAvailable && narrativeMode === "local" ? (
           <button className="button button--secondary button--small" type="button" onClick={() => {
             setError(null);
             setDiscovery(null);
@@ -184,20 +190,31 @@ export function OllamaModelStatus({
             setNarrativeMode(value);
           }}
         >
-          <option value="local">Local — excerpts never leave this machine</option>
-          <option value="byok">Bring your own key — excerpts go only to your chosen provider</option>
-          {cloudAvailable ? <option value="cloud">Buildstory Cloud — reviewed excerpts are uploaded through Buildstory</option> : null}
+          {cloudAvailable ? <option value="cloud">Buildstory Cloud — DeepSeek V4 Flash via OpenRouter (recommended)</option> : null}
+          <option value="byok">Bring your own key — OpenRouter or OpenAI</option>
+          <option value="local">Local — standard-depth report with Ollama</option>
           <option value="off">Off — deterministic profile only</option>
         </select>
         <small>
-          Local is the default.{" "}
+          OpenRouter Cloud is recommended when available.{" "}
           {cloudAvailable
             ? "Bring-your-own-key and Buildstory Cloud are explicit opt-ins."
             : "Bring-your-own-key is an explicit opt-in; Buildstory Cloud is not available on this deployment yet."}
         </small>
         <NarrativeModeDisclosure mode={narrativeMode} />
+        {narrativeMode === "byok" ? (
+          <label htmlFor="narrative-provider-choice">
+            BYOK provider
+            <select id="narrative-provider-choice" value={narrativeProvider} onChange={(event) => setNarrativeProvider(event.target.value as "openrouter" | "openai")}>
+              <option value="openrouter">OpenRouter — DeepSeek V4 Flash, ZDR routing</option>
+              <option value="openai">OpenAI — GPT-5.6 Luna, account policy applies</option>
+            </select>
+            <small>{narrativeProvider === "openrouter" ? "Set BUILDSTORY_OPENROUTER_API_KEY in the scanner environment." : "Set BUILDSTORY_OPENAI_API_KEY in the scanner environment. Requests send store: false."}</small>
+          </label>
+        ) : null}
       </div>
 
+      {narrativeMode === "local" ? <div>
       {!discoveryAvailable ? (
         <p className="ollama-model-status__muted" role="status">
           Model discovery runs only in the local portal — this site cannot reach your machine. Keep <strong>Local</strong> selected and buildstory-scan will detect your installed Ollama models itself when you scan. Leave the model as Automatic unless you want to pin a specific one.
@@ -252,6 +269,7 @@ export function OllamaModelStatus({
           </small>
         </>
       ) : null}
+      </div> : null}
     </section>
   );
 }

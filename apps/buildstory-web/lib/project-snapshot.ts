@@ -3,7 +3,7 @@
  * and strict JSON Schema live under lib/ingestion/scanner-project-snapshot.ts
  * and lib/ingestion/project-snapshot.schema.json.
  */
-import type { ReportStoryPackV2, SourceSelection } from "./ingestion/scanner-project-snapshot";
+import type { ReportStoryPack, SourceSelection } from "./ingestion/scanner-project-snapshot";
 export type SnapshotVisibility = "private" | "unlisted" | "public";
 
 export type ProjectIdentity = {
@@ -150,7 +150,7 @@ export type ReportNarrative = {
   decisionPatterns: string[];
   standoutTraits: string[];
   growthEdge: string;
-  storyPack?: ReportStoryPackV2;
+  storyPack?: ReportStoryPack;
   /** Safe component paths only; never contains prompts, excerpts, or source text. */
   fallbacksUsed?: string[];
 };

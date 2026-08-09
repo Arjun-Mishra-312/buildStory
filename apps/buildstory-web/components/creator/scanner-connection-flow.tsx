@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { DeviceAuthorization, UploadSessionView } from "@/lib/ingestion/contracts";
-import { NARRATIVE_MODE_PREFERENCE_KEY, OLLAMA_MODEL_PREFERENCE_KEY } from "./ollama-model-status";
+import { NARRATIVE_MODE_PREFERENCE_KEY, NARRATIVE_PROVIDER_PREFERENCE_KEY, OLLAMA_MODEL_PREFERENCE_KEY } from "./ollama-model-status";
 import { GuideTooltip } from "@/components/guidance/studio-guide";
 
 const orderedStatuses = [
@@ -75,12 +75,14 @@ export function ScannerConnectionFlow({
     setError(null);
     try {
       let narrativeModel: string | null = null;
-      let selectedMode: "local" | "byok" | "cloud" | "off" = "local";
+      let selectedMode: "local" | "byok" | "cloud" | "off" = "cloud";
+      let narrativeProvider: "openrouter" | "openai" = "openrouter";
       try {
         const storedModel = window.localStorage.getItem(OLLAMA_MODEL_PREFERENCE_KEY);
         narrativeModel = storedModel && storedModel !== "auto" ? storedModel : null;
         const storedMode = window.localStorage.getItem(NARRATIVE_MODE_PREFERENCE_KEY);
         if (storedMode === "local" || storedMode === "byok" || storedMode === "cloud" || storedMode === "off") selectedMode = storedMode;
+        if (window.localStorage.getItem(NARRATIVE_PROVIDER_PREFERENCE_KEY) === "openai") narrativeProvider = "openai";
       } catch {
         narrativeModel = null;
       }
@@ -92,6 +94,7 @@ export function ScannerConnectionFlow({
           projectLabel,
           narrativeModel,
           narrativeMode: selectedMode,
+          ...(selectedMode === "byok" ? { narrativeProvider } : {}),
           ...(targetProject ? { projectId: targetProject.id } : {}),
         }),
       });
@@ -177,17 +180,17 @@ export function ScannerConnectionFlow({
             {narrativeMode === "cloud" ? (
               <label className="scanner-evidence-option">
                 <input type="checkbox" checked={withEvidence} onChange={(event) => setWithEvidence(event.target.checked)} />
-                <span>Include a small, redacted narrative evidence bundle <small>(requires explicit review)</small></span>
+                <span>Include the reviewed redacted evidence bundle for a {session?.analysisTier === "deep" ? "deep Pro" : "standard"} report <small>(requires explicit review)</small></span>
               </label>
             ) : null}
             <p className="scanner-evidence-explainer">
               <strong>Narrative mode <GuideTooltip label="narrative mode">Local keeps excerpts on this machine; bring-your-own-key sends excerpts only to a cloud model you configure yourself; Buildstory Cloud is an explicit upload opt-in through Buildstory; off creates deterministic metrics only.</GuideTooltip></strong>{" "}
               {narrativeMode === "local"
-                ? "Local mode asks Ollama on this machine to write the profile. Conversation excerpts are used in memory and never uploaded."
+                ? "Local mode sends selected excerpts only over loopback to Ollama on this machine. They are never uploaded to Buildstory or an external model provider."
                 : narrativeMode === "byok"
-                  ? "Bring-your-own-key mode sends redacted excerpts only to the cloud model you configure with your own key (BUILDSTORY_BYOK_* environment variables). Buildstory never receives the excerpts or the key — only the resulting narrative is uploaded."
+                  ? `Bring-your-own-key requires a pre-send CLI review of the exact excerpts and facts, then sends them directly to ${session?.narrativeProvider === "openai" ? "OpenAI using BUILDSTORY_OPENAI_API_KEY; store: false is sent, but your OpenAI organization retention policy controls retention" : "OpenRouter using BUILDSTORY_OPENROUTER_API_KEY with ZDR routing and data collection denied"}. ${session?.analysisTier === "deep" ? "Deep is capped at 240 excerpts, 1,500 characters each and 700 KiB total (dynamically reduced to fit the upload grant) and uses a private analysis pass followed by V3 synthesis;" : "Standard is capped at 40 excerpts, 600 characters each and 20,000 characters total;"} each component may make one JSON-repair request. Buildstory receives only the finished report and never the key or excerpts.`
                   : narrativeMode === "cloud"
-                    ? "Buildstory Cloud uploads only the redacted excerpts you review; it is opt-in and can be disabled in settings."
+                    ? `Buildstory Cloud sends the reviewed evidence and disclosed deterministic facts to DeepSeek V4 Flash through OpenRouter with ZDR-eligible routing and data collection denied. ${session?.analysisTier === "deep" ? "Deep is capped at 240 excerpts, 1,500 characters each and 700 KiB total, dynamically reduced to fit the upload grant; update chapters also include the prior chapter's aggregate facts, deterministic profile, and final report, but not its old excerpts." : "Standard is capped at 40 excerpts, 600 characters each and 20,000 characters total."} Buildstory scrubs excerpts on completion or final failure and marks them to expire after two hours.`
                     : "Off mode uploads deterministic metrics and profile scores without narrative prose."}
             </p>
             <button type="button" className="scanner-command scanner-command--secondary" onClick={() => {
@@ -201,6 +204,8 @@ export function ScannerConnectionFlow({
               <div><dt>Connection code</dt><dd>{authorization.userCode}</dd></div>
               <div><dt>Loopback API</dt><dd>{authorization.apiBaseUrl}</dd></div>
               <div><dt>Narrative mode</dt><dd>{NARRATIVE_MODE_LABELS[session?.narrativeMode ?? narrativeMode]}</dd></div>
+              <div><dt>Report depth</dt><dd>{session?.analysisTier === "deep" ? "Pro / deep" : "Standard"}{session?.narrativeMode === "local" || session?.narrativeMode === "byok" ? " — this mode currently produces standard reports" : ""}</dd></div>
+              <div><dt>Provider</dt><dd>{session?.narrativeProvider === "openrouter" ? "OpenRouter / DeepSeek V4 Flash" : session?.narrativeProvider ?? "None"}</dd></div>
               {(session?.narrativeMode ?? narrativeMode) !== "cloud" ? (
                 <div><dt>Narrative model</dt><dd>{session?.narrativeModel ?? "Automatic"}</dd></div>
               ) : null}

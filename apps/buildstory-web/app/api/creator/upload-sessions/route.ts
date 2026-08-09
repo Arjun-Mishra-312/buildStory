@@ -2,6 +2,7 @@ import { ingestionErrorResponse, jsonError, requireApiCreator } from "@/lib/api/
 import { cliApiBaseUrl, isHostedCliEnabled, isLocalApiEnabled, readBoundedJson } from "@/lib/ingestion/local-api";
 import { createUploadSession, ensureUser, listUploadSessions } from "@/lib/ingestion/store";
 import { isOllamaAutoModel, isValidOllamaModelName } from "@/lib/narrative/ollama";
+import { configuredCloudNarrativeProvider } from "@/lib/narrative/provider";
 import { assertSameOriginBrowserMutation } from "@/lib/security/browser-request";
 import { checkRateLimit } from "@/lib/social/rate-limit-dispatch";
 
@@ -49,11 +50,11 @@ export async function POST(request: Request) {
       !value ||
       typeof value !== "object" ||
       Array.isArray(value) ||
-      Object.keys(value).some((key) => !["projectLabel", "narrativeModel", "narrativeMode", "projectId"].includes(key))
+      Object.keys(value).some((key) => !["projectLabel", "narrativeModel", "narrativeMode", "narrativeProvider", "projectId"].includes(key))
     ) {
-      return jsonError("invalid_request", "Only projectLabel, narrativeModel, narrativeMode, and projectId may be provided.", 422);
+      return jsonError("invalid_request", "Only projectLabel, narrativeModel, narrativeMode, narrativeProvider, and projectId may be provided.", 422);
     }
-    const body = value as { projectLabel?: unknown; narrativeModel?: unknown; narrativeMode?: unknown; projectId?: unknown };
+    const body = value as { projectLabel?: unknown; narrativeModel?: unknown; narrativeMode?: unknown; narrativeProvider?: unknown; projectId?: unknown };
     if (
       body.projectLabel !== undefined &&
       (typeof body.projectLabel !== "string" || body.projectLabel.length > 120)
@@ -70,8 +71,11 @@ export async function POST(request: Request) {
     if (body.narrativeMode !== undefined && !["local", "byok", "cloud", "off"].includes(body.narrativeMode as string)) {
       return jsonError("invalid_narrative_mode", "narrativeMode must be local, byok, cloud, or off.", 422);
     }
+    if (body.narrativeProvider !== undefined && body.narrativeProvider !== "openrouter" && body.narrativeProvider !== "openai") {
+      return jsonError("invalid_narrative_provider", "narrativeProvider must be openrouter or openai.", 422);
+    }
     if (
-      body.narrativeModel !== undefined &&
+      body.narrativeMode === "local" && body.narrativeModel !== undefined &&
       body.narrativeModel !== null &&
       (typeof body.narrativeModel !== "string" ||
         (!isOllamaAutoModel(body.narrativeModel) && !isValidOllamaModelName(body.narrativeModel)))
@@ -85,15 +89,18 @@ export async function POST(request: Request) {
     const projectLabel =
       typeof body.projectLabel === "string" ? body.projectLabel : "New local project";
     const narrativeMode = typeof body.narrativeMode === "string" ? body.narrativeMode as "local" | "byok" | "cloud" | "off" : "local";
+    const narrativeProvider = narrativeMode === "byok"
+      ? body.narrativeProvider === "openai" ? "openai" : "openrouter"
+      : narrativeMode === "cloud" ? configuredCloudNarrativeProvider() : narrativeMode === "local" ? "ollama" : null;
     // Model choice only means anything for local/BYOK (which model runs on
     // the creator's own machine). Buildstory Cloud always calls the one
     // model it supports - there is no user-facing choice on that path, so
     // any submitted value is ignored rather than validated, regardless of
     // what a client sends.
-    const narrativeModel =
-      narrativeMode !== "cloud" && typeof body.narrativeModel === "string" && !isOllamaAutoModel(body.narrativeModel)
-        ? body.narrativeModel.trim()
-        : null;
+    const narrativeModel = narrativeMode === "byok"
+      ? narrativeProvider === "openai" ? "gpt-5.6-luna" : "deepseek/deepseek-v4-flash"
+      : narrativeMode === "local" && typeof body.narrativeModel === "string" && !isOllamaAutoModel(body.narrativeModel)
+        ? body.narrativeModel.trim() : null;
     const targetProjectId = typeof body.projectId === "string" ? body.projectId : null;
     const user = await ensureUser(creator);
     await checkRateLimit("upload_session", user.id, 20, 60, request);
@@ -105,6 +112,7 @@ export async function POST(request: Request) {
       narrativeModel,
       narrativeMode,
       targetProjectId,
+      narrativeProvider,
     );
     return Response.json(result, {
       status: 201,

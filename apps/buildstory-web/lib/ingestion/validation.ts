@@ -9,7 +9,7 @@ import type {
 } from "./scanner-project-snapshot";
 import { LEGACY_PROJECT_SNAPSHOT_SCHEMA_VERSION, OLDEST_PROJECT_SNAPSHOT_SCHEMA_VERSION, PREVIOUS_PROJECT_SNAPSHOT_SCHEMA_VERSION, PROJECT_SNAPSHOT_SCHEMA_VERSION } from "./scanner-project-snapshot";
 import { sanitizePublicText } from "../publication/sanitization";
-import type { ReportStoryPackV2 } from "./scanner-project-snapshot";
+import type { ReportStoryPack } from "./scanner-project-snapshot";
 
 export const MAX_SNAPSHOT_BYTES = 1_000_000;
 
@@ -422,14 +422,33 @@ function deterministicNarrativeViolations(snapshot: ScannerProjectSnapshot) {
       "$.generatedNarrative and $.narrativeEvidence.excerpts cannot both be present - local and cloud narrative generation are mutually exclusive.",
     );
   }
+  if (snapshot.narrativeEvidence) {
+    const { policy, excerpts } = snapshot.narrativeEvidence;
+    const totalCharacters = excerpts.reduce((sum, excerpt) => sum + excerpt.text.length, 0);
+    const totalBytes = excerpts.reduce((sum, excerpt) => sum + new TextEncoder().encode(excerpt.text).byteLength, 0);
+    const deep = policy.excerptSelection === "deep-evidence-v2";
+    const maxExcerpts = deep ? 240 : 40;
+    const maxCharsPerExcerpt = deep ? 1_500 : 600;
+    const maxTotalChars = deep ? 700 * 1024 : 20_000;
+    const maxTotalBytes = deep ? 700 * 1024 : 80_000;
+    if (policy.maxExcerpts > maxExcerpts || excerpts.length > maxExcerpts) {
+      errors.push(`$.narrativeEvidence exceeds Buildstory Cloud's ${maxExcerpts}-excerpt server limit for this analysis tier.`);
+    }
+    if (policy.maxCharsPerExcerpt > maxCharsPerExcerpt || excerpts.some((excerpt) => excerpt.text.length > maxCharsPerExcerpt)) {
+      errors.push(`$.narrativeEvidence exceeds Buildstory Cloud's ${maxCharsPerExcerpt}-character per-excerpt server limit for this analysis tier.`);
+    }
+    if (policy.maxTotalChars > maxTotalChars || totalCharacters > maxTotalChars || totalBytes > maxTotalBytes || (policy.maxTotalBytes !== undefined && policy.maxTotalBytes > maxTotalBytes)) {
+      errors.push(`$.narrativeEvidence exceeds Buildstory Cloud's bounded total evidence limit for this analysis tier.`);
+    }
+  }
   return errors.slice(0, 20);
 }
 
 function storyPackViolations(snapshot: ScannerProjectSnapshot): string[] {
-  const pack = snapshot.generatedNarrative?.storyPack as ReportStoryPackV2 | undefined;
+  const pack = snapshot.generatedNarrative?.storyPack as ReportStoryPack | undefined;
   if (!pack) return [];
   const errors: string[] = [];
-  if (pack.version !== "2.0.0") errors.push("$.generatedNarrative.storyPack.version must be 2.0.0.");
+  if (pack.version !== "2.0.0" && pack.version !== "3.0.0") errors.push("$.generatedNarrative.storyPack.version must be 2.0.0 or 3.0.0.");
   const refs = new Set(pack.sources.map((source) => source.ref));
   const checkRefs = (path: string, values: string[]) => values.forEach((ref, index) => {
     if (!refs.has(ref)) errors.push(`${path}[${index}] references unknown source ${ref}.`);
@@ -438,7 +457,8 @@ function storyPackViolations(snapshot: ScannerProjectSnapshot): string[] {
   if (phases.length !== 3 || new Set(phases).size !== 3 || !(["discover", "decide", "deliver"] as const).every((phase) => phases.includes(phase))) {
     errors.push("$.generatedNarrative.storyPack.buildArc must contain exactly one discover, decide, and deliver phase.");
   }
-  if (pack.moments.length < 3 || pack.moments.length > 5) errors.push("$.generatedNarrative.storyPack.moments must contain 3-5 items.");
+  const maxMoments = pack.version === "3.0.0" ? 12 : 5;
+  if (pack.moments.length < 3 || pack.moments.length > maxMoments) errors.push(`$.generatedNarrative.storyPack.moments must contain 3-${maxMoments} items.`);
   if (pack.decisions.length < 2 || pack.decisions.length > 4) errors.push("$.generatedNarrative.storyPack.decisions must contain 2-4 items.");
   if (pack.learnings.length < 2 || pack.learnings.length > 4) errors.push("$.generatedNarrative.storyPack.learnings must contain 2-4 items.");
   if (pack.standoutTraits.length < 2 || pack.standoutTraits.length > 4) errors.push("$.generatedNarrative.storyPack.standoutTraits must contain 2-4 items.");
@@ -449,6 +469,18 @@ function storyPackViolations(snapshot: ScannerProjectSnapshot): string[] {
   pack.learnings.forEach((item, index) => checkRefs(`$.generatedNarrative.storyPack.learnings[${index}].sourceRefs`, item.sourceRefs));
   pack.standoutTraits.forEach((item, index) => checkRefs(`$.generatedNarrative.storyPack.standoutTraits[${index}].sourceRefs`, item.sourceRefs));
   checkRefs("$.generatedNarrative.storyPack.growthEdge.sourceRefs", pack.growthEdge.sourceRefs);
+  if (pack.version === "3.0.0" && pack.deepAnalysis) {
+    checkRefs("$.generatedNarrative.storyPack.deepAnalysis.executiveSynthesis.sourceRefs", pack.deepAnalysis.executiveSynthesis.sourceRefs);
+    const collections = [
+      ["decisionReview", pack.deepAnalysis.decisionReview],
+      ["frictionAndRecovery", pack.deepAnalysis.frictionAndRecovery],
+      ["engineeringPatterns", pack.deepAnalysis.engineeringPatterns],
+      ["risksAndEvidenceGaps", pack.deepAnalysis.risksAndEvidenceGaps],
+      ["nextBuildActions", pack.deepAnalysis.nextBuildActions],
+      ["chapterChanges", pack.deepAnalysis.chapterChanges],
+    ] as const;
+    collections.forEach(([name, items]) => items.forEach((item, index) => checkRefs(`$.generatedNarrative.storyPack.deepAnalysis.${name}[${index}].sourceRefs`, item.sourceRefs)));
+  }
   return errors.slice(0, 20);
 }
 
@@ -468,8 +500,8 @@ export function validateProjectSnapshot(
       return { ok: false, errors: [`Production uploads require ProjectSnapshot ${PROJECT_SNAPSHOT_SCHEMA_VERSION}; received ${String(version ?? "missing")}.`] };
     }
     const generated = (value as { generatedNarrative?: { version?: unknown; storyPack?: unknown } }).generatedNarrative;
-    if (generated && (generated.version !== "2.0.0" || !generated.storyPack)) {
-      return { ok: false, errors: ["Production uploads require GeneratedNarrative 2.0.0 with a complete ReportStoryPackV2."] };
+    if (generated && (!(["2.0.0", "3.0.0"] as unknown[]).includes(generated.version) || !generated.storyPack)) {
+      return { ok: false, errors: ["Production uploads require GeneratedNarrative 2.0.0 or 3.0.0 with a complete matching story pack."] };
     }
   }
 

@@ -102,6 +102,7 @@ generated.d1_databases = (source.d1_databases as Array<Record<string, unknown>>)
 // local-dev `buildstory-local-r2` placeholder and deploy binds a bucket that does
 // not exist - or, worse, silently creates the wrong one.
 generated.r2_buckets = required(source.r2_buckets, "wrangler.deploy.jsonc must declare the MEDIA r2_buckets binding before deploy.");
+generated.queues = required(source.queues, "wrangler.deploy.jsonc must declare the narrative Queue producer and consumer.");
 
 const vars = required(source.vars, "wrangler.deploy.jsonc must declare a vars block; the Worker returns 503 without BUILDSTORY_ALLOWED_HOSTS.") as Record<string, string>;
 for (const name of REQUIRED_VARS) {

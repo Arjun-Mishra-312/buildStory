@@ -25,6 +25,9 @@ const readyNarrative: NarrativeRecord = {
   model: "gpt-test",
   status: "ready",
   sections: { headline: "h", narrative: "n", turningPoint: "t", learnings: ["l"] },
+  analysisTierRequested: "standard",
+  analysisTierDelivered: "standard",
+  evidenceScrubbedAt: null,
   costMicroUsd: 100,
 };
 

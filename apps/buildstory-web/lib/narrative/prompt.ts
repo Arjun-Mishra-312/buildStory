@@ -1,6 +1,6 @@
 import type { ScannerProjectSnapshot } from "../ingestion/scanner-project-snapshot";
 import { computeBuilderProfile } from "../ingestion/profile";
-import { STORY_PACK_INSIGHTS_SCHEMA, STORY_PACK_STORY_SCHEMA } from "./story-pack";
+import { STORY_PACK_DEEP_ANALYSIS_SCHEMA, STORY_PACK_DEEP_OUTPUT_SCHEMA, STORY_PACK_INSIGHTS_SCHEMA, STORY_PACK_OUTPUT_SCHEMA, STORY_PACK_STORY_SCHEMA } from "./story-pack";
 
 const SYSTEM_PROMPT = `You write short, honest, evidence-linked "build story" narratives for Buildstory, a site where
 developers publish real, verified accounts of software they built with AI coding
@@ -85,6 +85,38 @@ export function buildProfileMessages(snapshot: ScannerProjectSnapshot): Array<{ 
   ];
 }
 
+export function buildCombinedMessages(snapshot: ScannerProjectSnapshot): Array<{ role: "system" | "user"; content: string }> {
+  return [
+    { role: "system", content: SYSTEM_PROMPT },
+    {
+      role: "user",
+      content: `FACTS:\n${factsBlock(snapshot)}\n\nSOURCE CATALOG:\n${sourceCatalogBlock(snapshot)}\n\nEXCERPTS:\n${excerptsBlock(snapshot)}\n\nWrite hero, buildArc, moments, turningPoint, decisions, learnings, standoutTraits, and growthEdge as one JSON object matching the schema.`,
+    },
+  ];
+}
+
+export function buildDeepAnalysisMessages(snapshot: ScannerProjectSnapshot, previousChapter: unknown = null): Array<{ role: "system" | "user"; content: string }> {
+  return [
+    { role: "system", content: `${SYSTEM_PROMPT}\nPerform a thorough engineering analysis. Prefer an empty list or low confidence over an unsupported claim. Focus on decisions, friction and recovery, engineering patterns, delivery risks, evidence gaps, and concrete next actions.` },
+    {
+      role: "user",
+      content: `FACTS:\n${factsBlock(snapshot)}\n\nSOURCE CATALOG:\n${sourceCatalogBlock(snapshot)}\n\nEXCERPTS:\n${excerptsBlock(snapshot)}\n\nPREVIOUS CHAPTER (final retained report only; may be null):\n${JSON.stringify(previousChapter)}\n\nReturn the deepAnalysis JSON object only. Every finding must use only source references from SOURCE CATALOG.`,
+    },
+  ];
+}
+
+export function buildDeepSynthesisMessages(snapshot: ScannerProjectSnapshot, analysisMap: unknown): Array<{ role: "system" | "user"; content: string }> {
+  return [
+    { role: "system", content: `${SYSTEM_PROMPT}\nCreate a layered Pro report. Preserve the concise publishable devlog while adding the supplied private deep analysis. Prefer fewer supported findings over invented completeness.` },
+    {
+      role: "user",
+      // The first deep-analysis stage already reviewed the excerpts. Do not
+      // resend them merely to turn that analysis into the final report.
+      content: `FACTS:\n${factsBlock(snapshot)}\n\nSOURCE CATALOG:\n${sourceCatalogBlock(snapshot)}\n\nANALYSIS MAP:\n${JSON.stringify(analysisMap)}\n\nReturn one JSON object matching the deep report schema. Use 6-12 moments only when the evidence supports them.`,
+    },
+  ];
+}
+
 export const NARRATIVE_RESPONSE_FORMAT = {
   type: "json_schema" as const,
   json_schema: {
@@ -101,4 +133,26 @@ export const NARRATIVE_PROFILE_RESPONSE_FORMAT = {
     strict: true,
     schema: STORY_PACK_INSIGHTS_SCHEMA,
   },
+};
+
+export const NARRATIVE_COMBINED_RESPONSE_FORMAT = {
+  type: "json_schema" as const,
+  json_schema: {
+    name: "buildstory_complete_narrative",
+    strict: true,
+    schema: {
+      ...STORY_PACK_OUTPUT_SCHEMA,
+      required: ["hero", "buildArc", "moments", "turningPoint", "decisions", "learnings", "standoutTraits", "growthEdge"],
+    },
+  },
+};
+
+export const NARRATIVE_DEEP_ANALYSIS_RESPONSE_FORMAT = {
+  type: "json_schema" as const,
+  json_schema: { name: "buildstory_deep_analysis", strict: true, schema: STORY_PACK_DEEP_ANALYSIS_SCHEMA },
+};
+
+export const NARRATIVE_DEEP_RESPONSE_FORMAT = {
+  type: "json_schema" as const,
+  json_schema: { name: "buildstory_deep_report", strict: true, schema: STORY_PACK_DEEP_OUTPUT_SCHEMA },
 };

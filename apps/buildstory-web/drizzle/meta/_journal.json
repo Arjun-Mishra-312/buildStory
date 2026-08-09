@@ -148,6 +148,13 @@
       "when": 1786238755760,
       "tag": "0020_user_plan",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1786243200000,
+      "tag": "0021_openrouter_deep_reports",
+      "breakpoints": true
     }
   ]
 }

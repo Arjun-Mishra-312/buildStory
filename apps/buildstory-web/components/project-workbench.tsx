@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import type { BuildStoryViewModel, PublicBuildStoryViewModel } from "@/lib/build-story";
 import { STORY_CATEGORIES, type NarrativeRecord, type PublicationStatus, type PublicFieldKey, type ReportMediaRecord, type StoryCategory } from "@/lib/ingestion/contracts";
 import type { NarrativeDisplayStatus } from "@/lib/ingestion/narrative-status";
-import type { ReportStoryPackV2 } from "@/lib/ingestion/scanner-project-snapshot";
+import type { ReportStoryPack } from "@/lib/ingestion/scanner-project-snapshot";
 import { DEFAULT_STORY_BACKGROUND_ID, STORY_BACKGROUND_OPTIONS, storyBackgroundOption, type StoryBackgroundId } from "@/lib/background-options";
 import { copyToClipboard } from "@/lib/clipboard";
 import { initialsFrom } from "@/lib/identity/initials";
@@ -71,10 +71,10 @@ const fieldOptions: Array<{ id: PublicFieldKey; label: string; detail: string }>
   { id: "timeWindow", label: "Build window", detail: "Dates and active-day count" },
   { id: "sessionSummary", label: "Session summary", detail: "Count and active build time" },
   { id: "milestones", label: "Milestones", detail: "Selected turning points" },
-  { id: "modelMix", label: "Model mix", detail: "Requests and relative share" },
+  { id: "modelMix", label: "Model mix", detail: "Model names, request counts, and aggregate token usage" },
   { id: "costEstimate", label: "Estimated cost", detail: "Token spend by model, priced from a static table" },
   { id: "toolUsage", label: "Tool usage", detail: "Observed tools, not a score" },
-  { id: "gitAggregates", label: "Git aggregates", detail: "Commits, files, and diff totals" },
+  { id: "gitAggregates", label: "Git aggregates", detail: "Commit, contributor, branch, file, addition, and deletion totals; never commit hashes" },
   { id: "redactionSummary", label: "Redaction summary", detail: "Counts only, never redacted content" },
   { id: "archetype", label: "Builder archetype", detail: "Rule-based profile label and rationale" },
   { id: "profileScores", label: "Profile scores", detail: "Five auditable deterministic dimensions" },
@@ -87,6 +87,13 @@ const fieldOptions: Array<{ id: PublicFieldKey; label: string; detail: string }>
   { id: "storyLearnings", label: "Story learnings", detail: "Titled evidence-linked insights" },
   { id: "storyTraits", label: "Story traits", detail: "Titled standout traits" },
   { id: "storyGrowthEdge", label: "Story growth edge", detail: "Private-by-default next step" },
+  { id: "deepExecutiveSynthesis", label: "Deep executive synthesis", detail: "AI-written synthesis plus analysis coverage counts and date window; off by default" },
+  { id: "deepDecisionReview", label: "Deep decision review", detail: "AI-written findings plus analysis coverage counts and date window; off by default" },
+  { id: "deepFrictionAndRecovery", label: "Deep friction & recovery", detail: "AI-written findings plus analysis coverage counts and date window; off by default" },
+  { id: "deepEngineeringPatterns", label: "Deep engineering patterns", detail: "AI-written findings plus analysis coverage counts and date window; off by default" },
+  { id: "deepRisksAndEvidenceGaps", label: "Deep risks & evidence gaps", detail: "AI-written findings plus analysis coverage counts and date window; off by default" },
+  { id: "deepNextBuildActions", label: "Deep next-build actions", detail: "AI-written recommendations plus analysis coverage counts and date window; off by default" },
+  { id: "deepChapterChanges", label: "Deep chapter changes", detail: "AI-written comparisons plus analysis coverage counts and date window; off by default" },
   { id: "standoutTraits", label: "Standout traits", detail: "Model-written observations" },
   { id: "decisionPatterns", label: "Decision patterns", detail: "Personal prose; off by default" },
   { id: "growthEdge", label: "Growth edge", detail: "Personal prose; off by default" },
@@ -102,7 +109,30 @@ function providerName(provider: string): string {
   return "Codex";
 }
 
-function StorySourceBadge({ source, privateView, onOpen }: { source: ReportStoryPackV2["sources"][number]; privateView: boolean; onOpen: (ref: string) => void }) {
+function PrivacyVideoEmbed({ video, projectName }: { video: NonNullable<ReturnType<typeof resolveVideoEmbed>>; projectName: string }) {
+  const [loaded, setLoaded] = useState(false);
+  const provider = video.provider === "youtube" ? "YouTube" : video.provider === "vimeo" ? "Vimeo" : "Loom";
+  if (!loaded) {
+    return (
+      <div className="artifact-panel__video-consent">
+        <strong>External {provider} video</strong>
+        <p>The provider receives your IP address and browser request only after you choose to load this embed.</p>
+        <button className="button button--secondary" type="button" onClick={() => setLoaded(true)}>Load {provider} video</button>
+      </div>
+    );
+  }
+  return (
+    <iframe
+      src={video.embedUrl}
+      title={`${projectName} demo video`}
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      allowFullScreen
+      loading="lazy"
+    />
+  );
+}
+
+function StorySourceBadge({ source, privateView, onOpen }: { source: ReportStoryPack["sources"][number]; privateView: boolean; onOpen: (ref: string) => void }) {
   const label = `${providerName(source.provider)} · ${sourceDateFormat.format(new Date(source.occurredAt))}`;
   return privateView ? (
     <button className="story-pack__source" type="button" onClick={() => onOpen(source.ref)} title="Open evidence metadata">
@@ -117,7 +147,7 @@ function StoryPackView({
   reviewedEvidence = [],
   fallbacksUsed = [],
 }: {
-  pack: ReportStoryPackV2;
+  pack: ReportStoryPack;
   privateView: boolean;
   reviewedEvidence?: Array<{ excerptId: string; sessionRef: string; occurredAt: string; role: string; text: string }>;
   fallbacksUsed?: string[];
@@ -125,6 +155,14 @@ function StoryPackView({
   const [openRef, setOpenRef] = useState<string | null>(null);
   const sourceByRef = new Map(pack.sources.map((source) => [source.ref, source]));
   const sourceCoverage = [...new Map(pack.sources.map((source) => [source.provider, (pack.sources.filter((item) => item.provider === source.provider).length)])).entries()];
+  const deep = pack.version === "3.0.0" ? pack.deepAnalysis : undefined;
+  const deepGroups = deep ? [
+    ["DECISION REVIEW", deep.decisionReview],
+    ["FRICTION & RECOVERY", deep.frictionAndRecovery],
+    ["ENGINEERING PATTERNS", deep.engineeringPatterns],
+    ["RISKS & EVIDENCE GAPS", deep.risksAndEvidenceGaps],
+    ["CHAPTER CHANGES", deep.chapterChanges],
+  ] as const : [];
   const selected = openRef ? sourceByRef.get(openRef) : null;
   const excerpts = selected?.excerptRef
     ? reviewedEvidence.filter((excerpt) => excerpt.sessionRef === selected.sessionRef || excerpt.excerptId === selected.excerptRef)
@@ -210,6 +248,54 @@ function StoryPackView({
         </div>
       ) : null}
 
+      {deep ? (
+        <section className="story-pack__arc" aria-label="Deep analysis">
+          <header>
+            <span>DEEP ANALYSIS</span>
+            <strong>{deep.coverage.sessionsSeen} sessions · {deep.coverage.excerptsUsed} reviewed excerpts · {deep.coverage.evidenceBytes.toLocaleString()} bytes · {sourceDateFormat.format(new Date(deep.coverage.windowStart))}–{sourceDateFormat.format(new Date(deep.coverage.windowEnd))}</strong>
+          </header>
+          {deep.executiveSynthesis.title ? (
+            <article className="story-pack__moment-card">
+              <div className="story-pack__moment-index">01</div>
+              <div>
+                <small>EXECUTIVE SYNTHESIS · {deep.executiveSynthesis.confidence.toUpperCase()} CONFIDENCE</small>
+                <h3>{deep.executiveSynthesis.title}</h3>
+                <p>{deep.executiveSynthesis.summary}</p>
+                <div className="story-pack__sources">{deep.executiveSynthesis.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div>
+              </div>
+            </article>
+          ) : null}
+          <div className="story-pack__insight-grid">
+            {deepGroups.map(([label, findings]) => findings.length ? (
+              <section className="story-pack__insight-card" key={label}>
+                <span>{label}</span>
+                {findings.map((finding, index) => (
+                  <div className="story-pack__bullet" key={`${label}-${finding.title}-${index}`}>
+                    <strong>{finding.title}</strong>
+                    <p>{finding.summary}</p>
+                    <small>{finding.confidence.toUpperCase()} CONFIDENCE</small>
+                    <div className="story-pack__sources">{finding.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div>
+                  </div>
+                ))}
+              </section>
+            ) : null)}
+            {deep.nextBuildActions.length ? (
+              <section className="story-pack__insight-card story-pack__insight-card--growth">
+                <span>NEXT BUILD ACTIONS</span>
+                {deep.nextBuildActions.map((finding, index) => (
+                  <div className="story-pack__bullet" key={`${finding.title}-${index}`}>
+                    <strong>{finding.title}</strong>
+                    <p>{finding.summary}</p>
+                    <small>{finding.priority.toUpperCase()} · {finding.confidence.toUpperCase()} CONFIDENCE · {finding.rationale}</small>
+                    <div className="story-pack__sources">{finding.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div>
+                  </div>
+                ))}
+              </section>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
       {privateView && openRef && selected ? (
         <div className="story-pack__evidence-backdrop" role="presentation" onClick={() => setOpenRef(null)}>
           <aside className="story-pack__evidence-drawer" role="dialog" aria-modal="true" aria-label="Evidence details" onClick={(event) => event.stopPropagation()}>
@@ -217,7 +303,7 @@ function StoryPackView({
             <span className="story-section__label">EVIDENCE {selected.ref}</span>
             <h3>{providerName(selected.provider)}</h3>
             <p>{new Date(selected.occurredAt).toLocaleString()} · {selected.metrics.turns} turns · {selected.metrics.toolCalls} tool calls</p>
-            {excerpts.length ? excerpts.map((excerpt) => <blockquote key={excerpt.excerptId}>{excerpt.text}</blockquote>) : <p>Only metadata is available for this source. Local narrative mode never uploads conversation excerpts.</p>}
+            {excerpts.length ? excerpts.map((excerpt) => <blockquote key={excerpt.excerptId}>{excerpt.text}</blockquote>) : <p>Excerpt text is no longer available. Hosted evidence is erased after generation; this drawer retains provenance metadata only. Local and BYOK modes never upload excerpts to Buildstory.</p>}
           </aside>
         </div>
       ) : null}
@@ -235,7 +321,20 @@ export function ProjectWorkbench({
   ownerRoleOverride = null,
   hasLiveChapter = false,
   initialPublicationStatus = "not_published",
-  initialSelectedPublicFields = fieldOptions.filter((field) => !["decisionPatterns", "growthEdge", "storyGrowthEdge", "artifactLinks", "artifactMedia"].includes(field.id)).map((field) => field.id),
+  initialSelectedPublicFields = fieldOptions.filter((field) => ![
+    "decisionPatterns",
+    "growthEdge",
+    "storyGrowthEdge",
+    "deepExecutiveSynthesis",
+    "deepDecisionReview",
+    "deepFrictionAndRecovery",
+    "deepEngineeringPatterns",
+    "deepRisksAndEvidenceGaps",
+    "deepNextBuildActions",
+    "deepChapterChanges",
+    "artifactLinks",
+    "artifactMedia",
+  ].includes(field.id)).map((field) => field.id),
   narrative = null,
   narrativeStatus,
   initialEditorial,
@@ -313,12 +412,15 @@ export function ProjectWorkbench({
   const isLive = publicationStatus === "published" || publicationStatus === "draft_changes";
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [publicationError, setPublicationError] = useState<string | null>(null);
+  const [publishReviewOpen, setPublishReviewOpen] = useState(false);
+  const [publishReviewAcknowledged, setPublishReviewAcknowledged] = useState(false);
+  const publishReviewCloseRef = useRef<HTMLButtonElement | null>(null);
   const storyNarrative = "narrative" in story ? story.narrative : null;
   // Private-tab pack: the full, ungated narrative record (used only on the private tab,
   // which always shows everything regardless of the publication boundary).
   const privateStoryPack = narrative?.storyPack ?? ("storyPack" in story && story.storyPack ? story.storyPack : null) ?? (
     storyNarrative && typeof storyNarrative === "object" && "storyPack" in storyNarrative
-      ? (storyNarrative.storyPack as ReportStoryPackV2 | undefined) ?? null
+      ? (storyNarrative.storyPack as ReportStoryPack | undefined) ?? null
       : null
   );
   // Public visitors already see the server-gated projection on `story`. A creator's own
@@ -337,6 +439,20 @@ export function ProjectWorkbench({
   const hasArtifact = Boolean(
     displayArtifactLinks.projectUrl || displayArtifactLinks.repoUrl || displayArtifactLinks.videoUrl || displayArtifactMedia.length,
   );
+  const reviewedPublicReceiptId = `BR-PUBLIC-${story.id.replace(/[^A-Za-z0-9]/g, "").slice(-12).toUpperCase()}`;
+
+  useEffect(() => {
+    if (!publishReviewOpen) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPublishReviewOpen(false);
+        setPublishReviewAcknowledged(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    publishReviewCloseRef.current?.focus();
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [publishReviewOpen]);
 
   function startEditing() {
     setDraft({
@@ -435,7 +551,7 @@ export function ProjectWorkbench({
     setSaveState((await persistSelection()) ? "saved" : "error");
   }
 
-  async function publishChanges() {
+  function requestPublishReview() {
     if (!reportId) {
       setPublicationError("This story is not ready to publish yet.");
       return;
@@ -447,6 +563,56 @@ export function ProjectWorkbench({
       return;
     }
     setPublicationError(null);
+    setPublishReviewAcknowledged(false);
+    setPublishReviewOpen(true);
+  }
+
+  function publicationFieldReviewValue(field: PublicFieldKey): string {
+    if (!privateStory) return "See public preview";
+    const pack = privateStoryPack;
+    const deep = pack?.version === "3.0.0" ? pack.deepAnalysis : undefined;
+    const coverage = deep
+      ? `; coverage ${deep.coverage.excerptsUsed} excerpts / ${deep.coverage.evidenceBytes.toLocaleString()} bytes, ${deep.coverage.windowStart} to ${deep.coverage.windowEnd}`
+      : "";
+    switch (field) {
+      case "tagline": return tagline || "Empty";
+      case "description": return [description, reflection].filter(Boolean).join(" · ") || "Empty";
+      case "timeWindow": return `${privateStory.dateRange}; ${privateStory.activeDays} active days`;
+      case "sessionSummary": return `${privateStory.sessionCount} sessions; ${privateStory.buildHours} hours; ${privateStory.subagentCount} subagents`;
+      case "milestones": return privateStory.milestones.map((item) => item.title).join("; ") || "None";
+      case "modelMix": return `${privateStory.models.map((model) => `${model.label} (${model.requests})`).join(", ") || "None"}; ${privateStory.tokenUsage?.totalTokens.toLocaleString() ?? 0} aggregate tokens`;
+      case "costEstimate": return privateStory.cost?.totalMicroUsd != null ? formatMicroUsd(privateStory.cost.totalMicroUsd) : "Not priced";
+      case "toolUsage": return privateStory.tools.map((tool) => `${tool.label} (${tool.sessions})`).join(", ") || "None";
+      case "gitAggregates": return `${privateStory.git.commits} commits; ${privateStory.git.contributors} contributors; ${privateStory.git.branches} branches; ${privateStory.git.filesTouched} files; +${privateStory.git.additions}/-${privateStory.git.deletions}`;
+      case "redactionSummary": return `${privateStory.redaction.tokensRemoved} tokens withheld`;
+      case "archetype": return privateStory.profile?.archetype.name ?? "Not available";
+      case "profileScores": return privateStory.profile ? Object.entries(privateStory.profile.scores).map(([name, score]) => `${name}: ${score.value}`).join(", ") : "Not available";
+      case "workPatterns": return privateStory.profile ? `${privateStory.profile.workPatterns.preferredDays.join(", ") || "No preferred days"}; median ${privateStory.profile.workPatterns.medianSessionMinutes} minutes; ${privateStory.profile.workPatterns.timezoneLabel}` : "Not available";
+      case "narrative": return privateStory.narrative?.headline ?? "Not available";
+      case "storyBuildArc": return pack?.buildArc.map((item) => item.headline).join("; ") || "Not available";
+      case "storyMoments": return pack?.moments.map((item) => item.title).join("; ") || "Not available";
+      case "storyTurningPoint": return pack?.turningPoint.quote ?? "Not available";
+      case "storyDecisions": return pack?.decisions.map((item) => item.title).join("; ") || "Not available";
+      case "storyLearnings": return pack?.learnings.map((item) => item.title).join("; ") || "Not available";
+      case "storyTraits": return pack?.standoutTraits.map((item) => item.title).join("; ") || "Not available";
+      case "storyGrowthEdge": return pack?.growthEdge.title ?? "Not available";
+      case "decisionPatterns": return privateStory.narrative?.decisionPatterns.join("; ") || "Not available";
+      case "standoutTraits": return privateStory.narrative?.standoutTraits.join("; ") || "Not available";
+      case "growthEdge": return privateStory.narrative?.growthEdge ?? "Not available";
+      case "deepExecutiveSynthesis": return deep ? `${deep.executiveSynthesis.title}${coverage}` : "Not available";
+      case "deepDecisionReview": return deep ? `${deep.decisionReview.map((item) => item.title).join("; ") || "No supported findings"}${coverage}` : "Not available";
+      case "deepFrictionAndRecovery": return deep ? `${deep.frictionAndRecovery.map((item) => item.title).join("; ") || "No supported findings"}${coverage}` : "Not available";
+      case "deepEngineeringPatterns": return deep ? `${deep.engineeringPatterns.map((item) => item.title).join("; ") || "No supported findings"}${coverage}` : "Not available";
+      case "deepRisksAndEvidenceGaps": return deep ? `${deep.risksAndEvidenceGaps.map((item) => item.title).join("; ") || "No supported findings"}${coverage}` : "Not available";
+      case "deepNextBuildActions": return deep ? `${deep.nextBuildActions.map((item) => item.title).join("; ") || "No supported actions"}${coverage}` : "Not available";
+      case "deepChapterChanges": return deep ? `${deep.chapterChanges.map((item) => item.title).join("; ") || "No supported changes"}${coverage}` : "Not available";
+      case "artifactLinks": return [artifactLinks.projectUrl, artifactLinks.repoUrl, artifactLinks.videoUrl].filter(Boolean).join("; ") || "No links";
+      case "artifactMedia": return media.map((item) => `${item.kind} ${item.id}`).join("; ") || "No images";
+    }
+  }
+
+  async function publishChanges() {
+    if (!reportId || !publishReviewAcknowledged) return;
     setSaveState("saving");
     if (!(await persistSelection())) {
       setPublicationError("Could not save your field selection. Try again before publishing.");
@@ -454,13 +620,19 @@ export function ProjectWorkbench({
       return;
     }
     try {
-      const response = await fetch(`/api/creator/reports/${reportId}/publish`, { method: "POST" });
+      const response = await fetch(`/api/creator/reports/${reportId}/publish`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ confirmation: "publish-reviewed-v1", selectedPublicFields: selectedFields }),
+      });
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
         throw new Error(payload?.error?.message ?? "Could not publish this story.");
       }
       setPublicationStatus("published");
       setSaveState("saved");
+      setPublishReviewOpen(false);
+      setPublishReviewAcknowledged(false);
       router.refresh();
     } catch (error) {
       setPublicationError(error instanceof Error ? error.message : "Could not publish this story.");
@@ -642,7 +814,7 @@ export function ProjectWorkbench({
             <button
               className="button button--primary button--small"
               type="button"
-              onClick={publishChanges}
+              onClick={requestPublishReview}
               disabled={saveState === "saving"}
             >
               {saveState === "saving" ? "Publishing…" : publicationStatus === "draft_changes" ? "Publish changes" : "Publish page"}
@@ -918,13 +1090,7 @@ export function ProjectWorkbench({
               <section className="artifact-panel section-wrap" aria-label="The artifact">
                 {videoEmbed ? (
                   <div className="artifact-panel__video">
-                    <iframe
-                      src={videoEmbed.embedUrl}
-                      title={`${story.name} demo video`}
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen
-                      loading="lazy"
-                    />
+                    <PrivacyVideoEmbed video={videoEmbed} projectName={story.name} />
                   </div>
                 ) : null}
                 {screenshotMedia.length ? (
@@ -1112,9 +1278,9 @@ export function ProjectWorkbench({
           <section className="publication-boundary-panel" data-guide="workbench-boundary">
             <header>
               <div>
-                <span className="section-index">PUBLICATION BOUNDARY <GuideTooltip label="publication boundary">Only the fields selected here are copied into the public chapter. The scan and evidence remain private.</GuideTooltip></span>
+                <span className="section-index">PUBLICATION BOUNDARY <GuideTooltip label="publication boundary">The baseline identity items listed here are always public. Selected optional fields are copied into the public chapter; the source snapshot and reviewed excerpts remain private.</GuideTooltip></span>
                 <h2>Choose the fields allowed onto the public page.</h2>
-                <p>The source snapshot and session details remain private regardless of this selection.</p>
+                <p>Always public: project name, owner display name/handle/role, category, status, tech stack, visual background, and an opaque public receipt ID. The source snapshot, raw session details, repository path, remotes, branch, and commit hashes stay private.</p>
               </div>
               <div className={`publication-state publication-state--${publicationStatus}`}>
                 <i /> {publicationStatus === "draft_changes" ? "unpublished changes" : publicationStatus.replaceAll("_", " ")}
@@ -1151,13 +1317,66 @@ export function ProjectWorkbench({
                 <button className="button button--secondary" type="button" onClick={saveFieldSelection} disabled={saveState === "saving"}>
                   Save private selection
                 </button>
-                <button className="button button--primary" type="button" onClick={publishChanges} disabled={saveState === "saving"}>
+                <button className="button button--primary" type="button" onClick={requestPublishReview} disabled={saveState === "saving"}>
                   {saveState === "saving" ? "Publishing…" : isLive ? "Republish page" : "Publish universal page"}
                 </button>
                 {isLive ? <button className="button button--text" type="button" onClick={() => void unpublish()} disabled={saveState === "saving"}>Unpublish</button> : null}
               </div>
             </footer>
           </section>
+
+          {publishReviewOpen ? (
+            <div className="publish-review-backdrop" role="presentation" onMouseDown={(event) => {
+              if (event.currentTarget === event.target) {
+                setPublishReviewOpen(false);
+                setPublishReviewAcknowledged(false);
+              }
+            }}>
+              <section className="publish-review" role="dialog" aria-modal="true" aria-labelledby="publish-review-title">
+                <header>
+                  <div>
+                    <span className="section-index">FINAL PRIVACY REVIEW</span>
+                    <h2 id="publish-review-title">This is what becomes public.</h2>
+                  </div>
+                  <button ref={publishReviewCloseRef} type="button" className="button button--text" onClick={() => { setPublishReviewOpen(false); setPublishReviewAcknowledged(false); }} aria-label="Close publish review">Close</button>
+                </header>
+                <div className="publish-review__columns">
+                  <section>
+                    <h3>Always public</h3>
+                    <dl>
+                      <div><dt>Project</dt><dd>{story.name}</dd></div>
+                      <div><dt>Owner</dt><dd>{story.owner.name} (@{story.owner.handle}) · {story.owner.role}</dd></div>
+                      <div><dt>Category / status</dt><dd>{category} / {story.status}</dd></div>
+                      <div><dt>Tech stack</dt><dd>{story.stack.join(", ") || "No stack labels"}</dd></div>
+                      <div><dt>Visual</dt><dd>{storyBackgroundOption(storyBackgroundId).label}</dd></div>
+                      <div><dt>Receipt</dt><dd>{reviewedPublicReceiptId}</dd></div>
+                    </dl>
+                  </section>
+                  <section>
+                    <h3>Selected optional data ({selectedFields.length})</h3>
+                    <ul>{fieldOptions.filter((field) => selectedFields.includes(field.id)).map((field) => <li key={field.id}><strong>{field.label}</strong><span>{field.detail}</span><small>{publicationFieldReviewValue(field.id)}</small></li>)}</ul>
+                  </section>
+                </div>
+                <aside>
+                  <strong>Still private</strong>
+                  <p>Repository path and remotes, branch and commit hashes, full source snapshot, raw transcripts and tool payloads, reviewed excerpt text, connection credentials, and every unchecked optional field.</p>
+                  {(selectedFields.includes("narrative") || fieldOptions.some((field) => field.id.startsWith("story") && selectedFields.includes(field.id))) ? <p>AI-written prose can reflect the meaning of private conversations. Pattern redaction reduces known secret, path, host, URL, and email exposure, but it is not a guarantee of anonymity—read the public preview before confirming.</p> : null}
+                  {selectedFields.includes("artifactLinks") && artifactLinks.videoUrl ? <p>The video link is public. Visitors must choose to load an embed before their browser connects to the video provider.</p> : null}
+                  {selectedFields.includes("artifactMedia") ? <p>{media.length} uploaded image{media.length === 1 ? "" : "s"} will be public until you unpublish or remove them.</p> : null}
+                </aside>
+                <label className="publish-review__acknowledgement">
+                  <input type="checkbox" checked={publishReviewAcknowledged} onChange={(event) => setPublishReviewAcknowledged(event.target.checked)} />
+                  <span>I reviewed the exact categories above and understand this creates or replaces a page anyone can view.</span>
+                </label>
+                <footer>
+                  <button type="button" className="button button--secondary" onClick={() => { setPublishReviewOpen(false); setPublishReviewAcknowledged(false); }}>Keep private</button>
+                  <button type="button" className="button button--primary" onClick={() => void publishChanges()} disabled={!publishReviewAcknowledged || saveState === "saving"}>
+                    {saveState === "saving" ? "Publishing…" : isLive ? "Confirm and republish" : "Confirm and publish"}
+                  </button>
+                </footer>
+              </section>
+            </div>
+          ) : null}
 
           <div className="private-report__grid">
             <section className="report-card report-card--sessions">

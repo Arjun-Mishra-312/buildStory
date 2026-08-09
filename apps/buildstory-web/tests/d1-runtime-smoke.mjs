@@ -139,11 +139,16 @@ const categoryPatchResponse = await fetch(new URL(`api/creator/reports/${reportI
   body: JSON.stringify({ category: "developer-tools" }),
 });
 await assertStatus(categoryPatchResponse, 200);
+const categoryPatch = await categoryPatchResponse.json();
 
 const publishResponse = await fetch(new URL(`api/creator/reports/${reportId}/publish`, base), {
   method: "POST",
   redirect: "error",
-  headers: { origin: base.origin },
+  headers: { origin: base.origin, "content-type": "application/json" },
+  body: JSON.stringify({
+    confirmation: "publish-reviewed-v1",
+    selectedPublicFields: categoryPatch.report.selectedPublicFields,
+  }),
 });
 await assertStatus(publishResponse, 200);
 const publication = (await publishResponse.json()).publication;

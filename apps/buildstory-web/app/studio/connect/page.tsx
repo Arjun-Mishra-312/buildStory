@@ -45,7 +45,7 @@ export default async function ConnectScannerPage() {
           </>
         )}
       </div>
-      <OllamaModelStatus discoveryAvailable={localDiscovery} cloudAvailable={cloudNarrativeAvailable(user.id)} />
+      <OllamaModelStatus discoveryAvailable={localDiscovery} cloudAvailable={await cloudNarrativeAvailable(user.id)} />
       <div data-guide="create-scanner"><ScannerConnectionFlow
         initialSessions={sessions}
         scannerEnabled={localDiscovery || hosted}

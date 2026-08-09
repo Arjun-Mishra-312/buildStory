@@ -1,5 +1,7 @@
 import { ingestionErrorResponse, jsonError, requireApiCreator } from "@/lib/api/responses";
-import { publishReport, unpublishReport } from "@/lib/ingestion/store";
+import { getReport, publishReport, unpublishReport } from "@/lib/ingestion/store";
+import { readBoundedJson } from "@/lib/ingestion/local-api";
+import { PUBLIC_FIELD_KEYS, type PublicFieldKey } from "@/lib/ingestion/contracts";
 import { assertSameOriginBrowserMutation } from "@/lib/security/browser-request";
 
 type RouteContext = { params: Promise<{ reportId: string }> };
@@ -10,6 +12,22 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     assertSameOriginBrowserMutation(request);
     const { reportId } = await context.params;
+    const { value } = await readBoundedJson(request, 8 * 1024);
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return jsonError("publication_review_required", "Review the public data summary before publishing.", 422);
+    }
+    const body = value as Record<string, unknown>;
+    if (body.confirmation !== "publish-reviewed-v1"
+      || !Array.isArray(body.selectedPublicFields)
+      || body.selectedPublicFields.some((field) => typeof field !== "string" || !PUBLIC_FIELD_KEYS.includes(field as PublicFieldKey))) {
+      return jsonError("publication_review_required", "Review the public data summary before publishing.", 422);
+    }
+    const reportBeforePublish = await getReport(creator.creatorId, reportId);
+    const reviewed = [...new Set(body.selectedPublicFields as PublicFieldKey[])].sort();
+    const saved = [...new Set(reportBeforePublish.selectedPublicFields)].sort();
+    if (reviewed.length !== saved.length || reviewed.some((field, index) => field !== saved[index])) {
+      return jsonError("publication_review_stale", "The saved public-field selection changed. Review it again before publishing.", 409);
+    }
     const report = await publishReport(creator.creatorId, reportId);
     return Response.json(
       { publication: report.publication },

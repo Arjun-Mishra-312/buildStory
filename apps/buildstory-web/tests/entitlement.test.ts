@@ -27,34 +27,35 @@ test("effectivePlan grants pro to every account while BUILDSTORY_LAUNCH_PRO_FOR_
   }
 });
 
-test("isSupportedNarrativeModel recognizes only the one Buildstory Cloud model - there is no user-facing model choice on that path", () => {
+test("isSupportedNarrativeModel recognizes hosted DeepSeek and retained BYOK Luna pricing without guessing", () => {
+  assert.equal(isSupportedNarrativeModel("deepseek/deepseek-v4-flash"), true);
   assert.equal(isSupportedNarrativeModel("gpt-5.6-luna"), true);
   assert.equal(isSupportedNarrativeModel("gpt-5.6-terra"), false);
   assert.equal(isSupportedNarrativeModel("gemma4:12b"), false);
 });
 
-test("cloudNarrativeAvailable is false when no provider is configured, regardless of entitlement", () => {
-  const previousKey = process.env.BUILDSTORY_LLM_API_KEY;
+test("cloudNarrativeAvailable is false when no provider is configured, regardless of entitlement", async () => {
+  const previousKey = process.env.BUILDSTORY_OPENROUTER_API_KEY;
   const previousBaseUrl = process.env.BUILDSTORY_LLM_BASE_URL;
-  delete process.env.BUILDSTORY_LLM_API_KEY;
+  delete process.env.BUILDSTORY_OPENROUTER_API_KEY;
   delete process.env.BUILDSTORY_LLM_BASE_URL;
   try {
-    assert.equal(cloudNarrativeAvailable("any-user"), false);
+    assert.equal(await cloudNarrativeAvailable("any-user"), false);
   } finally {
-    if (previousKey === undefined) delete process.env.BUILDSTORY_LLM_API_KEY;
-    else process.env.BUILDSTORY_LLM_API_KEY = previousKey;
+    if (previousKey === undefined) delete process.env.BUILDSTORY_OPENROUTER_API_KEY;
+    else process.env.BUILDSTORY_OPENROUTER_API_KEY = previousKey;
     if (previousBaseUrl === undefined) delete process.env.BUILDSTORY_LLM_BASE_URL;
     else process.env.BUILDSTORY_LLM_BASE_URL = previousBaseUrl;
   }
 });
 
-test("cloudNarrativeAvailable is true once a provider key is configured", () => {
-  const previousKey = process.env.BUILDSTORY_LLM_API_KEY;
-  process.env.BUILDSTORY_LLM_API_KEY = "test-key";
+test("cloudNarrativeAvailable is true once a provider key is configured", async () => {
+  const previousKey = process.env.BUILDSTORY_OPENROUTER_API_KEY;
+  process.env.BUILDSTORY_OPENROUTER_API_KEY = "test-key";
   try {
-    assert.equal(cloudNarrativeAvailable("any-user"), true);
+    assert.equal(await cloudNarrativeAvailable("any-user"), true);
   } finally {
-    if (previousKey === undefined) delete process.env.BUILDSTORY_LLM_API_KEY;
-    else process.env.BUILDSTORY_LLM_API_KEY = previousKey;
+    if (previousKey === undefined) delete process.env.BUILDSTORY_OPENROUTER_API_KEY;
+    else process.env.BUILDSTORY_OPENROUTER_API_KEY = previousKey;
   }
 });

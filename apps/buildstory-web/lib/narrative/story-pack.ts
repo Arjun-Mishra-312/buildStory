@@ -1,7 +1,12 @@
 import type {
   GeneratedNarrativeSections,
+  ReportStoryPack,
   ReportStoryPackV2,
+  ReportStoryPackV3,
   ScannerProjectSnapshot,
+  StoryPackConfidence,
+  StoryPackFinding,
+  StoryPackRecommendation,
   StoryPackPhase,
   StoryPackSource,
 } from "../ingestion/scanner-project-snapshot";
@@ -34,6 +39,49 @@ export const STORY_PACK_OUTPUT_SCHEMA = {
   },
 } as const;
 
+const STORY_PACK_FINDING_SCHEMA = {
+  type: "object", additionalProperties: false, required: ["title", "summary", "sourceRefs", "confidence"],
+  properties: {
+    title: { type: "string", minLength: 1, maxLength: 120 },
+    summary: { type: "string", minLength: 1, maxLength: 600 },
+    sourceRefs: { type: "array", minItems: 1, maxItems: 6, items: { type: "string", minLength: 1, maxLength: 40 } },
+    confidence: { enum: ["high", "medium", "low"] },
+  },
+} as const;
+
+const STORY_PACK_RECOMMENDATION_SCHEMA = {
+  type: "object", additionalProperties: false, required: ["title", "summary", "sourceRefs", "confidence", "priority", "rationale"],
+  properties: {
+    ...STORY_PACK_FINDING_SCHEMA.properties,
+    priority: { enum: ["now", "next", "later"] },
+    rationale: { type: "string", minLength: 1, maxLength: 600 },
+  },
+} as const;
+
+export const STORY_PACK_DEEP_ANALYSIS_SCHEMA = {
+  type: "object", additionalProperties: false,
+  required: ["executiveSynthesis", "decisionReview", "frictionAndRecovery", "engineeringPatterns", "risksAndEvidenceGaps", "nextBuildActions", "chapterChanges"],
+  properties: {
+    executiveSynthesis: STORY_PACK_FINDING_SCHEMA,
+    decisionReview: { type: "array", maxItems: 8, items: STORY_PACK_FINDING_SCHEMA },
+    frictionAndRecovery: { type: "array", maxItems: 6, items: STORY_PACK_FINDING_SCHEMA },
+    engineeringPatterns: { type: "array", maxItems: 6, items: STORY_PACK_FINDING_SCHEMA },
+    risksAndEvidenceGaps: { type: "array", maxItems: 5, items: STORY_PACK_FINDING_SCHEMA },
+    nextBuildActions: { type: "array", maxItems: 6, items: STORY_PACK_RECOMMENDATION_SCHEMA },
+    chapterChanges: { type: "array", maxItems: 5, items: STORY_PACK_FINDING_SCHEMA },
+  },
+} as const;
+
+export const STORY_PACK_DEEP_OUTPUT_SCHEMA = {
+  ...STORY_PACK_OUTPUT_SCHEMA,
+  required: ["hero", "buildArc", "moments", "turningPoint", "decisions", "learnings", "standoutTraits", "growthEdge", "deepAnalysis"],
+  properties: {
+    ...STORY_PACK_OUTPUT_SCHEMA.properties,
+    moments: { ...STORY_PACK_OUTPUT_SCHEMA.properties.moments, maxItems: 12 },
+    deepAnalysis: STORY_PACK_DEEP_ANALYSIS_SCHEMA,
+  },
+} as const;
+
 export const STORY_PACK_STORY_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -58,7 +106,7 @@ export const STORY_PACK_INSIGHTS_SCHEMA = {
   },
 } as const;
 
-export type StoryPackComponent = "story" | "insights";
+export type StoryPackComponent = "story" | "insights" | "deep";
 
 export type StoryPackValidation = {
   ok: boolean;
@@ -102,7 +150,7 @@ function listError(value: unknown, path: string, min: number, max: number): stri
   return errors;
 }
 
-function validateStoryComponent(value: Record<string, unknown>, allowed: Set<string>): string[] {
+function validateStoryComponent(value: Record<string, unknown>, allowed: Set<string>, maxMoments = 5): string[] {
   // Keep the bounded rollout compatibility path for older providers that
   // still return the pre-V2 flat section names. They are normalized into the
   // structured pack immediately after this check and never reach storage as
@@ -131,7 +179,7 @@ function validateStoryComponent(value: Record<string, unknown>, allowed: Set<str
       errors.push(...refsError(entry.sourceRefs, `${path}.sourceRefs`, allowed));
     });
   }
-  errors.push(...listError(value.moments, "moments", 3, 5));
+  errors.push(...listError(value.moments, "moments", 3, maxMoments));
   if (Array.isArray(value.moments)) value.moments.forEach((item, index) => {
     const entry = record(item); const path = `moments[${index}]`;
     if (!entry) { errors.push(`${path} must be an object.`); return; }
@@ -186,6 +234,48 @@ function validateInsightsComponent(value: Record<string, unknown>, allowed: Set<
   return errors;
 }
 
+function validateFinding(value: unknown, path: string, allowed: Set<string>, recommendation = false): string[] {
+  const entry = record(value);
+  if (!entry) return [`${path} must be an object.`];
+  const errors: string[] = [];
+  const title = stringError(entry.title, `${path}.title`, 1, 120); if (title) errors.push(title);
+  const summary = stringError(entry.summary, `${path}.summary`, 1, 600); if (summary) errors.push(summary);
+  if (!["high", "medium", "low"].includes(String(entry.confidence))) errors.push(`${path}.confidence is unsupported.`);
+  errors.push(...refsError(entry.sourceRefs, `${path}.sourceRefs`, allowed));
+  if (recommendation) {
+    if (!["now", "next", "later"].includes(String(entry.priority))) errors.push(`${path}.priority is unsupported.`);
+    const rationale = stringError(entry.rationale, `${path}.rationale`, 1, 600); if (rationale) errors.push(rationale);
+  }
+  return errors;
+}
+
+function validateDeepComponent(value: Record<string, unknown>, allowed: Set<string>, includeBase = true): string[] {
+  const errors = includeBase ? [...validateStoryComponent(value, allowed, 12), ...validateInsightsComponent(value, allowed)] : [];
+  const deep = record(value.deepAnalysis);
+  if (!deep) return [...errors, "deepAnalysis must be an object."];
+  errors.push(...validateFinding(deep.executiveSynthesis, "deepAnalysis.executiveSynthesis", allowed));
+  for (const [name, max, recommendation] of [
+    ["decisionReview", 8, false],
+    ["frictionAndRecovery", 6, false],
+    ["engineeringPatterns", 6, false],
+    ["risksAndEvidenceGaps", 5, false],
+    ["nextBuildActions", 6, true],
+    ["chapterChanges", 5, false],
+  ] as const) {
+    const entries = deep[name];
+    errors.push(...listError(entries, `deepAnalysis.${name}`, 0, max));
+    if (Array.isArray(entries)) entries.forEach((entry, index) => errors.push(...validateFinding(entry, `deepAnalysis.${name}[${index}]`, allowed, recommendation)));
+  }
+  return errors;
+}
+
+export function validateDeepAnalysisComponent(value: unknown, allowedRefs: Set<string>): StoryPackValidation {
+  const candidate = record(value);
+  if (!candidate) return { ok: false, errors: ["response must be a JSON object."] };
+  const errors = validateDeepComponent({ deepAnalysis: candidate }, allowedRefs, false);
+  return { ok: errors.length === 0, errors: errors.slice(0, 20) };
+}
+
 /**
  * Post-generation validation shared by the cloud repair loop and the local
  * Ollama path. The API schema catches transport-level violations; this
@@ -197,7 +287,9 @@ export function validateStoryPackComponent(value: unknown, component: StoryPackC
   if (!candidate) return { ok: false, errors: ["response must be a JSON object."] };
   const errors = component === "story"
     ? validateStoryComponent(candidate, allowedRefs)
-    : validateInsightsComponent(candidate, allowedRefs);
+    : component === "insights"
+      ? validateInsightsComponent(candidate, allowedRefs)
+      : validateDeepComponent(candidate, allowedRefs);
   return { ok: errors.length === 0, errors: errors.slice(0, 20) };
 }
 
@@ -289,6 +381,75 @@ export function normalizeStoryPack(value: unknown, snapshot: ScannerProjectSnaps
   return { storyPack: { version: "2.0.0", sources: fallback.sources, hero: { headline: clean("hero.headline", hero.headline, 120, fallback.hero.headline, fallbacks), summary: clean("hero.summary", hero.summary, 480, fallback.hero.summary, fallbacks) }, buildArc, moments, turningPoint: { quote: clean("turningPoint.quote", turning.quote, 300, fallback.turningPoint.quote, fallbacks), sourceRefs: sourceRefs("turningPoint.sourceRefs", turning.sourceRefs, allowed, fallback.turningPoint.sourceRefs, fallbacks) }, decisions, learnings: insightList("learnings"), standoutTraits: insightList("standoutTraits"), growthEdge: { title: clean("growthEdge.title", growth.title, 120, fallback.growthEdge.title, fallbacks), observation: clean("growthEdge.observation", growth.observation, 400, fallback.growthEdge.observation, fallbacks), nextStep: clean("growthEdge.nextStep", growth.nextStep, 300, fallback.growthEdge.nextStep, fallbacks), sourceRefs: sourceRefs("growthEdge.sourceRefs", growth.sourceRefs, allowed, fallback.growthEdge.sourceRefs, fallbacks) } }, fallbacksUsed: [...new Set(fallbacks)].sort() };
 }
 
-export function sectionsFromStoryPack(pack: ReportStoryPackV2): GeneratedNarrativeSections {
+export function normalizeDeepStoryPack(value: unknown, snapshot: ScannerProjectSnapshot): { storyPack: ReportStoryPackV3; fallbacksUsed: string[] } {
+  const normalized = normalizeStoryPack(value, snapshot);
+  const candidate = record(value) ?? {};
+  const deep = record(candidate.deepAnalysis) ?? {};
+  const allowed = new Set(normalized.storyPack.sources.map((source) => source.ref));
+  const fallbacks = [...normalized.fallbacksUsed];
+  const fallbackRefs = normalized.storyPack.sources[0]?.ref ? [normalized.storyPack.sources[0].ref] : [];
+  const refs = (path: string, input: unknown) => sourceRefs(path, input, allowed, fallbackRefs, fallbacks).slice(0, 6);
+  const confidence = (input: unknown): StoryPackConfidence => input === "high" || input === "medium" || input === "low" ? input : "low";
+  const finding = (input: unknown, path: string): StoryPackFinding => {
+    const raw = record(input) ?? {};
+    return {
+      title: clean(`${path}.title`, raw.title, 120, "Evidence-bound observation", fallbacks),
+      summary: clean(`${path}.summary`, raw.summary, 600, "The selected evidence was insufficient for a stronger claim.", fallbacks),
+      sourceRefs: refs(`${path}.sourceRefs`, raw.sourceRefs),
+      confidence: confidence(raw.confidence),
+    };
+  };
+  const findings = (name: "decisionReview" | "frictionAndRecovery" | "engineeringPatterns" | "risksAndEvidenceGaps" | "chapterChanges", max: number) =>
+    (Array.isArray(deep[name]) ? deep[name] : []).slice(0, max).map((entry, index) => finding(entry, `deepAnalysis.${name}.${index}`));
+  const nextBuildActions: StoryPackRecommendation[] = (Array.isArray(deep.nextBuildActions) ? deep.nextBuildActions : []).slice(0, 6).map((entry, index) => {
+    const raw = record(entry) ?? {};
+    return {
+      ...finding(entry, `deepAnalysis.nextBuildActions.${index}`),
+      priority: raw.priority === "now" || raw.priority === "next" || raw.priority === "later" ? raw.priority : "next",
+      rationale: clean(`deepAnalysis.nextBuildActions.${index}.rationale`, raw.rationale, 600, "Follow up where the current evidence is weakest.", fallbacks),
+    };
+  });
+  const evidenceBytes = (snapshot.narrativeEvidence?.excerpts ?? []).reduce((sum, excerpt) => sum + new TextEncoder().encode(excerpt.text).byteLength, 0);
+  return {
+    storyPack: {
+      ...normalized.storyPack,
+      version: "3.0.0",
+      analysisTier: "deep",
+      moments: Array.isArray(candidate.moments)
+        ? (candidate.moments as unknown[]).slice(0, 12).map((entry, index) => {
+            const raw = record(entry) ?? {};
+            const base = normalized.storyPack.moments[index % normalized.storyPack.moments.length] ?? normalized.storyPack.moments[0]!;
+            return {
+              phase: raw.phase === "discover" || raw.phase === "decide" || raw.phase === "deliver" ? raw.phase : base.phase,
+              kind: raw.kind === "discovery" || raw.kind === "decision" || raw.kind === "breakthrough" || raw.kind === "delivery" ? raw.kind : base.kind,
+              title: clean(`moments.${index}.title`, raw.title, 120, base.title, fallbacks),
+              whatHappened: clean(`moments.${index}.whatHappened`, raw.whatHappened, 400, base.whatHappened, fallbacks),
+              whyItMattered: clean(`moments.${index}.whyItMattered`, raw.whyItMattered, 400, base.whyItMattered, fallbacks),
+              sourceRefs: refs(`moments.${index}.sourceRefs`, raw.sourceRefs),
+            };
+          })
+        : normalized.storyPack.moments,
+      deepAnalysis: {
+        executiveSynthesis: finding(deep.executiveSynthesis, "deepAnalysis.executiveSynthesis"),
+        decisionReview: findings("decisionReview", 8),
+        frictionAndRecovery: findings("frictionAndRecovery", 6),
+        engineeringPatterns: findings("engineeringPatterns", 6),
+        risksAndEvidenceGaps: findings("risksAndEvidenceGaps", 5),
+        nextBuildActions,
+        chapterChanges: findings("chapterChanges", 5),
+        coverage: {
+          sessionsSeen: snapshot.sessions.length,
+          excerptsUsed: snapshot.narrativeEvidence?.excerpts.length ?? 0,
+          evidenceBytes,
+          windowStart: snapshot.timeWindow.start,
+          windowEnd: snapshot.timeWindow.end,
+        },
+      },
+    },
+    fallbacksUsed: [...new Set(fallbacks)].sort(),
+  };
+}
+
+export function sectionsFromStoryPack(pack: ReportStoryPack): GeneratedNarrativeSections {
   return { headline: pack.hero.headline, narrative: pack.hero.summary, turningPoint: pack.turningPoint.quote, learnings: pack.learnings.map((item) => `${item.title}: ${item.detail}`), decisionPatterns: pack.decisions.map((item) => `${item.title}: ${item.rationale} ${item.outcome}`), standoutTraits: pack.standoutTraits.map((item) => `${item.title}: ${item.detail}`), growthEdge: `${pack.growthEdge.observation} ${pack.growthEdge.nextStep}` };
 }

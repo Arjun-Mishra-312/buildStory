@@ -1,4 +1,4 @@
-import { narrativeProviderConfigured } from "./provider";
+import { configuredCloudNarrativeProvider, narrativeProviderConfigured, openRouterZdrModelReady } from "./provider";
 
 /**
  * Single policy seam for cloud narrative access. Everyone is entitled at
@@ -35,6 +35,10 @@ export function effectivePlan(accountPlan: "free" | "pro"): "free" | "pro" {
  * is a creator reviewing and releasing excerpts that then upload and are
  * stored with nowhere to go (see the pre-launch audit).
  */
-export function cloudNarrativeAvailable(userId: string): boolean {
-  return narrativeProviderConfigured("cloud") && canUseCloudNarrative(userId);
+export async function cloudNarrativeAvailable(userId: string): Promise<boolean> {
+  if (!narrativeProviderConfigured("cloud") || !canUseCloudNarrative(userId)) return false;
+  // The catalog check protects the deployed Cloud offering. Local development
+  // and tests must remain deterministic and must never depend on OpenRouter.
+  if (configuredCloudNarrativeProvider() !== "openrouter" || process.env.NODE_ENV !== "production") return true;
+  return openRouterZdrModelReady();
 }

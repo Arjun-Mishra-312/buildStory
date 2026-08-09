@@ -26,6 +26,10 @@ const localBindingConfig = {
       bucket_name: "buildstory-local-r2",
     },
   ],
+  queues: {
+    producers: [{ binding: "NARRATIVE_QUEUE", queue: "buildstory-local-narratives" }],
+    consumers: [{ queue: "buildstory-local-narratives", max_batch_size: 1, max_retries: 3, retry_delay: 60 }],
+  },
 };
 
 export default defineConfig(async () => {
