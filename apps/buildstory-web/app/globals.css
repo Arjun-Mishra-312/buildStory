@@ -1459,16 +1459,16 @@ html[data-theme="dark"] .closing-cta {
   font-size: var(--text-2xs);
 }
 
-.project-console-bar__center {
+.project-console-bar__primary {
   display: flex;
   align-items: center;
-  justify-self: center;
   gap: 10px;
 }
 
 .view-switcher {
   display: flex;
   align-items: center;
+  justify-self: center;
   padding: 3px;
   border: 1px solid var(--line);
   background: var(--surface-soft);
@@ -5537,7 +5537,7 @@ html[data-theme="dark"] .background-theme-dark { display: block !important; }
     display: none;
   }
 
-  .project-console-bar__center {
+  .view-switcher {
     justify-self: start;
   }
 
@@ -6872,7 +6872,8 @@ html[data-theme="light"] .onboarding-art--dark { display: none !important; }
   .update-sequence { grid-template-columns: 1fr; }
   .update-sequence li { padding: 12px 14px; }
   .project-console-bar { grid-template-columns: minmax(0, 1fr); }
-  .project-console-bar__center { width: max-content; max-width: 100%; flex-wrap: wrap; }
+  .project-console-bar__primary { flex-wrap: wrap; justify-content: flex-start; width: 100%; gap: 8px; }
+  .view-switcher { width: max-content; max-width: 100%; }
   .project-console-bar__actions { display: flex; flex-wrap: wrap; justify-content: flex-start; width: 100%; gap: 8px; }
   .project-console-bar__actions .button--secondary, .project-console-bar__actions .button--dark { display: inline-flex !important; }
   .project-console-bar__more { display: inline-flex; }

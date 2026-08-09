@@ -786,73 +786,21 @@ export function ProjectWorkbench({
     <main className="project-workbench">
       {access === "creator" ? (
       <div className="project-console-bar">
-        <div className="project-console-bar__identity">
-          <span className="avatar">{initialsFrom(owner.name)}</span>
-          <span>
-            <strong>{story.name}</strong>
-            <small>Owner workbench</small>
-          </span>
-        </div>
-
-        <div className="project-console-bar__center">
-          <div className="view-switcher" role="tablist" aria-label="Project views" data-guide="workbench-views">
-            <button
-              id="public-tab"
-              role="tab"
-              type="button"
-              aria-selected={view === "public"}
-              aria-controls="public-panel"
-              className={view === "public" ? "is-active" : undefined}
-              onClick={() => setView("public")}
-            >
-              <span className="view-status view-status--public" /> Public page
-            </button>
-            <button
-              id="private-tab"
-              role="tab"
-              type="button"
-              aria-selected={view === "private"}
-              aria-controls="private-panel"
-              className={view === "private" ? "is-active" : undefined}
-              onClick={() => { setView("private"); setEditing(false); }}
-            >
-              <span className="view-status view-status--private" /> Private report
-            </button>
-            <GuideTooltip label="public and private views">Public is the reader-facing story; Private is the complete report.</GuideTooltip>
+        <div className="project-console-bar__primary" data-guide="workbench-actions">
+          <div className="project-console-bar__identity">
+            <span className="avatar">{initialsFrom(owner.name)}</span>
+            <span>
+              <strong>{story.name}</strong>
+              <small>Owner workbench</small>
+            </span>
           </div>
           {view === "public" && !editing ? (
             <button className="button button--secondary button--small project-console-bar__edit" type="button" onClick={startEditing}>
               Edit public page
             </button>
           ) : null}
-        </div>
-
-        <div className="project-console-bar__actions" data-guide="workbench-actions">
           {projectId ? <Link className="button button--secondary button--small project-console-bar__scan" href={`/studio/projects/${projectId}/update`}>{isLive || hasLiveChapter ? "Scan for updates" : "Scan project updates"}</Link> : null}
-          {isLive ? <button className="button button--text button--small project-console-bar__more" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((value) => !value)}>More</button> : null}
-          {isLive ? <div className={`project-console-bar__utilities${moreOpen ? " is-open" : ""}`}>
-          {isLive ? (
-            <button
-              className="button button--dark button--small"
-              type="button"
-              onClick={() => void copyLink()}
-              title="Copy the public story URL"
-            >
-              {copied ? "Public link copied" : "Copy public link"} <span aria-hidden="true">↗</span>
-            </button>
-          ) : null}
-          {isLive ? (
-            <button
-              className="button button--secondary button--small"
-              type="button"
-              onClick={() => void copyBadgeMarkdown()}
-              title="Copy a README badge for this story"
-            >
-              {badgeCopied ? "Badge markdown copied" : "Copy README badge"}
-            </button>
-          ) : null}
-          </div> : null}
-              {publicationStatus !== "published" ? (
+          {publicationStatus !== "published" ? (
             <button
               className="button button--primary button--small"
               type="button"
@@ -864,6 +812,54 @@ export function ProjectWorkbench({
           ) : (
             <span className="publication-live"><i /> Published</span>
           )}
+        </div>
+
+        <div className="view-switcher" role="tablist" aria-label="Project views" data-guide="workbench-views">
+          <button
+            id="public-tab"
+            role="tab"
+            type="button"
+            aria-selected={view === "public"}
+            aria-controls="public-panel"
+            className={view === "public" ? "is-active" : undefined}
+            onClick={() => setView("public")}
+          >
+            <span className="view-status view-status--public" /> Public page
+          </button>
+          <button
+            id="private-tab"
+            role="tab"
+            type="button"
+            aria-selected={view === "private"}
+            aria-controls="private-panel"
+            className={view === "private" ? "is-active" : undefined}
+            onClick={() => { setView("private"); setEditing(false); }}
+          >
+            <span className="view-status view-status--private" /> Private report
+          </button>
+          <GuideTooltip label="public and private views">Public is the reader-facing story; Private is the complete report.</GuideTooltip>
+        </div>
+
+        <div className="project-console-bar__actions">
+          {isLive ? <button className="button button--text button--small project-console-bar__more" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((value) => !value)}>More</button> : null}
+          {isLive ? <div className={`project-console-bar__utilities${moreOpen ? " is-open" : ""}`}>
+            <button
+              className="button button--dark button--small"
+              type="button"
+              onClick={() => void copyLink()}
+              title="Copy the public story URL"
+            >
+              {copied ? "Public link copied" : "Copy public link"} <span aria-hidden="true">↗</span>
+            </button>
+            <button
+              className="button button--secondary button--small"
+              type="button"
+              onClick={() => void copyBadgeMarkdown()}
+              title="Copy a README badge for this story"
+            >
+              {badgeCopied ? "Badge markdown copied" : "Copy README badge"}
+            </button>
+          </div> : null}
         </div>
       </div>
       ) : (
