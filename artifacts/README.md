@@ -1,18 +1,18 @@
 # Local package artifacts
 
-`buildstory-scan-1.0.1.tgz` is the current packed archive built from
+`buildstory-scan-1.1.0.tgz` is the current packed archive built from
 `packages/buildstory-scanner`. It is the same tarball `npm publish` uploads, so
 installing it locally exercises the real published layout.
 
 ```powershell
-npm install --global ./artifacts/buildstory-scan-1.0.1.tgz
+npm install --global ./artifacts/buildstory-scan-1.1.0.tgz
 buildstory-scan --version
 ```
 
 SHA-256 for the committed archive:
 
 ```text
-e9ff8dbf06db4186c302d2b81445995c4c0b551148c2e718fae25fc98f243be0
+3026b8d356f3c2b286609d86747201bded1bce959fbab04cbf771237d0e53c47
 ```
 
 Rebuild it with `npm run package:scanner`; update this checksum whenever package
@@ -22,6 +22,21 @@ manifest, so a version bump without a repack fails the check rather than
 silently validating an older archive. It checks the embedded schema version
 and that this README names the current archive; keeping the checksum itself
 current is still a manual step every repack.
+
+`1.1.0` redesigns the generated report around deterministic, computed facts
+instead of model-invented ones. Every story pack now carries a `signals`
+array (session rhythm, tool usage, spend, output - see
+`insights/signals.ts`), computed in code with no model call. Deep's
+`decisionReview`/`risksAndEvidenceGaps`/`nextBuildActions` advice sections are
+cut; `executiveSynthesis`/`engineeringPatterns`/`frictionAndRecovery` are
+renamed to `openingLine`/`signatureMoves`/`whereItGotHard`, and a new
+`byTheNumbers` section frames the most notable signals - every entry must
+cite a real `signalId`, and validation rejects one that doesn't, the same way
+an unknown `sourceRef` already gets rejected. `growthEdge.nextStep` is no
+longer generated (kept optional on read for old stored packs).
+`PROJECT_SNAPSHOT_SCHEMA_VERSION` stays `1.7.0`: the story-pack JSON Schema
+was updated in place rather than versioned, since no scanner build has
+shipped the old deep-analysis shape publicly.
 
 `1.0.1` is a version-sync release only: `SCANNER_VERSION` and the package
 manifest now agree at `1.0.1` with no schema or behavior change from `1.0.0`
