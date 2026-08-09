@@ -786,7 +786,7 @@ export function ProjectWorkbench({
     <main className="project-workbench">
       {access === "creator" ? (
       <div className="project-console-bar">
-        <div className="project-console-bar__primary" data-guide="workbench-actions">
+        <div className="project-console-bar__primary">
           <div className="project-console-bar__identity">
             <span className="avatar">{initialsFrom(owner.name)}</span>
             <span>
@@ -794,24 +794,6 @@ export function ProjectWorkbench({
               <small>Owner workbench</small>
             </span>
           </div>
-          {view === "public" && !editing ? (
-            <button className="button button--secondary button--small project-console-bar__edit" type="button" onClick={startEditing}>
-              Edit public page
-            </button>
-          ) : null}
-          {projectId ? <Link className="button button--secondary button--small project-console-bar__scan" href={`/studio/projects/${projectId}/update`}>{isLive || hasLiveChapter ? "Scan for updates" : "Scan project updates"}</Link> : null}
-          {publicationStatus !== "published" ? (
-            <button
-              className="button button--primary button--small"
-              type="button"
-              onClick={requestPublishReview}
-              disabled={saveState === "saving" || narrativePending}
-            >
-              {narrativePending ? "AI narrative pending" : saveState === "saving" ? "Publishing…" : publicationStatus === "draft_changes" ? "Publish changes" : "Publish page"}
-            </button>
-          ) : (
-            <span className="publication-live"><i /> Published</span>
-          )}
         </div>
 
         <div className="view-switcher" role="tablist" aria-label="Project views" data-guide="workbench-views">
@@ -840,7 +822,13 @@ export function ProjectWorkbench({
           <GuideTooltip label="public and private views">Public is the reader-facing story; Private is the complete report.</GuideTooltip>
         </div>
 
-        <div className="project-console-bar__actions">
+        <div className="project-console-bar__actions" data-guide="workbench-actions">
+          {view === "public" && !editing ? (
+            <button className="button button--secondary button--small project-console-bar__edit" type="button" onClick={startEditing}>
+              Edit public page
+            </button>
+          ) : null}
+          {projectId ? <Link className="button button--secondary button--small project-console-bar__scan" href={`/studio/projects/${projectId}/update`}>{isLive || hasLiveChapter ? "Scan for updates" : "Scan project updates"}</Link> : null}
           {isLive ? <button className="button button--text button--small project-console-bar__more" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((value) => !value)}>More</button> : null}
           {isLive ? <div className={`project-console-bar__utilities${moreOpen ? " is-open" : ""}`}>
             <button
@@ -860,6 +848,18 @@ export function ProjectWorkbench({
               {badgeCopied ? "Badge markdown copied" : "Copy README badge"}
             </button>
           </div> : null}
+          {publicationStatus !== "published" ? (
+            <button
+              className="button button--primary button--small"
+              type="button"
+              onClick={requestPublishReview}
+              disabled={saveState === "saving" || narrativePending}
+            >
+              {narrativePending ? "AI narrative pending" : saveState === "saving" ? "Publishing…" : publicationStatus === "draft_changes" ? "Publish changes" : "Publish page"}
+            </button>
+          ) : (
+            <span className="publication-live"><i /> Published</span>
+          )}
         </div>
       </div>
       ) : (

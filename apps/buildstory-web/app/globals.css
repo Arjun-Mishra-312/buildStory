@@ -124,6 +124,14 @@ body {
   color: var(--ink);
   font-family: var(--font-geist-sans), Arial, sans-serif;
   text-rendering: optimizeLegibility;
+  /* Next.js sets --font-geist-sans/--font-geist-mono via a class on <body>, not
+     <html>, so the :root-level --font-ui/--font-code (which reference them)
+     resolve to nothing there and stay invalid through inheritance. Redeclare
+     both here, where the Next.js variables actually exist, so every
+     var(--font-ui)/var(--font-code) consumer below body gets a real value
+     instead of silently falling back to the plain body font. */
+  --font-ui: var(--font-geist-sans), Arial, sans-serif;
+  --font-code: var(--font-geist-mono), "SFMono-Regular", Consolas, monospace;
 }
 
 button,
