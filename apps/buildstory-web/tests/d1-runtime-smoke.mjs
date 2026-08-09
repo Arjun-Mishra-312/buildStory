@@ -94,6 +94,7 @@ assert.deepEqual(status, {
   protocolVersion: "1.0",
   status: "ready",
   reportReady: true,
+  narrativeStatus: "not_requested",
 });
 
 const reportResponse = await fetch(new URL(accepted.reportUrl, base), {
