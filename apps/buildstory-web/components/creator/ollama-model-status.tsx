@@ -192,7 +192,7 @@ export function OllamaModelStatus({
         >
           {cloudAvailable ? <option value="cloud">Buildstory Cloud — DeepSeek V4 Flash via OpenRouter (recommended)</option> : null}
           <option value="byok">Bring your own key — OpenRouter or OpenAI</option>
-          <option value="local">Local — standard-depth report with Ollama</option>
+          <option value="local">Local — hardware-adaptive report with Ollama</option>
           <option value="off">Off — deterministic profile only</option>
         </select>
         <small>

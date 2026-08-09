@@ -222,7 +222,11 @@ function changes(result: D1Result<unknown> | undefined) {
   return Number(result?.meta?.changes ?? 0);
 }
 
-function cleanSession(row: SessionRow): UploadSessionView {
+function narrativeStatusValue(value: string | null | undefined): NarrativeStatus | null {
+  return value === "queued" || value === "generating" || value === "ready" || value === "failed" ? value : null;
+}
+
+function cleanSession(row: SessionRow, narrativeStatus: NarrativeStatus | null = null): UploadSessionView {
   const narrativeMode = row.narrative_mode === "local" || row.narrative_mode === "byok" || row.narrative_mode === "off" ? row.narrative_mode : "cloud";
   return {
     id: row.id,
@@ -239,6 +243,7 @@ function cleanSession(row: SessionRow): UploadSessionView {
     snapshotReceivedAt: row.snapshot_received_at,
     reportId: row.report_id,
     statusDetail: row.status_detail,
+    narrativeStatus,
   };
 }
 
@@ -364,6 +369,7 @@ function narrativeFromRow(row: NarrativeRow): NarrativeRecord {
     provider: row.provider,
     model: row.model,
     status: row.status as NarrativeStatus,
+    failureCode: row.last_error_code,
     sections: storedRecord && "sections" in storedRecord ? storedRecord.sections ?? null : stored as NarrativeRecord["sections"],
     storyPack: storedRecord?.storyPack ?? null,
     analysisTierRequested: row.analysis_tier_requested === "deep" ? "deep" : storedRecord?.analysisTierRequested ?? "standard",
@@ -511,11 +517,15 @@ export async function listUploadSessions(
   const bounded = Math.min(Math.max(1, Math.trunc(limit)), 100);
   const rows = await (await database())
     .prepare(
-      "SELECT * FROM buildstory_upload_sessions WHERE creator_id = ? AND (? IS NULL OR created_at < ?) ORDER BY created_at DESC LIMIT ?",
+      `SELECT s.*, n.status AS joined_narrative_status
+       FROM buildstory_upload_sessions s
+       LEFT JOIN buildstory_narratives n ON n.report_id = s.report_id
+       WHERE s.creator_id = ? AND (? IS NULL OR s.created_at < ?)
+       ORDER BY s.created_at DESC LIMIT ?`,
     )
     .bind(creatorId, cursor ?? null, cursor ?? null, bounded)
-    .all<SessionRow>();
-  return rows.results.map(cleanSession);
+    .all<SessionRow & { joined_narrative_status: string | null }>();
+  return rows.results.map((row) => cleanSession(row, narrativeStatusValue(row.joined_narrative_status)));
 }
 
 /**
@@ -1194,6 +1204,7 @@ export async function processNarrativeQueueJob(narrativeId: string) {
   let sourceSnapshotForScrub: ScannerProjectSnapshot | null = null;
   let reportIdForScrub: string | null = null;
   let analysisTierForFailure: "standard" | "deep" = "standard";
+  let claimedNarrative: NarrativeRow | null = null;
   try {
     await db
       .prepare("UPDATE buildstory_narratives SET status = 'generating', updated_at = ? WHERE id = ? AND status = 'queued'")
@@ -1204,6 +1215,7 @@ export async function processNarrativeQueueJob(narrativeId: string) {
       .bind(narrativeId)
       .first<NarrativeRow>();
     if (!narrative) throw new Error(`Narrative ${narrativeId} not found for a claimed job.`);
+    claimedNarrative = narrative;
     analysisTierForFailure = narrative.analysis_tier_requested === "deep" ? "deep" : "standard";
     if (narrative.evidence_expires_at && Date.parse(narrative.evidence_expires_at) <= Date.now()) {
       throw new NarrativeProviderError("evidence_expired", "Reviewed evidence expired before generation.");
@@ -1244,6 +1256,7 @@ export async function processNarrativeQueueJob(narrativeId: string) {
       retainedFinalReport: previousSnapshot.narrative?.storyPack ?? previousSnapshot.narrative ?? null,
     } : null;
     const result = await generateNarrative(sourceSnapshot, session?.narrative_model, { analysisTier: analysisTierRequested, previousChapter });
+    const completedAtIso = new Date().toISOString();
     const sanitizedSections = {
       headline: sanitizePublicText(result.sections.headline, NARRATIVE_FIELD_LIMITS.headline).value,
       narrative: sanitizePublicText(result.sections.narrative, NARRATIVE_FIELD_LIMITS.narrative).value,
@@ -1262,14 +1275,14 @@ export async function processNarrativeQueueJob(narrativeId: string) {
     const costMicroUsd = result.actualCostMicroUsd
       ?? estimateCostMicroUsd(result.model, result.inputTokens, result.outputTokens);
     const analysisTierDelivered = result.storyPack.version === "3.0.0" ? "deep" : "standard";
-    const evidenceScrubbedAt = sourceSnapshot.narrativeEvidence ? nowIso : null;
+    const evidenceScrubbedAt = sourceSnapshot.narrativeEvidence ? completedAtIso : null;
     const evidenceReceipt = sourceSnapshot.narrativeEvidence ? {
       excerptCount: sourceSnapshot.narrativeEvidence.excerpts.length,
       sessionCount: new Set(sourceSnapshot.narrativeEvidence.excerpts.map((excerpt) => excerpt.sessionRef)).size,
       byteSize: new TextEncoder().encode(JSON.stringify(sourceSnapshot.narrativeEvidence)).byteLength,
       selectionPolicyVersion: sourceSnapshot.narrativeEvidence.policy.excerptSelection,
       consentVersion: sourceSnapshot.narrativeEvidence.consent.statementVersion,
-      scrubbedAt: nowIso,
+      scrubbedAt: completedAtIso,
     } : null;
     const observability = {
       providerCounts: Object.fromEntries(sourceSnapshot.sourceSelection.providers.map((item) => [item.provider, item.sessionsIncluded])),
@@ -1318,28 +1331,33 @@ export async function processNarrativeQueueJob(narrativeId: string) {
           evidenceScrubbedAt,
           evidenceReceipt ? JSON.stringify(evidenceReceipt) : null,
           JSON.stringify(result.fallbacksUsed),
-          nowIso,
+          completedAtIso,
           narrativeId,
         ),
       db
         .prepare(
           "UPDATE buildstory_narrative_jobs SET status = 'completed', lease_until = NULL, last_error_code = NULL, updated_at = ? WHERE narrative_id = ?",
         )
-        .bind(nowIso, narrativeId),
+        .bind(completedAtIso, narrativeId),
       db
         .prepare("UPDATE buildstory_reports SET snapshot_json = ?, updated_at = ? WHERE id = ?")
-        .bind(JSON.stringify(reportSnapshot), nowIso, narrative.report_id),
+        .bind(JSON.stringify(reportSnapshot), completedAtIso, narrative.report_id),
       ...(evidenceScrubbedAt
         ? [db
             .prepare("UPDATE buildstory_reports SET source_snapshot_json = ?, updated_at = ? WHERE id = ?")
-            .bind(JSON.stringify({ ...sourceSnapshot, narrativeEvidence: undefined }), nowIso, narrative.report_id),
+            .bind(JSON.stringify({ ...sourceSnapshot, narrativeEvidence: undefined }), completedAtIso, narrative.report_id),
           db.prepare("UPDATE buildstory_upload_sessions SET snapshot_json = ?, updated_at = ? WHERE id = ?")
-            .bind(JSON.stringify({ ...sourceSnapshot, narrativeEvidence: undefined }), nowIso, report.upload_session_id)]
+            .bind(JSON.stringify({ ...sourceSnapshot, narrativeEvidence: undefined }), completedAtIso, report.upload_session_id)]
         : []),
     ]);
     await reconcileNarrativeSpend(db, narrative, costMicroUsd);
   } catch (error) {
     const errorCode = error instanceof NarrativeProviderError ? error.code : "narrative_generation_failed";
+    const failureAtIso = new Date().toISOString();
+    const failureUsage = error instanceof NarrativeProviderError ? error.usage : null;
+    const failureCostMicroUsd = failureUsage
+      ? failureUsage.costMicroUsd ?? estimateCostMicroUsd("deepseek/deepseek-v4-flash", failureUsage.inputTokens, failureUsage.outputTokens)
+      : null;
     const job = await db
       .prepare("SELECT attempts FROM buildstory_narrative_jobs WHERE narrative_id = ?")
       .bind(narrativeId)
@@ -1353,43 +1371,58 @@ export async function processNarrativeQueueJob(narrativeId: string) {
         byteSize: new TextEncoder().encode(JSON.stringify(sourceSnapshotForScrub.narrativeEvidence)).byteLength,
         selectionPolicyVersion: sourceSnapshotForScrub.narrativeEvidence.policy.excerptSelection,
         consentVersion: sourceSnapshotForScrub.narrativeEvidence.consent.statementVersion,
-        scrubbedAt: nowIso,
+        scrubbedAt: failureAtIso,
       } : null;
       const terminalUpdates = [
         db
           .prepare(
             "UPDATE buildstory_narrative_jobs SET status = 'failed', lease_until = NULL, last_error_code = ?, updated_at = ? WHERE narrative_id = ?",
           )
-          .bind(errorCode, nowIso, narrativeId),
+          .bind(errorCode, failureAtIso, narrativeId),
         db
           .prepare(
-            "UPDATE buildstory_narratives SET status = 'failed', sections_json = ?, evidence_scrubbed_at = ?, evidence_receipt_json = ?, last_error_code = ?, updated_at = ? WHERE id = ?",
+            `UPDATE buildstory_narratives
+             SET status = 'failed', sections_json = ?, evidence_scrubbed_at = ?, evidence_receipt_json = ?,
+                 input_tokens = ?, output_tokens = ?, reasoning_tokens = ?, cached_tokens = ?, cost_micro_usd = ?,
+                 provider_request_ids_json = ?, last_error_code = ?, updated_at = ?
+             WHERE id = ?`,
           )
           .bind(JSON.stringify({
             sections: null,
             storyPack: null,
             analysisTierRequested: analysisTierForFailure,
             analysisTierDelivered: "standard",
-            evidenceScrubbedAt: sourceSnapshotForScrub?.narrativeEvidence ? nowIso : null,
-          }), terminalReceipt ? nowIso : null, terminalReceipt ? JSON.stringify(terminalReceipt) : null, errorCode, nowIso, narrativeId),
+            evidenceScrubbedAt: sourceSnapshotForScrub?.narrativeEvidence ? failureAtIso : null,
+          }), terminalReceipt ? failureAtIso : null, terminalReceipt ? JSON.stringify(terminalReceipt) : null,
+          failureUsage?.inputTokens ?? 0,
+          failureUsage?.outputTokens ?? 0,
+          failureUsage?.reasoningTokens ?? 0,
+          failureUsage?.cachedTokens ?? 0,
+          failureCostMicroUsd ?? 0,
+          failureUsage?.requestIds.length ? JSON.stringify(failureUsage.requestIds) : null,
+          errorCode, failureAtIso, narrativeId),
       ];
       if (sourceSnapshotForScrub?.narrativeEvidence && reportIdForScrub) {
         terminalUpdates.push(
           db
             .prepare("UPDATE buildstory_reports SET source_snapshot_json = ?, updated_at = ? WHERE id = ?")
-            .bind(JSON.stringify({ ...sourceSnapshotForScrub, narrativeEvidence: undefined }), nowIso, reportIdForScrub),
+            .bind(JSON.stringify({ ...sourceSnapshotForScrub, narrativeEvidence: undefined }), failureAtIso, reportIdForScrub),
           db.prepare("UPDATE buildstory_upload_sessions SET snapshot_json = ?, updated_at = ? WHERE report_id = ?")
-            .bind(JSON.stringify({ ...sourceSnapshotForScrub, narrativeEvidence: undefined }), nowIso, reportIdForScrub),
+            .bind(JSON.stringify({ ...sourceSnapshotForScrub, narrativeEvidence: undefined }), failureAtIso, reportIdForScrub),
         );
       }
       await db.batch(terminalUpdates);
-      await releaseNarrativeReservation(db, narrativeId);
+      if (failureCostMicroUsd !== null && claimedNarrative) {
+        await reconcileNarrativeSpend(db, claimedNarrative, failureCostMicroUsd);
+      } else {
+        await releaseNarrativeReservation(db, narrativeId);
+      }
     } else {
       await db
         .prepare(
           "UPDATE buildstory_narrative_jobs SET status = 'pending', available_at = ?, lease_until = NULL, last_error_code = ?, updated_at = ? WHERE narrative_id = ?",
         )
-        .bind(retryAt, errorCode, nowIso, narrativeId)
+        .bind(retryAt, errorCode, failureAtIso, narrativeId)
         .run();
     }
     throw error;
@@ -1471,6 +1504,7 @@ export async function createUploadSession(
     snapshotReceivedAt: null,
     reportId: null,
     statusDetail,
+    narrativeStatus: null,
   };
   const normalizedApiBaseUrl = `${apiBaseUrl.replace(/\/$/, "")}/`;
   const apiBaseHostname = new URL(normalizedApiBaseUrl).hostname;
@@ -1506,7 +1540,8 @@ export async function getUploadSession(
   if (!row || row.creator_id !== creatorId) {
     throw new D1IngestionError("not_found", "Upload session not found.", 404);
   }
-  return cleanSession(row);
+  const narrative = row.report_id ? await narrativeByReportId(row.report_id) : null;
+  return cleanSession(row, narrativeStatusValue(narrative?.status));
 }
 
 export async function claimUploadSession(
@@ -1911,11 +1946,13 @@ export async function getLocalUploadStatus(
         ? "failed"
         : row.status === "snapshot_received"
           ? "accepted"
-          : "processing";
+        : "processing";
+  const narrative = row.report_id ? await narrativeByReportId(row.report_id) : null;
   return {
     protocolVersion: "1.0" as const,
     status: status as "accepted" | "processing" | "ready" | "failed",
     reportReady: status === "ready",
+    narrativeStatus: narrative?.status ?? "not_requested" as const,
   };
 }
 
@@ -2191,6 +2228,13 @@ export async function publishReport(
   const report = await getReport(creatorId, reportId);
   if (report.status !== "ready") {
     throw new D1IngestionError("report_not_ready", "Report is not ready to publish.", 409);
+  }
+  if (report.narrative?.status === "queued" || report.narrative?.status === "generating") {
+    throw new D1IngestionError(
+      "narrative_pending",
+      "The AI narrative is still being generated. You can browse the private report while it finishes.",
+      409,
+    );
   }
   if (!report.selectedPublicFields.includes("tagline")) {
     throw new D1IngestionError(

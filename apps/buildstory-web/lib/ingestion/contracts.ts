@@ -161,6 +161,8 @@ export type NarrativeRecord = {
   provider: string;
   model: string;
   status: NarrativeStatus;
+  /** Content-free terminal code only; provider response bodies are never retained. */
+  failureCode?: string | null;
   sections: {
     headline: string;
     narrative: string;
@@ -223,6 +225,8 @@ export type UploadSessionView = {
   snapshotReceivedAt: string | null;
   reportId: string | null;
   statusDetail: string;
+  /** Separate from report readiness: Cloud narrative generation continues on its own queue. */
+  narrativeStatus: NarrativeStatus | null;
 };
 
 export type ScannerClaimResponse = {

@@ -109,6 +109,19 @@ function providerName(provider: string): string {
   return "Codex";
 }
 
+function narrativeFailureMessage(code: string | null | undefined): string {
+  if (code === "llm_invalid_schema" || code === "llm_invalid_json" || code === "llm_invalid_response") {
+    return "The provider completed the request, but its structured result still failed Buildstory's schema or evidence-reference validation after one repair attempt. Provider usage may have been charged. The reviewed excerpts were erased, so generating a replacement requires a fresh reviewed scan.";
+  }
+  if (code === "llm_model_or_zdr_unavailable") {
+    return "No eligible Zero Data Retention route was available for the configured model. Buildstory did not relax ZDR or switch models. Start a fresh reviewed scan after the route is available.";
+  }
+  if (code === "evidence_expired") {
+    return "The reviewed evidence expired before generation completed and has been erased. Start a fresh reviewed scan to try again.";
+  }
+  return "The narrative model could not generate a valid story for this scan. No further attempts are made automatically, and the reviewed excerpts have been erased. A replacement requires a fresh reviewed scan.";
+}
+
 function PrivacyVideoEmbed({ video, projectName }: { video: NonNullable<ReturnType<typeof resolveVideoEmbed>>; projectName: string }) {
   const [loaded, setLoaded] = useState(false);
   const provider = video.provider === "youtube" ? "YouTube" : video.provider === "vimeo" ? "Vimeo" : "Loom";
@@ -349,7 +362,7 @@ export function ProjectWorkbench({
 }: ProjectWorkbenchProps) {
   const owner = ownerRoleOverride ? { ...story.owner, role: ownerRoleOverride } : story.owner;
   const router = useRouter();
-  const resolvedNarrativeStatus: NarrativeDisplayStatus =
+  const initialResolvedNarrativeStatus: NarrativeDisplayStatus =
     narrativeStatus ??
     (narrative
       ? narrative.status === "ready"
@@ -360,6 +373,25 @@ export function ProjectWorkbench({
             ? "narrative_generating"
             : "narrative_queued"
       : "narrative_not_requested");
+  const [resolvedNarrativeStatus, setResolvedNarrativeStatus] = useState<NarrativeDisplayStatus>(initialResolvedNarrativeStatus);
+  useEffect(() => {
+    if (access !== "creator" || !reportId || (resolvedNarrativeStatus !== "narrative_queued" && resolvedNarrativeStatus !== "narrative_generating")) return;
+    let stopped = false;
+    const poll = async () => {
+      const response = await fetch(`/api/creator/reports/${reportId}/narrative-status`, {
+        headers: { accept: "application/json" },
+        cache: "no-store",
+      }).catch(() => null);
+      if (!response?.ok || stopped) return;
+      const body = await response.json().catch(() => null) as { status?: NarrativeDisplayStatus } | null;
+      if (!body?.status || stopped) return;
+      setResolvedNarrativeStatus(body.status);
+      if (body.status === "narrative_ready" || body.status === "narrative_failed") router.refresh();
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 2_000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [access, reportId, resolvedNarrativeStatus, router]);
   const privateStory = access === "creator" ? (story as BuildStoryViewModel) : null;
   const storyReflection = "reflection" in story ? story.reflection : "";
   const initialTagline = initialEditorial?.tagline ?? story.tagline;
@@ -410,6 +442,7 @@ export function ProjectWorkbench({
   // publication-boundary fix that keeps it serving the frozen story instead of 404ing.
   // Anything gated on "is there something public to link to / take down" must include it.
   const isLive = publicationStatus === "published" || publicationStatus === "draft_changes";
+  const narrativePending = resolvedNarrativeStatus === "narrative_queued" || resolvedNarrativeStatus === "narrative_generating";
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [publicationError, setPublicationError] = useState<string | null>(null);
   const [publishReviewOpen, setPublishReviewOpen] = useState(false);
@@ -815,9 +848,9 @@ export function ProjectWorkbench({
               className="button button--primary button--small"
               type="button"
               onClick={requestPublishReview}
-              disabled={saveState === "saving"}
+              disabled={saveState === "saving" || narrativePending}
             >
-              {saveState === "saving" ? "Publishing…" : publicationStatus === "draft_changes" ? "Publish changes" : "Publish page"}
+              {narrativePending ? "AI narrative pending" : saveState === "saving" ? "Publishing…" : publicationStatus === "draft_changes" ? "Publish changes" : "Publish page"}
             </button>
           ) : (
             <span className="publication-live"><i /> Published</span>
@@ -830,6 +863,16 @@ export function ProjectWorkbench({
           <a href="/signin?callbackUrl=/studio">Creator controls →</a>
         </div>
       )}
+
+      {access === "creator" && narrativePending ? (
+        <div className="narrative-queue-banner" role="status" aria-live="polite">
+          <span className="narrative-queue-banner__pulse" aria-hidden="true" />
+          <div>
+            <strong>{resolvedNarrativeStatus === "narrative_queued" ? "Your AI narrative is queued." : "Your AI narrative is being generated."}</strong>
+            <p>The deterministic report is ready, so you can browse its metrics and private sections now. This page checks the queue automatically and will load the evidence-linked narrative when it finishes.</p>
+          </div>
+        </div>
+      ) : null}
 
       {access === "creator" && publicationError ? (
         <div className="publication-feedback" role="alert">
@@ -1495,7 +1538,7 @@ export function ProjectWorkbench({
                     <p>This report was generated with an older narrative payload. Regenerate it with the current scanner to populate evidence-linked moments, decisions, learnings, traits, and growth cards.</p>
                   </section>
                 ) : resolvedNarrativeStatus === "narrative_failed" ? (
-                  <p>The narrative model could not generate a story for this scan after retrying. No further attempts are made automatically.</p>
+                  <p>{narrativeFailureMessage(narrative?.failureCode)}</p>
                 ) : (
                   <div className="story-pack-skeleton" aria-label="Generating story pack" aria-busy="true">
                     <div className="story-pack-skeleton__hero" />

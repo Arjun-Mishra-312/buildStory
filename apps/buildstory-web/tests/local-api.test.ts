@@ -321,6 +321,7 @@ test("local scanner lifecycle enforces owner, digest, size, and one-use grant bo
     protocolVersion: "1.0",
     status: "ready",
     reportReady: true,
+    narrativeStatus: "failed",
   });
 
   const reportId = acceptedJson.reportUrl.split("/").at(-1);

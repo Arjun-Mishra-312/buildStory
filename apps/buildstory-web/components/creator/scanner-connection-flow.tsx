@@ -14,6 +14,15 @@ const orderedStatuses = [
   "report_ready",
 ] as const;
 
+const STATUS_LABELS: Record<(typeof orderedStatuses)[number], string> = {
+  awaiting_scanner: "Awaiting scanner",
+  scanner_authorized: "Scanner authorized",
+  snapshot_received: "Snapshot received",
+  queued: "Base report queued",
+  generating: "Assembling base report",
+  report_ready: "Private report ready",
+};
+
 const INSTALL_COMMAND = "npm install --global buildstory-scan";
 
 /** Display labels for the internal narrative-mode value, which stays "local"/"byok"/"cloud"/"off" in code, storage, and the wire protocol - only this label is user-facing. */
@@ -51,7 +60,8 @@ export function ScannerConnectionFlow({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!session || ["report_ready", "failed", "expired"].includes(session.status)) return;
+    const narrativePending = session?.narrativeStatus === "queued" || session?.narrativeStatus === "generating";
+    if (!session || ["failed", "expired"].includes(session.status) || (session.status === "report_ready" && !narrativePending)) return;
     const timer = window.setInterval(async () => {
       const response = await fetch(`/api/creator/upload-sessions/${session.id}`, {
         headers: { accept: "application/json" },
@@ -186,11 +196,11 @@ export function ScannerConnectionFlow({
             <p className="scanner-evidence-explainer">
               <strong>Narrative mode <GuideTooltip label="narrative mode">Local keeps excerpts on this machine; bring-your-own-key sends excerpts only to a cloud model you configure yourself; Buildstory Cloud is an explicit upload opt-in through Buildstory; off creates deterministic metrics only.</GuideTooltip></strong>{" "}
               {narrativeMode === "local"
-                ? "Local mode sends selected excerpts only over loopback to Ollama on this machine. They are never uploaded to Buildstory or an external model provider."
+                ? "Local mode sizes its evidence and context profile from this machine's RAM and logical CPU count (safe, balanced, or enhanced). Selected excerpts travel only over loopback to Ollama and are never uploaded to Buildstory or an external model provider."
                 : narrativeMode === "byok"
-                  ? `Bring-your-own-key requires a pre-send CLI review of the exact excerpts and facts, then sends them directly to ${session?.narrativeProvider === "openai" ? "OpenAI using BUILDSTORY_OPENAI_API_KEY; store: false is sent, but your OpenAI organization retention policy controls retention" : "OpenRouter using BUILDSTORY_OPENROUTER_API_KEY with ZDR routing and data collection denied"}. ${session?.analysisTier === "deep" ? "Deep is capped at 240 excerpts, 1,500 characters each and 700 KiB total (dynamically reduced to fit the upload grant) and uses a private analysis pass followed by V3 synthesis;" : "Standard is capped at 40 excerpts, 600 characters each and 20,000 characters total;"} each component may make one JSON-repair request. Buildstory receives only the finished report and never the key or excerpts.`
+                  ? `Bring-your-own-key requires a pre-send CLI review of the exact excerpts and facts, then sends them directly to ${session?.narrativeProvider === "openai" ? "OpenAI using BUILDSTORY_OPENAI_API_KEY; store: false is sent, but your OpenAI organization retention policy controls retention" : "OpenRouter using BUILDSTORY_OPENROUTER_API_KEY with ZDR routing and data collection denied"}. ${session?.analysisTier === "deep" ? "Deep is capped at 240 excerpts, 1,500 characters each and 700 KiB total (dynamically reduced to fit the upload grant) and uses a private analysis pass followed by V3 synthesis;" : "Standard is capped at 80 excerpts, 800 characters each and 60,000 characters total;"} each component may make one JSON-repair request. Buildstory receives only the finished report and never the key or excerpts.`
                   : narrativeMode === "cloud"
-                    ? `Buildstory Cloud sends the reviewed evidence and disclosed deterministic facts to DeepSeek V4 Flash through OpenRouter with ZDR-eligible routing and data collection denied. ${session?.analysisTier === "deep" ? "Deep is capped at 240 excerpts, 1,500 characters each and 700 KiB total, dynamically reduced to fit the upload grant; update chapters also include the prior chapter's aggregate facts, deterministic profile, and final report, but not its old excerpts." : "Standard is capped at 40 excerpts, 600 characters each and 20,000 characters total."} Buildstory scrubs excerpts on completion or final failure and marks them to expire after two hours.`
+                    ? `Buildstory Cloud sends the reviewed evidence and disclosed deterministic facts to DeepSeek V4 Flash through OpenRouter with ZDR-eligible routing and data collection denied. ${session?.analysisTier === "deep" ? "Deep is capped at 240 excerpts, 1,500 characters each and 700 KiB total, dynamically reduced to fit the upload grant; update chapters also include the prior chapter's aggregate facts, deterministic profile, and final report, but not its old excerpts." : "Standard is capped at 80 excerpts, 800 characters each and 60,000 characters total."} Buildstory scrubs excerpts on completion or final failure and marks them to expire after two hours.`
                     : "Off mode uploads deterministic metrics and profile scores without narrative prose."}
             </p>
             <button type="button" className="scanner-command scanner-command--secondary" onClick={() => {
@@ -204,7 +214,7 @@ export function ScannerConnectionFlow({
               <div><dt>Connection code</dt><dd>{authorization.userCode}</dd></div>
               <div><dt>Loopback API</dt><dd>{authorization.apiBaseUrl}</dd></div>
               <div><dt>Narrative mode</dt><dd>{NARRATIVE_MODE_LABELS[session?.narrativeMode ?? narrativeMode]}</dd></div>
-              <div><dt>Report depth</dt><dd>{session?.analysisTier === "deep" ? "Pro / deep" : "Standard"}{session?.narrativeMode === "local" || session?.narrativeMode === "byok" ? " — this mode currently produces standard reports" : ""}</dd></div>
+              <div><dt>Report depth</dt><dd>{session?.analysisTier === "deep" ? "Pro / deep" : session?.narrativeMode === "local" ? "Hardware-adaptive local" : "Standard"}{session?.narrativeMode === "byok" ? " — provider-generated" : ""}</dd></div>
               <div><dt>Provider</dt><dd>{session?.narrativeProvider === "openrouter" ? "OpenRouter / DeepSeek V4 Flash" : session?.narrativeProvider ?? "None"}</dd></div>
               {(session?.narrativeMode ?? narrativeMode) !== "cloud" ? (
                 <div><dt>Narrative model</dt><dd>{session?.narrativeModel ?? "Automatic"}</dd></div>
@@ -233,17 +243,34 @@ export function ScannerConnectionFlow({
           {orderedStatuses.map((status, index) => (
             <div className={currentIndex >= index ? "is-complete" : ""} key={status}>
               <i>{currentIndex > index ? "✓" : String(index + 1).padStart(2, "0")}</i>
-              <span><strong>{status.replaceAll("_", " ")}</strong><small>{index === currentIndex ? session?.statusDetail : ""}</small></span>
+              <span><strong>{STATUS_LABELS[status]}</strong><small>{index === currentIndex ? session?.statusDetail : ""}</small></span>
             </div>
           ))}
         </div>
+        {session?.reportId && (session.narrativeStatus === "queued" || session.narrativeStatus === "generating") ? (
+          <div className="scanner-narrative-progress" role="status" aria-live="polite">
+            <span className="scanner-narrative-progress__pulse" aria-hidden="true" />
+            <div>
+              <strong>{session.narrativeStatus === "queued" ? "AI narrative queued" : "AI narrative generating"}</strong>
+              <p>Your private report is ready to browse. DeepSeek is processing the reviewed evidence in the background, and this status will update automatically.</p>
+            </div>
+          </div>
+        ) : session?.reportId && session.narrativeStatus === "ready" ? (
+          <div className="scanner-narrative-progress scanner-narrative-progress--ready" role="status">
+            <span aria-hidden="true">✓</span><div><strong>AI narrative ready</strong><p>The evidence-linked narrative is available in the private report.</p></div>
+          </div>
+        ) : session?.reportId && session.narrativeStatus === "failed" ? (
+          <div className="scanner-narrative-progress scanner-narrative-progress--failed" role="alert">
+            <span aria-hidden="true">!</span><div><strong>AI narrative could not be generated</strong><p>The deterministic private report remains available.</p></div>
+          </div>
+        ) : null}
         {terminalError ? (
           <p className="scanner-flow__error" role="alert">
             {session.status === "expired" ? "This connection expired. Start a new one to continue." : session.statusDetail}
           </p>
         ) : null}
         {session?.reportId && session.status === "report_ready" ? (
-          <a className="button button--primary" href={`/studio/reports/${session.reportId}`}>Review private report →</a>
+          <a className="button button--primary" href={`/studio/reports/${session.reportId}`}>{session.narrativeStatus === "queued" || session.narrativeStatus === "generating" ? "Browse report while AI generates" : "Review private report"} →</a>
         ) : null}
       </section>
 
@@ -252,7 +279,7 @@ export function ScannerConnectionFlow({
         {initialSessions.map((item) => (
           <article key={item.id}>
             <span className={`activity-state activity-state--${item.status}`} />
-            <div><strong>{item.projectLabel}</strong><small>{item.statusDetail}</small></div>
+            <div><strong>{item.projectLabel}</strong><small>{item.statusDetail}{item.narrativeStatus === "queued" || item.narrativeStatus === "generating" ? ` AI narrative ${item.narrativeStatus}.` : item.narrativeStatus === "ready" ? " AI narrative ready." : ""}</small></div>
             <code>{item.id}</code>
           </article>
         ))}

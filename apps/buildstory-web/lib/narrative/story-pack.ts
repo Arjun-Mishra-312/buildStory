@@ -127,11 +127,11 @@ function stringError(value: unknown, path: string, min: number, max: number): st
   return null;
 }
 
-function refsError(value: unknown, path: string, allowed: Set<string>): string[] {
+function refsError(value: unknown, path: string, allowed: Set<string>, maxRefs = 4): string[] {
   if (!Array.isArray(value)) return [`${path} must be an array.`];
   const errors: string[] = [];
   if (allowed.size > 0 && value.length < 1) errors.push(`${path} must contain at least one source reference.`);
-  if (value.length > 4) errors.push(`${path} must contain at most four source references.`);
+  if (value.length > maxRefs) errors.push(`${path} must contain at most ${maxRefs} source references.`);
   const seen = new Set<string>();
   value.forEach((item, index) => {
     if (typeof item !== "string" || !item.trim()) errors.push(`${path}[${index}] must be a non-empty string.`);
@@ -241,7 +241,10 @@ function validateFinding(value: unknown, path: string, allowed: Set<string>, rec
   const title = stringError(entry.title, `${path}.title`, 1, 120); if (title) errors.push(title);
   const summary = stringError(entry.summary, `${path}.summary`, 1, 600); if (summary) errors.push(summary);
   if (!["high", "medium", "low"].includes(String(entry.confidence))) errors.push(`${path}.confidence is unsupported.`);
-  errors.push(...refsError(entry.sourceRefs, `${path}.sourceRefs`, allowed));
+  // Deep findings deliberately allow up to six references in their JSON
+  // schema. Keeping the post-generation validator at the base-story limit of
+  // four made valid structured output fail after an unnecessary repair call.
+  errors.push(...refsError(entry.sourceRefs, `${path}.sourceRefs`, allowed, 6));
   if (recommendation) {
     if (!["now", "next", "later"].includes(String(entry.priority))) errors.push(`${path}.priority is unsupported.`);
     const rationale = stringError(entry.rationale, `${path}.rationale`, 1, 600); if (rationale) errors.push(rationale);
@@ -303,8 +306,8 @@ function clean(path: string, value: unknown, max: number, fallback: string, fall
   return sanitized;
 }
 
-function sourceRefs(path: string, value: unknown, allowed: Set<string>, fallback: string[], fallbacks: string[]): string[] {
-  const selected = Array.isArray(value) ? [...new Set(value.filter((item): item is string => typeof item === "string" && allowed.has(item)))].slice(0, 4) : [];
+function sourceRefs(path: string, value: unknown, allowed: Set<string>, fallback: string[], fallbacks: string[], maxRefs = 4): string[] {
+  const selected = Array.isArray(value) ? [...new Set(value.filter((item): item is string => typeof item === "string" && allowed.has(item)))].slice(0, maxRefs) : [];
   if (!selected.length) {
     fallbacks.push(path);
     return fallback;
@@ -388,7 +391,7 @@ export function normalizeDeepStoryPack(value: unknown, snapshot: ScannerProjectS
   const allowed = new Set(normalized.storyPack.sources.map((source) => source.ref));
   const fallbacks = [...normalized.fallbacksUsed];
   const fallbackRefs = normalized.storyPack.sources[0]?.ref ? [normalized.storyPack.sources[0].ref] : [];
-  const refs = (path: string, input: unknown) => sourceRefs(path, input, allowed, fallbackRefs, fallbacks).slice(0, 6);
+  const refs = (path: string, input: unknown) => sourceRefs(path, input, allowed, fallbackRefs, fallbacks, 6);
   const confidence = (input: unknown): StoryPackConfidence => input === "high" || input === "medium" || input === "low" ? input : "low";
   const finding = (input: unknown, path: string): StoryPackFinding => {
     const raw = record(input) ?? {};

@@ -60,7 +60,7 @@ const sections: LegalSection[] = [
     heading: "8. Pro",
     paragraphs: [
       "Pro adds the layered deep-analysis report for Buildstory Cloud and BYOK OpenRouter/OpenAI, including broader reviewed evidence, source-linked findings, risks, recommendations, and chapter-over-chapter observations. The launch promotion currently grants the deep tier to every account; ending it activates the durable Free/Pro distinction without changing existing reports.",
-      "Local Ollama always produces the standard-depth report because its smaller context and structured-output limits do not support the deep pipeline. Every account remains subject to a fair-use ceiling of 500 stored reports — an anti-abuse measure tied to storage cost, not a scan limit.",
+      "Local Ollama produces the standard-depth report, but its evidence capacity is not plan-gated: the scanner automatically selects a safe, balanced, or enhanced profile from the machine's available RAM and logical CPUs. Deep remains a cloud/BYOK pipeline because it depends on two high-reasoning passes and reliable large structured outputs, not because Buildstory intentionally reduces Local on paid or free accounts. Every account remains subject to a fair-use ceiling of 500 stored reports — an anti-abuse measure tied to storage cost, not a scan limit.",
     ],
   },
   {

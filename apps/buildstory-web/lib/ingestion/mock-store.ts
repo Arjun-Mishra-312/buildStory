@@ -249,6 +249,7 @@ function createSeedStore(): MockStore {
     snapshotReceivedAt: orbitNotesSnapshot.provenance.scannedAt,
     reportId,
     statusDetail: "Private report ready for review.",
+    narrativeStatus: null,
     deviceCodeHash: "used-seed",
     deviceCodeAttempts: 0,
     deviceCodeClaimedAt: orbitNotesSnapshot.provenance.scannedAt,
@@ -323,6 +324,7 @@ function publicOrigin() {
 }
 
 function cleanSession(session: StoredUploadSession): UploadSessionView {
+  const narrative = session.reportId ? store.narratives.get(session.reportId) : null;
   return {
     id: session.id,
     creatorId: session.creatorId,
@@ -338,6 +340,7 @@ function cleanSession(session: StoredUploadSession): UploadSessionView {
     snapshotReceivedAt: session.snapshotReceivedAt,
     reportId: session.reportId,
     statusDetail: session.statusDetail,
+    narrativeStatus: narrative?.status ?? null,
   };
 }
 
@@ -874,6 +877,7 @@ function narrativeRecordFor(reportId: string): NarrativeRecord | null {
     provider: narrative.provider,
     model: narrative.model,
     status: narrative.status,
+    failureCode: null,
     sections: narrative.sections,
     storyPack: narrative.storyPack,
     analysisTierRequested: narrative.analysisTierRequested,
@@ -936,6 +940,7 @@ export async function createUploadSession(
     snapshotReceivedAt: null,
     reportId: null,
     statusDetail: "Waiting for a scanner to claim the one-time connection code.",
+    narrativeStatus: null,
     deviceCodeHash: await hashToken(deviceCode),
     deviceCodeAttempts: 0,
     deviceCodeClaimedAt: null,
@@ -1308,6 +1313,7 @@ export async function getLocalUploadStatus(
   protocolVersion: "1.0";
   status: "accepted" | "processing" | "ready" | "failed";
   reportReady: boolean;
+  narrativeStatus: "not_requested" | NarrativeStatus;
 }> {
   const session = await scannerSessionForToken(sessionId, bearerToken);
   if (!session.uploadTokenConsumedAt) {
@@ -1330,6 +1336,7 @@ export async function getLocalUploadStatus(
     protocolVersion: "1.0",
     status,
     reportReady: status === "ready",
+    narrativeStatus: session.reportId ? store.narratives.get(session.reportId)?.status ?? "not_requested" : "not_requested",
   };
 }
 
@@ -1542,6 +1549,13 @@ export async function publishReport(creatorId: string, reportId: string): Promis
   }
   if (report.status !== "ready") {
     throw new MockIngestionError("report_not_ready", "Report is not ready to publish.", 409);
+  }
+  if (report.narrative?.status === "queued" || report.narrative?.status === "generating") {
+    throw new MockIngestionError(
+      "narrative_pending",
+      "The AI narrative is still being generated. You can browse the private report while it finishes.",
+      409,
+    );
   }
   if (!report.selectedPublicFields.includes("tagline")) {
     throw new MockIngestionError("missing_public_field", "A public tagline is required.", 422);

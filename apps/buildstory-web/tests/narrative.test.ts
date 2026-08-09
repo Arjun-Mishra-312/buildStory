@@ -9,7 +9,7 @@ import {
 import { sha256Digest } from "../lib/ingestion/local-contract";
 import { validateProjectSnapshot } from "../lib/ingestion/validation";
 import { defaultStoryPack } from "../lib/narrative/story-pack";
-import { generateNarrative } from "../lib/narrative/provider";
+import { generateNarrative, NarrativeProviderError } from "../lib/narrative/provider";
 import { buildDeepSynthesisMessages } from "../lib/narrative/prompt";
 import type { ReportStoryPackV2, ScannerProjectSnapshot } from "../lib/ingestion/scanner-project-snapshot";
 import scannerFixture from "./fixtures/scanner-project-snapshot.json";
@@ -261,7 +261,7 @@ test("Buildstory Cloud rejects an evidence policy above the disclosed server cap
     ...structuredClone(scannerFixture),
     narrativeEvidence: {
       ...structuredClone(narrativeEvidence),
-      policy: { ...narrativeEvidence.policy, maxExcerpts: 41 },
+      policy: { ...narrativeEvidence.policy, maxExcerpts: 81 },
     },
   };
   const result = validateProjectSnapshot(oversized);
@@ -368,6 +368,51 @@ test("deep hosted generation uses two high-reasoning OpenRouter calls and emits 
     assert.ok(requests.every((request) => request.model === "deepseek/deepseek-v4-flash"));
     assert.ok(requests.every((request) => JSON.stringify(request.reasoning) === JSON.stringify({ effort: "high", exclude: true })));
     assert.ok(requests.every((request) => JSON.stringify(request.provider) === JSON.stringify({ zdr: true, data_collection: "deny", require_parameters: true, allow_fallbacks: true })));
+  } finally {
+    stub.restore();
+    process.env.BUILDSTORY_OPENROUTER_API_KEY = previousKey;
+    process.env.BUILDSTORY_LLM_BASE_URL = previousBaseUrl;
+  }
+});
+
+test("failed deep validation preserves charged usage and generation IDs without retaining response content", async () => {
+  const snapshot = { ...structuredClone(scannerFixture), narrativeEvidence } as unknown as ScannerProjectSnapshot;
+  const sourceRef = defaultStoryPack(snapshot).sources[0]!.ref;
+  const finding = { title: "Evidence synthesis", summary: "The reviewed evidence supports this finding.", sourceRefs: [sourceRef], confidence: "high" };
+  const deepAnalysis = {
+    executiveSynthesis: finding,
+    decisionReview: [],
+    frictionAndRecovery: [],
+    engineeringPatterns: [],
+    risksAndEvidenceGaps: [],
+    nextBuildActions: [],
+    chapterChanges: [],
+  };
+  const envelope = (id: string, value: Record<string, unknown>) => ({
+    id,
+    choices: [{ message: { content: JSON.stringify(value) } }],
+    usage: { prompt_tokens: 500, completion_tokens: 150, cost: 0.001 },
+  });
+  const stub = stubFetchOnce([
+    envelope("gen_analysis", deepAnalysis),
+    envelope("gen_synthesis", {}),
+    envelope("gen_repair", {}),
+  ]);
+  const previousKey = process.env.BUILDSTORY_OPENROUTER_API_KEY;
+  const previousBaseUrl = process.env.BUILDSTORY_LLM_BASE_URL;
+  process.env.BUILDSTORY_OPENROUTER_API_KEY = "test-key";
+  process.env.BUILDSTORY_LLM_BASE_URL = "https://openrouter.ai/api/v1";
+  try {
+    await assert.rejects(
+      generateNarrative(snapshot, null, { analysisTier: "deep" }),
+      (error: unknown) => error instanceof NarrativeProviderError
+        && error.code === "llm_invalid_schema"
+        && error.usage?.inputTokens === 1_500
+        && error.usage.outputTokens === 450
+        && error.usage.costMicroUsd === 3_000
+        && JSON.stringify(error.usage.requestIds) === JSON.stringify(["gen_analysis", "gen_synthesis", "gen_repair"]),
+    );
+    assert.equal(stub.callCount(), 3);
   } finally {
     stub.restore();
     process.env.BUILDSTORY_OPENROUTER_API_KEY = previousKey;

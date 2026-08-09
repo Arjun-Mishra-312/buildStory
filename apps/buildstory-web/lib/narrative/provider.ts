@@ -12,8 +12,23 @@ import type { AnalysisTier, NarrativeProvider, ReportStoryPack, ScannerProjectSn
 import { defaultStoryPack, normalizeDeepStoryPack, normalizeStoryPack, sectionsFromStoryPack, validateDeepAnalysisComponent, validateStoryPackComponent, type StoryPackComponent } from "./story-pack";
 import { sanitizePublicText } from "../publication/sanitization";
 
+export type NarrativeFailureUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cachedTokens: number;
+  costMicroUsd: number | null;
+  requestIds: string[];
+};
+
 export class NarrativeProviderError extends Error {
-  constructor(public code: string, message: string, public retryable = false, public status: number | null = null) {
+  constructor(
+    public code: string,
+    message: string,
+    public retryable = false,
+    public status: number | null = null,
+    public usage: NarrativeFailureUsage | null = null,
+  ) {
     super(message);
   }
 }
@@ -118,6 +133,38 @@ type Completion = {
   provider: string;
 };
 
+function emptyFailureUsage(): NarrativeFailureUsage {
+  return { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0, costMicroUsd: null, requestIds: [] };
+}
+
+function addFailureUsage(target: NarrativeFailureUsage, source: NarrativeFailureUsage): NarrativeFailureUsage {
+  return {
+    inputTokens: target.inputTokens + source.inputTokens,
+    outputTokens: target.outputTokens + source.outputTokens,
+    reasoningTokens: target.reasoningTokens + source.reasoningTokens,
+    cachedTokens: target.cachedTokens + source.cachedTokens,
+    costMicroUsd: source.costMicroUsd === null
+      ? target.costMicroUsd
+      : (target.costMicroUsd ?? 0) + source.costMicroUsd,
+    requestIds: [...new Set([...target.requestIds, ...source.requestIds])],
+  };
+}
+
+function completionUsage(completion: Completion): NarrativeFailureUsage {
+  return {
+    inputTokens: completion.inputTokens,
+    outputTokens: completion.outputTokens,
+    reasoningTokens: completion.reasoningTokens,
+    cachedTokens: completion.cachedTokens,
+    costMicroUsd: completion.costMicroUsd,
+    requestIds: completion.requestIds,
+  };
+}
+
+function providerErrorWithUsage(error: NarrativeProviderError, usage: NarrativeFailureUsage): NarrativeProviderError {
+  return new NarrativeProviderError(error.code, error.message, error.retryable, error.status, addFailureUsage(usage, error.usage ?? emptyFailureUsage()));
+}
+
 function legacyCompatiblePayload(storyValue: unknown, profileValue: unknown, snapshot: ScannerProjectSnapshot): Record<string, unknown> {
   const story = storyValue && typeof storyValue === "object" && !Array.isArray(storyValue) ? storyValue as Record<string, unknown> : {};
   const profile = profileValue && typeof profileValue === "object" && !Array.isArray(profileValue) ? profileValue as Record<string, unknown> : {};
@@ -209,21 +256,24 @@ async function requestCompletion(
     };
   };
   const content = payload.choices?.[0]?.message?.content;
-  if (!content) throw new NarrativeProviderError("llm_empty_response", "Narrative provider returned no message content.");
-  let value: unknown;
-  try {
-    value = JSON.parse(content);
-  } catch {
-    throw new NarrativeProviderError("llm_invalid_json", "Narrative provider response was not valid JSON.");
-  }
-  return {
-    value,
+  const responseUsage: NarrativeFailureUsage = {
     inputTokens: payload.usage?.prompt_tokens ?? 0,
     outputTokens: payload.usage?.completion_tokens ?? 0,
     reasoningTokens: payload.usage?.completion_tokens_details?.reasoning_tokens ?? 0,
     cachedTokens: payload.usage?.prompt_tokens_details?.cached_tokens ?? 0,
     costMicroUsd: typeof payload.usage?.cost === "number" && Number.isFinite(payload.usage.cost) ? Math.max(0, Math.round(payload.usage.cost * 1_000_000)) : null,
     requestIds: payload.id ? [payload.id] : [],
+  };
+  if (!content) throw new NarrativeProviderError("llm_empty_response", "Narrative provider returned no message content.", false, null, responseUsage);
+  let value: unknown;
+  try {
+    value = JSON.parse(content);
+  } catch {
+    throw new NarrativeProviderError("llm_invalid_json", "Narrative provider response was not valid JSON.", false, null, responseUsage);
+  }
+  return {
+    value,
+    ...responseUsage,
     model: payload.model || model,
     provider: openRouter ? "openrouter" : isOllama ? "ollama" : "openai",
   };
@@ -260,52 +310,51 @@ async function requestWithRepair(
   maxTokens?: number,
 ): Promise<Completion> {
   let currentMessages = messages;
-  const totals = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0, costMicroUsd: null as number | null, requestIds: [] as string[] };
+  let totals = emptyFailureUsage();
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    let result: Completion;
     try {
-      const result = await requestCompletion(baseUrl, apiKey, model, currentMessages, responseFormat, isOllama, analysisTier, maxTokens);
-      totals.inputTokens += result.inputTokens;
-      totals.outputTokens += result.outputTokens;
-      totals.reasoningTokens += result.reasoningTokens;
-      totals.cachedTokens += result.cachedTokens;
-      if (result.costMicroUsd !== null) totals.costMicroUsd = (totals.costMicroUsd ?? 0) + result.costMicroUsd;
-      totals.requestIds.push(...result.requestIds);
-      const invalid = unknownSourceRefs(result.value, allowedRefs);
-      let validation: ReturnType<typeof validateStoryPackComponent>;
-      if (component === "combined") {
-        const storyValidation = validateStoryPackComponent(result.value, "story", allowedRefs);
-        const insightValidation = validateStoryPackComponent(result.value, "insights", allowedRefs);
-        validation = {
-          ok: storyValidation.ok && insightValidation.ok,
-          errors: [...storyValidation.errors, ...insightValidation.errors],
-        };
-      } else if (component === "analysis-map") {
-        validation = validateDeepAnalysisComponent(result.value, allowedRefs);
-      } else if (component === "deep-report") {
-        const storyValidation = validateStoryPackComponent(result.value, "story", allowedRefs);
-        const insightValidation = validateStoryPackComponent(result.value, "insights", allowedRefs);
-        const deepValidation = validateStoryPackComponent(result.value, "deep", allowedRefs);
-        validation = {
-          ok: storyValidation.ok && insightValidation.ok && deepValidation.ok,
-          errors: [...storyValidation.errors, ...insightValidation.errors, ...deepValidation.errors],
-        };
-      } else {
-        validation = validateStoryPackComponent(result.value, component, allowedRefs);
-      }
-      if (!invalid.length && validation.ok) return { ...result, ...totals, requestIds: [...new Set(totals.requestIds)] };
-      if (attempt === 1) {
-        throw new NarrativeProviderError("llm_invalid_schema", "Narrative provider returned an invalid schema after repair.");
-      }
-      const feedback = [
-        invalid.length ? `unknown sourceRefs: ${invalid.join(", ")}` : "",
-        validation.errors.length ? `schema issues: ${validation.errors.slice(0, 8).join("; ")}` : "",
-      ].filter(Boolean).join(". ");
-      currentMessages = [...messages, { role: "user", content: `Validation feedback: ${feedback}. Return one JSON object matching the supplied schema and use only the provided source references.` }];
+      result = await requestCompletion(baseUrl, apiKey, model, currentMessages, responseFormat, isOllama, analysisTier, maxTokens);
     } catch (error) {
-      if (error instanceof NarrativeProviderError && error.code !== "llm_invalid_json" && error.code !== "llm_empty_response") throw error;
-      if (attempt === 1) throw error;
+      if (!(error instanceof NarrativeProviderError)) throw error;
+      if (error.code !== "llm_invalid_json" && error.code !== "llm_empty_response") throw providerErrorWithUsage(error, totals);
+      totals = addFailureUsage(totals, error.usage ?? emptyFailureUsage());
+      if (attempt === 1) throw new NarrativeProviderError(error.code, error.message, error.retryable, error.status, totals);
       currentMessages = [...messages, { role: "user", content: "Validation feedback: return a single valid JSON object matching the supplied schema. Do not include prose or markdown." }];
+      continue;
     }
+    totals = addFailureUsage(totals, completionUsage(result));
+    const invalid = unknownSourceRefs(result.value, allowedRefs);
+    let validation: ReturnType<typeof validateStoryPackComponent>;
+    if (component === "combined") {
+      const storyValidation = validateStoryPackComponent(result.value, "story", allowedRefs);
+      const insightValidation = validateStoryPackComponent(result.value, "insights", allowedRefs);
+      validation = {
+        ok: storyValidation.ok && insightValidation.ok,
+        errors: [...storyValidation.errors, ...insightValidation.errors],
+      };
+    } else if (component === "analysis-map") {
+      validation = validateDeepAnalysisComponent(result.value, allowedRefs);
+    } else if (component === "deep-report") {
+      const storyValidation = validateStoryPackComponent(result.value, "story", allowedRefs);
+      const insightValidation = validateStoryPackComponent(result.value, "insights", allowedRefs);
+      const deepValidation = validateStoryPackComponent(result.value, "deep", allowedRefs);
+      validation = {
+        ok: storyValidation.ok && insightValidation.ok && deepValidation.ok,
+        errors: [...storyValidation.errors, ...insightValidation.errors, ...deepValidation.errors],
+      };
+    } else {
+      validation = validateStoryPackComponent(result.value, component, allowedRefs);
+    }
+    if (!invalid.length && validation.ok) return { ...result, ...totals };
+    if (attempt === 1) {
+      throw new NarrativeProviderError("llm_invalid_schema", "Narrative provider returned an invalid schema after repair.", false, null, totals);
+    }
+    const feedback = [
+      invalid.length ? `unknown sourceRefs: ${invalid.join(", ")}` : "",
+      validation.errors.length ? `schema issues: ${validation.errors.slice(0, 8).join("; ")}` : "",
+    ].filter(Boolean).join(". ");
+    currentMessages = [...messages, { role: "user", content: `Validation feedback: ${feedback}. Return one JSON object matching the supplied schema and use only the provided source references.` }];
   }
   throw new NarrativeProviderError("llm_invalid_response", "Narrative provider returned an unusable response after repair.");
 }
@@ -388,27 +437,41 @@ export async function generateNarrative(
   };
   let storyValue: unknown;
   let normalized: ReturnType<typeof normalizeStoryPack> | ReturnType<typeof normalizeDeepStoryPack>;
-  if (analysisTier === "deep") {
-    const analysis = await requestWithRepair(
-      baseUrl, apiKey, model, buildDeepAnalysisMessages(snapshot, options.previousChapter),
-      NARRATIVE_DEEP_ANALYSIS_RESPONSE_FORMAT, isOllama, analysisTier, allowedRefs, "analysis-map", 24_000,
-    );
-    addUsage(analysis);
-    const synthesis = await requestWithRepair(
-      baseUrl, apiKey, model, buildDeepSynthesisMessages(snapshot, analysis.value),
-      NARRATIVE_DEEP_RESPONSE_FORMAT, isOllama, analysisTier, allowedRefs, "deep-report", 40_000,
-    );
-    addUsage(synthesis);
-    storyValue = synthesis.value;
-    normalized = normalizeDeepStoryPack(synthesis.value, snapshot);
-  } else {
-    const result = await requestWithRepair(
-      baseUrl, apiKey, model, buildCombinedMessages(snapshot), NARRATIVE_COMBINED_RESPONSE_FORMAT,
-      isOllama, analysisTier, allowedRefs, "combined", isOllama ? 3_000 : 4_000,
-    );
-    addUsage(result);
-    storyValue = result.value;
-    normalized = normalizeStoryPack(legacyCompatiblePayload(result.value, result.value, snapshot), snapshot);
+  try {
+    if (analysisTier === "deep") {
+      const analysis = await requestWithRepair(
+        baseUrl, apiKey, model, buildDeepAnalysisMessages(snapshot, options.previousChapter),
+        NARRATIVE_DEEP_ANALYSIS_RESPONSE_FORMAT, isOllama, analysisTier, allowedRefs, "analysis-map", 24_000,
+      );
+      addUsage(analysis);
+      const synthesis = await requestWithRepair(
+        baseUrl, apiKey, model, buildDeepSynthesisMessages(snapshot, analysis.value),
+        NARRATIVE_DEEP_RESPONSE_FORMAT, isOllama, analysisTier, allowedRefs, "deep-report", 40_000,
+      );
+      addUsage(synthesis);
+      storyValue = synthesis.value;
+      normalized = normalizeDeepStoryPack(synthesis.value, snapshot);
+    } else {
+      const result = await requestWithRepair(
+        baseUrl, apiKey, model, buildCombinedMessages(snapshot), NARRATIVE_COMBINED_RESPONSE_FORMAT,
+        isOllama, analysisTier, allowedRefs, "combined", isOllama ? 3_000 : 4_000,
+      );
+      addUsage(result);
+      storyValue = result.value;
+      normalized = normalizeStoryPack(legacyCompatiblePayload(result.value, result.value, snapshot), snapshot);
+    }
+  } catch (error) {
+    if (error instanceof NarrativeProviderError) {
+      throw providerErrorWithUsage(error, {
+        inputTokens,
+        outputTokens,
+        reasoningTokens,
+        cachedTokens,
+        costMicroUsd: actualCostMicroUsd,
+        requestIds,
+      });
+    }
+    throw error;
   }
   const profileObject = storyValue && typeof storyValue === "object" && !Array.isArray(storyValue) ? storyValue as Record<string, unknown> : {};
   const sections = sectionsFromStoryPack(normalized.storyPack);

@@ -3,7 +3,7 @@ import test from "node:test";
 import { publicBuildStoryFromSnapshot } from "../lib/build-story";
 import { reportSnapshotFromScanner } from "../lib/ingestion/report-adapter";
 import { validateProjectSnapshot } from "../lib/ingestion/validation";
-import { defaultStoryPack, normalizeStoryPack, validateStoryPackComponent } from "../lib/narrative/story-pack";
+import { defaultStoryPack, normalizeStoryPack, validateDeepAnalysisComponent, validateStoryPackComponent } from "../lib/narrative/story-pack";
 import type { ScannerProjectSnapshot } from "../lib/ingestion/scanner-project-snapshot";
 import scannerFixture from "./fixtures/scanner-project-snapshot.json";
 import legacyScannerFixture from "./fixtures/legacy-scanner-project-snapshot.json";
@@ -50,6 +50,21 @@ test("normalization always emits one build arc per phase and records component f
   assert.ok(result.fallbacksUsed.includes("moments"));
   assert.ok(result.fallbacksUsed.includes("decisions"));
   assert.ok(result.fallbacksUsed.includes("learnings"));
+});
+
+test("deep findings accept the six source references allowed by their response schema", () => {
+  const allowed = new Set(["S01", "S02", "S03", "S04", "S05", "S06"]);
+  const finding = { title: "Cross-session finding", summary: "Supported across the selected sessions.", sourceRefs: [...allowed], confidence: "high" };
+  const result = validateDeepAnalysisComponent({
+    executiveSynthesis: finding,
+    decisionReview: [finding],
+    frictionAndRecovery: [],
+    engineeringPatterns: [],
+    risksAndEvidenceGaps: [],
+    nextBuildActions: [],
+    chapterChanges: [],
+  }, allowed);
+  assert.equal(result.ok, true, result.errors.join("; "));
 });
 
 test("public story projection exposes only safe fallback metadata and strips session/excerpt references", () => {

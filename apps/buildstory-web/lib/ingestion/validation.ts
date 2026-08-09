@@ -427,10 +427,10 @@ function deterministicNarrativeViolations(snapshot: ScannerProjectSnapshot) {
     const totalCharacters = excerpts.reduce((sum, excerpt) => sum + excerpt.text.length, 0);
     const totalBytes = excerpts.reduce((sum, excerpt) => sum + new TextEncoder().encode(excerpt.text).byteLength, 0);
     const deep = policy.excerptSelection === "deep-evidence-v2";
-    const maxExcerpts = deep ? 240 : 40;
-    const maxCharsPerExcerpt = deep ? 1_500 : 600;
-    const maxTotalChars = deep ? 700 * 1024 : 20_000;
-    const maxTotalBytes = deep ? 700 * 1024 : 80_000;
+    const maxExcerpts = deep ? 240 : 80;
+    const maxCharsPerExcerpt = deep ? 1_500 : 800;
+    const maxTotalChars = deep ? 700 * 1024 : 60_000;
+    const maxTotalBytes = deep ? 700 * 1024 : 240_000;
     if (policy.maxExcerpts > maxExcerpts || excerpts.length > maxExcerpts) {
       errors.push(`$.narrativeEvidence exceeds Buildstory Cloud's ${maxExcerpts}-excerpt server limit for this analysis tier.`);
     }
