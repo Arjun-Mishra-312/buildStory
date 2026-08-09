@@ -37,6 +37,10 @@ jobs:
           BUILDSTORY_LOCAL_API_ENABLED: "false"
           BUILDSTORY_PUBLIC_ORIGIN: https://buildstory.dev
           BUILDSTORY_ALLOWED_HOSTS: buildstory.dev
+          BUILDSTORY_CLOUD_PROVIDER: openrouter
+          BUILDSTORY_LLM_BASE_URL: https://openrouter.ai/api/v1
+          BUILDSTORY_LLM_MODEL: deepseek/deepseek-v4-flash
+          BUILDSTORY_ENABLE_HOSTED_OPENAI: "false"
 
       - name: Check packed scanner freshness
         run: npm run check:artifact
@@ -53,6 +57,10 @@ jobs:
           BUILDSTORY_LOCAL_API_ENABLED: "false"
           BUILDSTORY_PUBLIC_ORIGIN: https://buildstory.dev
           BUILDSTORY_ALLOWED_HOSTS: buildstory.dev
+          BUILDSTORY_CLOUD_PROVIDER: openrouter
+          BUILDSTORY_LLM_BASE_URL: https://openrouter.ai/api/v1
+          BUILDSTORY_LLM_MODEL: deepseek/deepseek-v4-flash
+          BUILDSTORY_ENABLE_HOSTED_OPENAI: "false"
         run: |
           npx tsx scripts/migrate-d1.ts --dry-run
           npm run deploy:preflight
