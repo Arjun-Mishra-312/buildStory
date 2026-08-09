@@ -1,7 +1,7 @@
 import {
   NARRATIVE_COMBINED_RESPONSE_FORMAT,
   NARRATIVE_DEEP_ANALYSIS_RESPONSE_FORMAT,
-  NARRATIVE_DEEP_RESPONSE_FORMAT,
+  NARRATIVE_DEEP_SYNTHESIS_RESPONSE_FORMAT,
   buildCombinedMessages,
   buildDeepAnalysisMessages,
   buildDeepSynthesisMessages,
@@ -21,6 +21,12 @@ export type NarrativeFailureUsage = {
   requestIds: string[];
 };
 
+export type NarrativeValidationDiagnostic = {
+  stage: "analysis" | "synthesis" | "composition" | "standard";
+  /** Content-free JSON paths and rule names only; never model output or source IDs. */
+  issues: string[];
+};
+
 export class NarrativeProviderError extends Error {
   constructor(
     public code: string,
@@ -28,6 +34,7 @@ export class NarrativeProviderError extends Error {
     public retryable = false,
     public status: number | null = null,
     public usage: NarrativeFailureUsage | null = null,
+    public validationDiagnostic: NarrativeValidationDiagnostic | null = null,
   ) {
     super(message);
   }
@@ -162,7 +169,14 @@ function completionUsage(completion: Completion): NarrativeFailureUsage {
 }
 
 function providerErrorWithUsage(error: NarrativeProviderError, usage: NarrativeFailureUsage): NarrativeProviderError {
-  return new NarrativeProviderError(error.code, error.message, error.retryable, error.status, addFailureUsage(usage, error.usage ?? emptyFailureUsage()));
+  return new NarrativeProviderError(
+    error.code,
+    error.message,
+    error.retryable,
+    error.status,
+    addFailureUsage(usage, error.usage ?? emptyFailureUsage()),
+    error.validationDiagnostic,
+  );
 }
 
 function legacyCompatiblePayload(storyValue: unknown, profileValue: unknown, snapshot: ScannerProjectSnapshot): Record<string, unknown> {
@@ -297,6 +311,41 @@ function unknownSourceRefs(value: unknown, allowed: Set<string>): string[] {
   return [...new Set(found)].slice(0, 8);
 }
 
+function validationDiagnostic(
+  component: StoryPackComponent | "combined" | "analysis-map" | "deep-report",
+  errors: string[],
+  unknownReferenceCount: number,
+): NarrativeValidationDiagnostic {
+  const stage: NarrativeValidationDiagnostic["stage"] = component === "analysis-map"
+    ? "analysis"
+    : component === "deep-narrative" || component === "deep-report"
+      ? "synthesis"
+      : "standard";
+  const rule = (error: string): string => {
+    if (/references unknown source/i.test(error)) return "unknown_source_ref";
+    if (/duplicates source/i.test(error)) return "duplicate_source_ref";
+    if (/source reference/i.test(error) && /at most/i.test(error)) return "source_ref_max_items";
+    if (/source reference/i.test(error) && /at least/i.test(error)) return "source_ref_min_items";
+    if (/at most \d+ characters/i.test(error)) return "max_length";
+    if (/at least \d+ character/i.test(error)) return "min_length";
+    if (/at most \d+ items/i.test(error)) return "max_items";
+    if (/at least \d+ items/i.test(error)) return "min_items";
+    if (/exactly one/i.test(error)) return "cardinality";
+    if (/unsupported/i.test(error)) return "unsupported_value";
+    if (/must be an (array|object)/i.test(error) || /must be a string/i.test(error)) return "type";
+    return "schema";
+  };
+  const path = (error: string): string => {
+    const candidate = error.split(/ must | is unsupported| references | duplicates /i, 1)[0]?.trim() || "response";
+    return candidate.replace(/\[\d+\]/g, "[]").replace(/[^A-Za-z0-9_.\[\]-]/g, "").slice(0, 120) || "response";
+  };
+  const issues = errors.map((error) => `${path(error)}:${rule(error)}`);
+  if (unknownReferenceCount > 0 && !issues.some((issue) => issue.endsWith(":unknown_source_ref"))) {
+    issues.push("sourceRefs:unknown_source_ref");
+  }
+  return { stage, issues: [...new Set(issues)].slice(0, 8) };
+}
+
 async function requestWithRepair(
   baseUrl: string,
   apiKey: string,
@@ -343,12 +392,21 @@ async function requestWithRepair(
         ok: storyValidation.ok && insightValidation.ok && deepValidation.ok,
         errors: [...storyValidation.errors, ...insightValidation.errors, ...deepValidation.errors],
       };
+    } else if (component === "deep-narrative") {
+      validation = validateStoryPackComponent(result.value, "deep-narrative", allowedRefs);
     } else {
       validation = validateStoryPackComponent(result.value, component, allowedRefs);
     }
     if (!invalid.length && validation.ok) return { ...result, ...totals };
     if (attempt === 1) {
-      throw new NarrativeProviderError("llm_invalid_schema", "Narrative provider returned an invalid schema after repair.", false, null, totals);
+      throw new NarrativeProviderError(
+        "llm_invalid_schema",
+        "Narrative provider returned an invalid schema after repair.",
+        false,
+        null,
+        totals,
+        validationDiagnostic(component, validation.errors, invalid.length),
+      );
     }
     const feedback = [
       invalid.length ? `unknown sourceRefs: ${invalid.join(", ")}` : "",
@@ -446,11 +504,29 @@ export async function generateNarrative(
       addUsage(analysis);
       const synthesis = await requestWithRepair(
         baseUrl, apiKey, model, buildDeepSynthesisMessages(snapshot, analysis.value),
-        NARRATIVE_DEEP_RESPONSE_FORMAT, isOllama, analysisTier, allowedRefs, "deep-report", 40_000,
+        NARRATIVE_DEEP_SYNTHESIS_RESPONSE_FORMAT, isOllama, analysisTier, allowedRefs, "deep-narrative", 40_000,
       );
       addUsage(synthesis);
-      storyValue = synthesis.value;
-      normalized = normalizeDeepStoryPack(synthesis.value, snapshot);
+      const synthesisObject = synthesis.value && typeof synthesis.value === "object" && !Array.isArray(synthesis.value)
+        ? synthesis.value as Record<string, unknown>
+        : {};
+      const composedValue = { ...synthesisObject, deepAnalysis: analysis.value };
+      const composedValidation = validateStoryPackComponent(composedValue, "deep", allowedRefs);
+      if (!composedValidation.ok) {
+        // Both model outputs were validated independently. Reaching this path
+        // means Buildstory's composition contract drifted; another provider
+        // call cannot repair an internal invariant.
+        throw new NarrativeProviderError(
+          "llm_invalid_composition",
+          "Validated Deep components could not be composed into StoryPackV3.",
+          false,
+          null,
+          null,
+          { stage: "composition", issues: validationDiagnostic("deep-report", composedValidation.errors, 0).issues },
+        );
+      }
+      storyValue = composedValue;
+      normalized = normalizeDeepStoryPack(composedValue, snapshot);
     } else {
       const result = await requestWithRepair(
         baseUrl, apiKey, model, buildCombinedMessages(snapshot), NARRATIVE_COMBINED_RESPONSE_FORMAT,

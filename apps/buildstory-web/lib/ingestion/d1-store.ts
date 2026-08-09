@@ -1353,6 +1353,7 @@ export async function processNarrativeQueueJob(narrativeId: string) {
     await reconcileNarrativeSpend(db, narrative, costMicroUsd);
   } catch (error) {
     const errorCode = error instanceof NarrativeProviderError ? error.code : "narrative_generation_failed";
+    const validationFailure = error instanceof NarrativeProviderError ? error.validationDiagnostic : null;
     const failureAtIso = new Date().toISOString();
     const failureUsage = error instanceof NarrativeProviderError ? error.usage : null;
     const failureCostMicroUsd = failureUsage
@@ -1393,6 +1394,7 @@ export async function processNarrativeQueueJob(narrativeId: string) {
             analysisTierRequested: analysisTierForFailure,
             analysisTierDelivered: "standard",
             evidenceScrubbedAt: sourceSnapshotForScrub?.narrativeEvidence ? failureAtIso : null,
+            ...(validationFailure ? { validationFailure } : {}),
           }), terminalReceipt ? failureAtIso : null, terminalReceipt ? JSON.stringify(terminalReceipt) : null,
           failureUsage?.inputTokens ?? 0,
           failureUsage?.outputTokens ?? 0,

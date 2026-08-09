@@ -1,6 +1,6 @@
 import type { ScannerProjectSnapshot } from "../ingestion/scanner-project-snapshot";
 import { computeBuilderProfile } from "../ingestion/profile";
-import { STORY_PACK_DEEP_ANALYSIS_SCHEMA, STORY_PACK_DEEP_OUTPUT_SCHEMA, STORY_PACK_INSIGHTS_SCHEMA, STORY_PACK_OUTPUT_SCHEMA, STORY_PACK_STORY_SCHEMA } from "./story-pack";
+import { STORY_PACK_DEEP_ANALYSIS_SCHEMA, STORY_PACK_DEEP_NARRATIVE_SCHEMA, STORY_PACK_INSIGHTS_SCHEMA, STORY_PACK_OUTPUT_SCHEMA, STORY_PACK_STORY_SCHEMA } from "./story-pack";
 
 const SYSTEM_PROMPT = `You write short, honest, evidence-linked "build story" narratives for Buildstory, a site where
 developers publish real, verified accounts of software they built with AI coding
@@ -112,7 +112,7 @@ export function buildDeepSynthesisMessages(snapshot: ScannerProjectSnapshot, ana
       role: "user",
       // The first deep-analysis stage already reviewed the excerpts. Do not
       // resend them merely to turn that analysis into the final report.
-      content: `FACTS:\n${factsBlock(snapshot)}\n\nSOURCE CATALOG:\n${sourceCatalogBlock(snapshot)}\n\nANALYSIS MAP:\n${JSON.stringify(analysisMap)}\n\nReturn one JSON object matching the deep report schema. Use 6-12 moments only when the evidence supports them.`,
+      content: `FACTS:\n${factsBlock(snapshot)}\n\nSOURCE CATALOG:\n${sourceCatalogBlock(snapshot)}\n\nVALIDATED PRIVATE ANALYSIS MAP:\n${JSON.stringify(analysisMap)}\n\nWrite only hero, buildArc, moments, turningPoint, decisions, learnings, standoutTraits, and growthEdge as one JSON object matching the schema. Do not repeat or rewrite deepAnalysis; Buildstory will attach the validated private analysis map server-side. Use 6-12 moments only when the evidence supports them.`,
     },
   ];
 }
@@ -152,7 +152,7 @@ export const NARRATIVE_DEEP_ANALYSIS_RESPONSE_FORMAT = {
   json_schema: { name: "buildstory_deep_analysis", strict: true, schema: STORY_PACK_DEEP_ANALYSIS_SCHEMA },
 };
 
-export const NARRATIVE_DEEP_RESPONSE_FORMAT = {
+export const NARRATIVE_DEEP_SYNTHESIS_RESPONSE_FORMAT = {
   type: "json_schema" as const,
-  json_schema: { name: "buildstory_deep_report", strict: true, schema: STORY_PACK_DEEP_OUTPUT_SCHEMA },
+  json_schema: { name: "buildstory_deep_narrative", strict: true, schema: STORY_PACK_DEEP_NARRATIVE_SCHEMA },
 };

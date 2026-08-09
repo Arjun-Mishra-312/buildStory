@@ -67,6 +67,18 @@ test("deep findings accept the six source references allowed by their response s
   assert.equal(result.ok, true, result.errors.join("; "));
 });
 
+test("Deep narrative validation preserves up to twelve supported moments while Standard remains compact", () => {
+  const pack = defaultStoryPack(snapshot);
+  const refs = new Set(pack.sources.map((source) => source.ref));
+  const moments = Array.from({ length: 12 }, (_, index) => ({
+    ...pack.moments[index % pack.moments.length]!,
+    title: `Supported Deep moment ${index + 1}`,
+  }));
+  const narrative = { ...pack, moments };
+  assert.equal(validateStoryPackComponent(narrative, "deep-narrative", refs).ok, true);
+  assert.equal(validateStoryPackComponent(narrative, "story", refs).ok, false);
+});
+
 test("public story projection exposes only safe fallback metadata and strips session/excerpt references", () => {
   const pack = defaultStoryPack(snapshot);
   const privateSnapshot = reportSnapshotFromScanner({

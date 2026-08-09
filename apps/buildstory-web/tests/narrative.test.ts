@@ -340,9 +340,13 @@ test("Buildstory Cloud always requests the one supported model, even if a sessio
   }
 });
 
-test("deep hosted generation uses two high-reasoning OpenRouter calls and emits StoryPackV3", async () => {
+test("deep hosted generation composes validated analysis with a separate high-quality narrative into StoryPackV3", async () => {
   const snapshot = { ...structuredClone(scannerFixture), narrativeEvidence } as unknown as ScannerProjectSnapshot;
   const base = combinedStoryOutput();
+  base.moments = Array.from({ length: 8 }, (_, index) => ({
+    ...base.moments[index % base.moments.length]!,
+    title: `Supported build moment ${index + 1}`,
+  }));
   const sourceRef = defaultStoryPack(snapshot).sources[0]!.ref;
   const finding = { title: "Evidence synthesis", summary: "The reviewed evidence supports this finding.", sourceRefs: [sourceRef], confidence: "high" };
   const deepAnalysis = {
@@ -354,7 +358,7 @@ test("deep hosted generation uses two high-reasoning OpenRouter calls and emits 
     nextBuildActions: [{ ...finding, priority: "next", rationale: "Validate it in the next chapter." }],
     chapterChanges: [],
   };
-  const stub = stubFetchOnce([openAiEnvelope(deepAnalysis), openAiEnvelope({ ...base, deepAnalysis })]);
+  const stub = stubFetchOnce([openAiEnvelope(deepAnalysis), openAiEnvelope(base)]);
   const previousKey = process.env.BUILDSTORY_OPENROUTER_API_KEY;
   const previousBaseUrl = process.env.BUILDSTORY_LLM_BASE_URL;
   process.env.BUILDSTORY_OPENROUTER_API_KEY = "test-key";
@@ -362,12 +366,26 @@ test("deep hosted generation uses two high-reasoning OpenRouter calls and emits 
   try {
     const result = await generateNarrative(snapshot, null, { analysisTier: "deep" });
     assert.equal(result.storyPack.version, "3.0.0");
+    assert.equal(result.storyPack.moments.length, 8, "Deep synthesis keeps supported moments beyond the Standard five-moment cap");
+    assert.equal(result.storyPack.version === "3.0.0" && result.storyPack.deepAnalysis?.executiveSynthesis.summary, finding.summary);
+    assert.deepEqual(result.storyPack.version === "3.0.0" && result.storyPack.deepAnalysis?.decisionReview, deepAnalysis.decisionReview);
     assert.equal(stub.callCount(), 2);
-    const requests = stub.requestBodies().map((body) => JSON.parse(body) as { model?: string; max_tokens?: number; reasoning?: unknown; provider?: unknown });
+    const requests = stub.requestBodies().map((body) => JSON.parse(body) as {
+      model?: string;
+      max_tokens?: number;
+      reasoning?: unknown;
+      provider?: unknown;
+      messages?: Array<{ content?: string }>;
+      response_format?: { json_schema?: { schema?: { properties?: Record<string, { maxItems?: number }> } } };
+    });
     assert.deepEqual(requests.map((request) => request.max_tokens), [24_000, 40_000]);
     assert.ok(requests.every((request) => request.model === "deepseek/deepseek-v4-flash"));
     assert.ok(requests.every((request) => JSON.stringify(request.reasoning) === JSON.stringify({ effort: "high", exclude: true })));
     assert.ok(requests.every((request) => JSON.stringify(request.provider) === JSON.stringify({ zdr: true, data_collection: "deny", require_parameters: true, allow_fallbacks: true })));
+    const synthesisSchema = requests[1]!.response_format?.json_schema?.schema;
+    assert.equal(synthesisSchema?.properties?.moments?.maxItems, 12);
+    assert.equal("deepAnalysis" in (synthesisSchema?.properties ?? {}), false, "the synthesis pass does not regenerate private analysis");
+    assert.match(requests[1]!.messages?.at(-1)?.content ?? "", /Do not repeat or rewrite deepAnalysis/);
   } finally {
     stub.restore();
     process.env.BUILDSTORY_OPENROUTER_API_KEY = previousKey;
@@ -410,6 +428,8 @@ test("failed deep validation preserves charged usage and generation IDs without 
         && error.usage?.inputTokens === 1_500
         && error.usage.outputTokens === 450
         && error.usage.costMicroUsd === 3_000
+        && error.validationDiagnostic?.stage === "synthesis"
+        && error.validationDiagnostic.issues.includes("hero:type")
         && JSON.stringify(error.usage.requestIds) === JSON.stringify(["gen_analysis", "gen_synthesis", "gen_repair"]),
     );
     assert.equal(stub.callCount(), 3);

@@ -82,6 +82,20 @@ export const STORY_PACK_DEEP_OUTPUT_SCHEMA = {
   },
 } as const;
 
+/**
+ * The second Deep pass writes the publishable narrative only. The private
+ * analysis map is already validated by the first pass and is composed back
+ * into StoryPackV3 server-side, so the model never has to reproduce it.
+ */
+export const STORY_PACK_DEEP_NARRATIVE_SCHEMA = {
+  ...STORY_PACK_OUTPUT_SCHEMA,
+  required: ["hero", "buildArc", "moments", "turningPoint", "decisions", "learnings", "standoutTraits", "growthEdge"],
+  properties: {
+    ...STORY_PACK_OUTPUT_SCHEMA.properties,
+    moments: { ...STORY_PACK_OUTPUT_SCHEMA.properties.moments, maxItems: 12 },
+  },
+} as const;
+
 export const STORY_PACK_STORY_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -106,7 +120,7 @@ export const STORY_PACK_INSIGHTS_SCHEMA = {
   },
 } as const;
 
-export type StoryPackComponent = "story" | "insights" | "deep";
+export type StoryPackComponent = "story" | "insights" | "deep-narrative" | "deep";
 
 export type StoryPackValidation = {
   ok: boolean;
@@ -292,7 +306,9 @@ export function validateStoryPackComponent(value: unknown, component: StoryPackC
     ? validateStoryComponent(candidate, allowedRefs)
     : component === "insights"
       ? validateInsightsComponent(candidate, allowedRefs)
-      : validateDeepComponent(candidate, allowedRefs);
+      : component === "deep-narrative"
+        ? [...validateStoryComponent(candidate, allowedRefs, 12), ...validateInsightsComponent(candidate, allowedRefs)]
+        : validateDeepComponent(candidate, allowedRefs);
   return { ok: errors.length === 0, errors: errors.slice(0, 20) };
 }
 
