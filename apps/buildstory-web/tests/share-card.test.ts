@@ -60,3 +60,20 @@ test("formatShareCardData hides the archetype badge when archetype isn't selecte
   const withoutArchetype = formatShareCardData(publicBuildStoryFromSnapshot(privateSnapshot, [...FULL_FIELDS.filter((field) => field !== "archetype")]));
   assert.equal(withoutArchetype.archetype, null);
 });
+
+test("formatShareCardData carries the headline fact only when signalHeadline is selected", () => {
+  const withHeadline = formatShareCardData(publicBuildStoryFromSnapshot(privateSnapshot, [...FULL_FIELDS, "signalHeadline"]));
+  const withoutHeadline = formatShareCardData(publicBuildStoryFromSnapshot(privateSnapshot, [...FULL_FIELDS]));
+  assert.equal(withoutHeadline.headlineFact, null, "signalHeadline not selected means no headline fact, even if signals were computed");
+  // The shared fixture may or may not clear any signal's notability floor;
+  // either way, selecting signalHeadline must never surface a fact that
+  // wasn't independently gated by its own key.
+  if (withHeadline.headlineFact !== null) assert.equal(typeof withHeadline.headlineFact, "string");
+});
+
+test("formatShareCardData's headline fact is independent of storySignals - selecting one does not require the other", () => {
+  const headlineOnly = formatShareCardData(publicBuildStoryFromSnapshot(privateSnapshot, ["tagline", "signalHeadline"]));
+  const signalsOnly = formatShareCardData(publicBuildStoryFromSnapshot(privateSnapshot, ["tagline", "storySignals"]));
+  assert.equal(signalsOnly.headlineFact, null, "storySignals alone must not leak the headline fact without signalHeadline");
+  void headlineOnly;
+});

@@ -5,7 +5,7 @@ import { publicBuildStoryFromSnapshot, type PublicBuildStoryViewModel } from "..
 import type { ProjectSnapshot } from "../lib/project-snapshot";
 import type { PublicFieldKey } from "../lib/ingestion/contracts";
 import type { BuilderProfile } from "../lib/ingestion/profile";
-import type { ReportStoryPackV3 } from "../lib/ingestion/scanner-project-snapshot";
+import type { ReportStoryPackV3, Signal } from "../lib/ingestion/scanner-project-snapshot";
 
 /**
  * Regression net for the publication boundary (lib/build-story.ts's
@@ -40,12 +40,12 @@ const ALL_FIELDS: PublicFieldKey[] = [
   "storyLearnings",
   "storyTraits",
   "storyGrowthEdge",
-  "deepExecutiveSynthesis",
-  "deepDecisionReview",
-  "deepFrictionAndRecovery",
-  "deepEngineeringPatterns",
-  "deepRisksAndEvidenceGaps",
-  "deepNextBuildActions",
+  "storySignals",
+  "signalHeadline",
+  "deepOpeningLine",
+  "deepSignatureMoves",
+  "deepByTheNumbers",
+  "deepWhereItGotHard",
   "deepChapterChanges",
   "decisionPatterns",
   "standoutTraits",
@@ -72,6 +72,16 @@ const builderProfile: BuilderProfile = {
     timezoneLabel: "UTC",
   },
 };
+
+// Two distinct signals so the storySignals/deepByTheNumbers independence
+// tests below aren't fooled by the deliberate coupling in build-story.ts:
+// a published byTheNumbers citation always pulls its cited signal into
+// pack.signals even when storySignals itself isn't selected (otherwise the
+// citation would point at nothing). generalSignal is never cited, so its
+// visibility is controlled purely by storySignals; citedSignal is what
+// byTheNumbers cites.
+const generalSignal: Signal = { id: "general-fact", family: "output", headline: "You averaged 80 changed lines per commit", detail: "400 insertions and 400 deletions across 10 commits.", value: 80, unit: "lines", notability: 40, formula: "round((insertions+deletions)/commits)", sourceRefs: ["src_1"] };
+const citedSignal: Signal = { id: "cited-fact", family: "spend", headline: "20% of your input tokens were served from cache", detail: "2,000 of 10,000 input tokens.", value: 20, unit: "%", notability: 22, formula: "round(100 * cachedInputTokens / inputTokens)", sourceRefs: ["src_1"] };
 
 const storyPack: ReportStoryPackV3 = {
   version: "3.0.0",
@@ -101,14 +111,13 @@ const storyPack: ReportStoryPackV3 = {
   decisions: [{ title: "Picked SQLite", rationale: "Simpler ops than a hosted DB.", outcome: "Shipped faster.", sourceRefs: ["src_1"] }],
   learnings: [{ title: "Test earlier", detail: "Caught the merge bug two weeks late.", sourceRefs: ["src_1"] }],
   standoutTraits: [{ title: "Methodical", detail: "Verified every merge path before shipping.", sourceRefs: ["src_1"] }],
-  growthEdge: { title: "Delegate more", observation: "Did every session solo.", nextStep: "Pair on the next release.", sourceRefs: ["src_1"] },
+  growthEdge: { title: "Delegate more", observation: "Did every session solo.", sourceRefs: ["src_1"] },
+  signals: [generalSignal, citedSignal],
   deepAnalysis: {
-    executiveSynthesis: { title: "Executive synthesis", summary: "The central build finding.", sourceRefs: ["src_1"], confidence: "high" },
-    decisionReview: [{ title: "Decision review", summary: "A supported decision.", sourceRefs: ["src_1"], confidence: "high" }],
-    frictionAndRecovery: [{ title: "Recovery", summary: "A supported recovery.", sourceRefs: ["src_1"], confidence: "medium" }],
-    engineeringPatterns: [{ title: "Engineering pattern", summary: "A supported pattern.", sourceRefs: ["src_1"], confidence: "high" }],
-    risksAndEvidenceGaps: [{ title: "Evidence gap", summary: "A supported gap.", sourceRefs: ["src_1"], confidence: "low" }],
-    nextBuildActions: [{ title: "Next action", summary: "A supported action.", sourceRefs: ["src_1"], confidence: "medium", priority: "next", rationale: "It follows from the evidence." }],
+    openingLine: { title: "Opening line", summary: "The central build finding.", sourceRefs: ["src_1"], confidence: "high" },
+    signatureMoves: [{ title: "Signature move", summary: "A supported pattern.", sourceRefs: ["src_1"], confidence: "high" }],
+    byTheNumbers: [{ title: "By the numbers finding", summary: "A supported statistic.", sourceRefs: ["src_1"], confidence: "medium", signalId: citedSignal.id }],
+    whereItGotHard: [{ title: "Where it got hard", summary: "A supported recovery.", sourceRefs: ["src_1"], confidence: "medium" }],
     chapterChanges: [{ title: "Chapter change", summary: "A supported change.", sourceRefs: ["src_1"], confidence: "high" }],
     coverage: { sessionsSeen: 1, excerptsUsed: 3, evidenceBytes: 900, windowStart: "2026-07-10T00:00:00.000Z", windowEnd: "2026-07-11T00:00:00.000Z" },
   },
@@ -117,6 +126,10 @@ const storyPack: ReportStoryPackV3 = {
 const snapshot: ProjectSnapshot = {
   ...(structuredClone(orbitNotesSnapshot) as ProjectSnapshot),
   builderProfile,
+  // Report-level signals (used only by signalHeadline) are deliberately a
+  // separate field from storyPack.signals above - the two are independently
+  // gated, and off-mode reports have the former with no story pack at all.
+  signals: [generalSignal, citedSignal],
   narrative: {
     headline: "Narrative headline",
     narrative: "Narrative body text.",
@@ -162,18 +175,30 @@ const accessors: Record<PublicFieldKey, (p: Public) => unknown> = {
   storyLearnings: (p) => p.storyPack?.learnings ?? [],
   storyTraits: (p) => p.storyPack?.standoutTraits ?? [],
   storyGrowthEdge: (p) => p.storyPack?.growthEdge.title ?? "",
-  deepExecutiveSynthesis: (p) => p.storyPack?.version === "3.0.0" ? p.storyPack.deepAnalysis?.executiveSynthesis ?? null : null,
-  deepDecisionReview: (p) => p.storyPack?.version === "3.0.0" ? p.storyPack.deepAnalysis?.decisionReview ?? [] : [],
-  deepFrictionAndRecovery: (p) => p.storyPack?.version === "3.0.0" ? p.storyPack.deepAnalysis?.frictionAndRecovery ?? [] : [],
-  deepEngineeringPatterns: (p) => p.storyPack?.version === "3.0.0" ? p.storyPack.deepAnalysis?.engineeringPatterns ?? [] : [],
-  deepRisksAndEvidenceGaps: (p) => p.storyPack?.version === "3.0.0" ? p.storyPack.deepAnalysis?.risksAndEvidenceGaps ?? [] : [],
-  deepNextBuildActions: (p) => p.storyPack?.version === "3.0.0" ? p.storyPack.deepAnalysis?.nextBuildActions ?? [] : [],
+  // Isolated to generalSignal specifically (not the raw array) - citedSignal
+  // legitimately survives in pack.signals whenever deepByTheNumbers is
+  // selected, regardless of storySignals, since a published citation must
+  // always resolve to a real signal. See the fixture comment above.
+  storySignals: (p) => p.storyPack?.signals.find((signal) => signal.id === generalSignal.id) ?? null,
+  signalHeadline: (p) => p.headlineFact,
+  deepOpeningLine: (p) => p.storyPack?.version === "3.0.0" ? p.storyPack.deepAnalysis?.openingLine ?? null : null,
+  deepSignatureMoves: (p) => p.storyPack?.version === "3.0.0" ? p.storyPack.deepAnalysis?.signatureMoves ?? [] : [],
+  deepByTheNumbers: (p) => p.storyPack?.version === "3.0.0" ? p.storyPack.deepAnalysis?.byTheNumbers ?? [] : [],
+  deepWhereItGotHard: (p) => p.storyPack?.version === "3.0.0" ? p.storyPack.deepAnalysis?.whereItGotHard ?? [] : [],
   deepChapterChanges: (p) => p.storyPack?.version === "3.0.0" ? p.storyPack.deepAnalysis?.chapterChanges ?? [] : [],
   decisionPatterns: (p) => p.decisionPatterns,
   standoutTraits: (p) => p.standoutTraits,
   growthEdge: (p) => p.growthEdge,
   artifactLinks: (p) => p.artifactLinks,
   artifactMedia: (p) => p.artifactMedia,
+  // Deprecated, cut/renamed in the report-redesign sprint: no-ops in the
+  // projection, kept only so PublicFieldKey's Record types stay exhaustive.
+  deepExecutiveSynthesis: () => null,
+  deepDecisionReview: () => null,
+  deepFrictionAndRecovery: () => null,
+  deepEngineeringPatterns: () => null,
+  deepRisksAndEvidenceGaps: () => null,
+  deepNextBuildActions: () => null,
 };
 
 const hiddenValue: Record<PublicFieldKey, unknown> = {
@@ -198,18 +223,24 @@ const hiddenValue: Record<PublicFieldKey, unknown> = {
   storyLearnings: [],
   storyTraits: [],
   storyGrowthEdge: "",
-  deepExecutiveSynthesis: { title: "", summary: "", sourceRefs: [], confidence: "low" },
-  deepDecisionReview: [],
-  deepFrictionAndRecovery: [],
-  deepEngineeringPatterns: [],
-  deepRisksAndEvidenceGaps: [],
-  deepNextBuildActions: [],
+  storySignals: null,
+  signalHeadline: null,
+  deepOpeningLine: { title: "", summary: "", sourceRefs: [], confidence: "low" },
+  deepSignatureMoves: [],
+  deepByTheNumbers: [],
+  deepWhereItGotHard: [],
   deepChapterChanges: [],
   decisionPatterns: [],
   standoutTraits: [],
   growthEdge: "",
   artifactLinks: { projectUrl: null, repoUrl: null, videoUrl: null },
   artifactMedia: [],
+  deepExecutiveSynthesis: null,
+  deepDecisionReview: null,
+  deepFrictionAndRecovery: null,
+  deepEngineeringPatterns: null,
+  deepRisksAndEvidenceGaps: null,
+  deepNextBuildActions: null,
 };
 
 function project(fields: PublicFieldKey[]): Public {

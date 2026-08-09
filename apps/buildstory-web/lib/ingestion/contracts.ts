@@ -61,18 +61,37 @@ export const PUBLIC_FIELD_KEYS = [
   "storyLearnings",
   "storyTraits",
   "storyGrowthEdge",
-  "deepExecutiveSynthesis",
-  "deepDecisionReview",
-  "deepFrictionAndRecovery",
-  "deepEngineeringPatterns",
-  "deepRisksAndEvidenceGaps",
-  "deepNextBuildActions",
+  /** Deterministic, computed facts (see lib/ingestion/signals.ts) - the one story-pack section that is never model-written. */
+  "storySignals",
+  "deepOpeningLine",
+  "deepSignatureMoves",
+  "deepByTheNumbers",
+  "deepWhereItGotHard",
   "deepChapterChanges",
+  /** The top-ranked public signal, surfaced on the share card / OG image. */
+  "signalHeadline",
   "decisionPatterns",
   "standoutTraits",
   "growthEdge",
   "artifactLinks",
   "artifactMedia",
+  // Deprecated: renamed or cut in the report-redesign sprint. Kept only so a
+  // selectedPublicFields array stored before that change still typechecks
+  // and validates - they are no-ops in the publication projection. A
+  // creator who wants the equivalent new content public must re-select the
+  // renamed key above (e.g. deepOpeningLine).
+  /** @deprecated Renamed to deepOpeningLine. */
+  "deepExecutiveSynthesis",
+  /** @deprecated Cut from generation. */
+  "deepDecisionReview",
+  /** @deprecated Renamed to deepWhereItGotHard. */
+  "deepFrictionAndRecovery",
+  /** @deprecated Renamed to deepSignatureMoves. */
+  "deepEngineeringPatterns",
+  /** @deprecated Cut from generation. */
+  "deepRisksAndEvidenceGaps",
+  /** @deprecated Cut from generation - advice/recommendations are off-vision for this product. */
+  "deepNextBuildActions",
 ] as const;
 
 export type PublicFieldKey = (typeof PUBLIC_FIELD_KEYS)[number];

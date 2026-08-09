@@ -375,6 +375,7 @@ async function requestWithRepair(
   isOllama: boolean,
   analysisTier: AnalysisTier,
   allowedRefs: Set<string>,
+  allowedSignalIds: Set<string>,
   component: StoryPackComponent | "combined" | "analysis-map" | "deep-report",
   maxTokens?: number,
 ): Promise<Completion & { warnings: string[] }> {
@@ -411,11 +412,11 @@ async function requestWithRepair(
         warnings: [...storyValidation.warnings, ...insightValidation.warnings],
       };
     } else if (component === "analysis-map") {
-      validation = validateDeepAnalysisComponent(result.value, allowedRefs);
+      validation = validateDeepAnalysisComponent(result.value, allowedRefs, allowedSignalIds);
     } else if (component === "deep-report") {
       const storyValidation = validateStoryPackComponent(result.value, "story", allowedRefs);
       const insightValidation = validateStoryPackComponent(result.value, "insights", allowedRefs);
-      const deepValidation = validateStoryPackComponent(result.value, "deep", allowedRefs);
+      const deepValidation = validateStoryPackComponent(result.value, "deep", allowedRefs, allowedSignalIds);
       validation = {
         ok: storyValidation.ok && insightValidation.ok && deepValidation.ok,
         errors: [...storyValidation.errors, ...insightValidation.errors, ...deepValidation.errors],
@@ -467,7 +468,7 @@ async function requestWithRepair(
 // from a failure. Cardinality lists (moments, decisions, ...) already have a
 // validated minimum count, so they're not included here; a single fallback
 // entry among several real ones isn't the same failure mode.
-const CORE_DEEP_FALLBACK_PATHS = ["hero.headline", "hero.summary", "turningPoint.quote", "growthEdge.title", "growthEdge.observation", "growthEdge.nextStep"];
+const CORE_DEEP_FALLBACK_PATHS = ["hero.headline", "hero.summary", "turningPoint.quote", "growthEdge.title", "growthEdge.observation"];
 
 export async function generateNarrative(
   snapshot: ScannerProjectSnapshot,
@@ -535,7 +536,9 @@ export async function generateNarrative(
   let actualCostMicroUsd: number | null = null;
   const requestIds: string[] = [];
 
-  const allowedRefs = new Set(defaultStoryPack(snapshot).sources.map((source) => source.ref));
+  const defaultPack = defaultStoryPack(snapshot);
+  const allowedRefs = new Set(defaultPack.sources.map((source) => source.ref));
+  const allowedSignalIds = new Set(defaultPack.signals.map((signal) => signal.id));
   const addUsage = (result: Completion) => {
     inputTokens += result.inputTokens;
     outputTokens += result.outputTokens;
@@ -551,14 +554,14 @@ export async function generateNarrative(
   try {
     if (analysisTier === "deep") {
       const analysis = await requestWithRepair(
-        baseUrl, apiKey, model, buildDeepAnalysisMessages(snapshot, options.previousChapter),
-        NARRATIVE_DEEP_ANALYSIS_RESPONSE_FORMAT, isOllama, analysisTier, allowedRefs, "analysis-map", 24_000,
+        baseUrl, apiKey, model, buildDeepAnalysisMessages(snapshot, defaultPack.signals, options.previousChapter),
+        NARRATIVE_DEEP_ANALYSIS_RESPONSE_FORMAT, isOllama, analysisTier, allowedRefs, allowedSignalIds, "analysis-map", 24_000,
       );
       addUsage(analysis);
       requestWarnings.push(...analysis.warnings);
       const synthesis = await requestWithRepair(
         baseUrl, apiKey, model, buildDeepSynthesisMessages(snapshot, analysis.value),
-        NARRATIVE_DEEP_SYNTHESIS_RESPONSE_FORMAT, isOllama, analysisTier, allowedRefs, "deep-narrative", 40_000,
+        NARRATIVE_DEEP_SYNTHESIS_RESPONSE_FORMAT, isOllama, analysisTier, allowedRefs, allowedSignalIds, "deep-narrative", 40_000,
       );
       addUsage(synthesis);
       requestWarnings.push(...synthesis.warnings);
@@ -566,7 +569,7 @@ export async function generateNarrative(
         ? synthesis.value as Record<string, unknown>
         : {};
       const composedValue = { ...synthesisObject, deepAnalysis: analysis.value };
-      const composedValidation = validateStoryPackComponent(composedValue, "deep", allowedRefs);
+      const composedValidation = validateStoryPackComponent(composedValue, "deep", allowedRefs, allowedSignalIds);
       if (!composedValidation.ok) {
         // Both model outputs were validated independently. Reaching this path
         // means Buildstory's composition contract drifted; another provider
@@ -609,8 +612,8 @@ export async function generateNarrative(
       }
     } else {
       const result = await requestWithRepair(
-        baseUrl, apiKey, model, buildCombinedMessages(snapshot), NARRATIVE_COMBINED_RESPONSE_FORMAT,
-        isOllama, analysisTier, allowedRefs, "combined", isOllama ? 3_000 : 4_000,
+        baseUrl, apiKey, model, buildCombinedMessages(snapshot, defaultPack.signals), NARRATIVE_COMBINED_RESPONSE_FORMAT,
+        isOllama, analysisTier, allowedRefs, allowedSignalIds, "combined", isOllama ? 3_000 : 4_000,
       );
       addUsage(result);
       requestWarnings.push(...result.warnings);

@@ -1,6 +1,6 @@
 import type { ProjectSnapshot } from "./project-snapshot";
 import type { PublicFieldKey, StoryCategory } from "./ingestion/contracts";
-import type { ReportStoryPack, ReportStoryPackV2, ReportStoryPackV3, StoryPackFinding, StoryPackRecommendation } from "./ingestion/scanner-project-snapshot";
+import type { ReportStoryPack, ReportStoryPackV2, ReportStoryPackV3, StoryPackFinding } from "./ingestion/scanner-project-snapshot";
 import { NARRATIVE_FIELD_LIMITS } from "./narrative/schema";
 import { sanitizePublicText } from "./publication/sanitization";
 import { DEFAULT_STORY_BACKGROUND_ID, isStoryBackgroundId, type StoryBackgroundId } from "./background-options";
@@ -120,6 +120,7 @@ export function buildStoryFromSnapshot(snapshot: ProjectSnapshot) {
     ...(snapshot.sourceSelection ? { sourceSelection: snapshot.sourceSelection } : {}),
     profile: snapshot.builderProfile ?? null,
     narrative: snapshot.narrative ?? null,
+    signals: snapshot.signals,
     receiptId: `BR-${activityWindow.endedAt.slice(2, 10).replaceAll("-", "")}-${snapshot.repository.currentRevision.toUpperCase()}`,
   };
 }
@@ -140,7 +141,7 @@ function safeHttpsUrl(value: string | null | undefined): string | null {
   }
 }
 
-/** The seven story-pack sections, each gated by its own independent PublicFieldKey - never bundled behind "narrative" or each other. */
+/** The story-pack sections, each gated by its own independent PublicFieldKey - never bundled behind "narrative" or each other. */
 const STORY_PACK_FIELD_KEYS = [
   "storyBuildArc",
   "storyMoments",
@@ -149,12 +150,11 @@ const STORY_PACK_FIELD_KEYS = [
   "storyLearnings",
   "storyTraits",
   "storyGrowthEdge",
-  "deepExecutiveSynthesis",
-  "deepDecisionReview",
-  "deepFrictionAndRecovery",
-  "deepEngineeringPatterns",
-  "deepRisksAndEvidenceGaps",
-  "deepNextBuildActions",
+  "storySignals",
+  "deepOpeningLine",
+  "deepSignatureMoves",
+  "deepByTheNumbers",
+  "deepWhereItGotHard",
   "deepChapterChanges",
 ] as const satisfies readonly PublicFieldKey[];
 
@@ -172,6 +172,10 @@ function publicStoryPack(
   const base: ReportStoryPackV2 = {
     version: "2.0.0",
     sources: [],
+    // Populated below, after byTheNumbers is projected - a published
+    // byTheNumbers citation must always resolve to a real signal even if
+    // storySignals itself wasn't separately selected.
+    signals: [],
     hero: {
       headline: hasAnyField ? clean(pack.hero.headline, 160) : "Evidence-backed build story",
       summary: hasAnyField ? clean(pack.hero.summary, 1_200) : "Selected story components from the validated build record.",
@@ -199,8 +203,8 @@ function publicStoryPack(
     // other gated-off field in this projection (empty arrays, "" strings). A prose placeholder
     // like "Private by default." would otherwise render as if it were real story content.
     growthEdge: selected.has("storyGrowthEdge")
-      ? { ...pack.growthEdge, title: clean(pack.growthEdge.title, 180), observation: clean(pack.growthEdge.observation), nextStep: clean(pack.growthEdge.nextStep), sourceRefs: refs(pack.growthEdge.sourceRefs) }
-      : { title: "", observation: "", nextStep: "", sourceRefs: [] },
+      ? { title: clean(pack.growthEdge.title, 180), observation: clean(pack.growthEdge.observation), sourceRefs: refs(pack.growthEdge.sourceRefs) }
+      : { title: "", observation: "", sourceRefs: [] },
   };
   const cleanFinding = (finding: StoryPackFinding): StoryPackFinding => ({
     title: clean(finding.title, 180),
@@ -208,36 +212,30 @@ function publicStoryPack(
     sourceRefs: refs(finding.sourceRefs),
     confidence: finding.confidence,
   });
-  const cleanRecommendation = (item: StoryPackRecommendation): StoryPackRecommendation => ({
-    ...cleanFinding(item),
-    priority: item.priority,
-    rationale: clean(item.rationale, 900),
-  });
   const deep = pack.version === "3.0.0" ? pack.deepAnalysis : undefined;
   const hasDeepSelection = Boolean(deep && [
-    "deepExecutiveSynthesis",
-    "deepDecisionReview",
-    "deepFrictionAndRecovery",
-    "deepEngineeringPatterns",
-    "deepRisksAndEvidenceGaps",
-    "deepNextBuildActions",
+    "deepOpeningLine",
+    "deepSignatureMoves",
+    "deepByTheNumbers",
+    "deepWhereItGotHard",
     "deepChapterChanges",
   ].some((field) => selected.has(field as PublicFieldKey)));
+  const byTheNumbers = deep && selected.has("deepByTheNumbers") && deep.byTheNumbers
+    ? deep.byTheNumbers.map((item) => ({ ...cleanFinding(item), signalId: item.signalId }))
+    : [];
   const projection: ReportStoryPack = deep && hasDeepSelection
     ? {
         ...base,
         version: "3.0.0",
         analysisTier: (pack as ReportStoryPackV3).analysisTier,
         deepAnalysis: {
-          executiveSynthesis: selected.has("deepExecutiveSynthesis")
-            ? cleanFinding(deep.executiveSynthesis)
+          openingLine: selected.has("deepOpeningLine") && deep.openingLine
+            ? cleanFinding(deep.openingLine)
             : { title: "", summary: "", sourceRefs: [], confidence: "low" },
-          decisionReview: selected.has("deepDecisionReview") ? deep.decisionReview.map(cleanFinding) : [],
-          frictionAndRecovery: selected.has("deepFrictionAndRecovery") ? deep.frictionAndRecovery.map(cleanFinding) : [],
-          engineeringPatterns: selected.has("deepEngineeringPatterns") ? deep.engineeringPatterns.map(cleanFinding) : [],
-          risksAndEvidenceGaps: selected.has("deepRisksAndEvidenceGaps") ? deep.risksAndEvidenceGaps.map(cleanFinding) : [],
-          nextBuildActions: selected.has("deepNextBuildActions") ? deep.nextBuildActions.map(cleanRecommendation) : [],
-          chapterChanges: selected.has("deepChapterChanges") ? deep.chapterChanges.map(cleanFinding) : [],
+          signatureMoves: selected.has("deepSignatureMoves") ? (deep.signatureMoves ?? []).map(cleanFinding) : [],
+          byTheNumbers,
+          whereItGotHard: selected.has("deepWhereItGotHard") ? (deep.whereItGotHard ?? []).map(cleanFinding) : [],
+          chapterChanges: selected.has("deepChapterChanges") ? (deep.chapterChanges ?? []).map(cleanFinding) : [],
           // Coverage is contextual provenance for any published deep finding.
           // It is called out in every deep-field review label in the UI.
           coverage: { ...deep.coverage },
@@ -245,6 +243,10 @@ function publicStoryPack(
       } satisfies ReportStoryPackV3
     : base;
   const projectedDeep = projection.version === "3.0.0" ? projection.deepAnalysis : undefined;
+  const usedSignalIds = new Set(byTheNumbers.map((item) => item.signalId));
+  projection.signals = selected.has("storySignals")
+    ? pack.signals
+    : pack.signals.filter((signal) => usedSignalIds.has(signal.id));
   const usedRefs = new Set<string>([
     ...projection.buildArc.flatMap((item) => item.sourceRefs),
     ...projection.moments.flatMap((item) => item.sourceRefs),
@@ -253,14 +255,13 @@ function publicStoryPack(
     ...projection.learnings.flatMap((item) => item.sourceRefs),
     ...projection.standoutTraits.flatMap((item) => item.sourceRefs),
     ...projection.growthEdge.sourceRefs,
+    ...projection.signals.flatMap((signal) => signal.sourceRefs),
     ...(projectedDeep ? [
-      ...projectedDeep.executiveSynthesis.sourceRefs,
-      ...projectedDeep.decisionReview.flatMap((item) => item.sourceRefs),
-      ...projectedDeep.frictionAndRecovery.flatMap((item) => item.sourceRefs),
-      ...projectedDeep.engineeringPatterns.flatMap((item) => item.sourceRefs),
-      ...projectedDeep.risksAndEvidenceGaps.flatMap((item) => item.sourceRefs),
-      ...projectedDeep.nextBuildActions.flatMap((item) => item.sourceRefs),
-      ...projectedDeep.chapterChanges.flatMap((item) => item.sourceRefs),
+      ...(projectedDeep.openingLine?.sourceRefs ?? []),
+      ...(projectedDeep.signatureMoves ?? []).flatMap((item) => item.sourceRefs),
+      ...(projectedDeep.byTheNumbers ?? []).flatMap((item) => item.sourceRefs),
+      ...(projectedDeep.whereItGotHard ?? []).flatMap((item) => item.sourceRefs),
+      ...(projectedDeep.chapterChanges ?? []).flatMap((item) => item.sourceRefs),
     ] : []),
   ]);
   projection.sources = pack.sources
@@ -406,6 +407,18 @@ export function publicBuildStoryFromSnapshot(
       ? [...new Set(story.narrative.fallbacksUsed)].slice(0, 40)
       : [],
     storyPack: projectedStoryPack,
+    // Report-level, independent of storyPack/narrative: computed facts need
+    // no model, so they're the one section a facts-only ("off" narrative
+    // mode) report can still publish. Gated by the same storySignals key
+    // that gates pack.signals inside a story pack, for one consistent
+    // meaning of "are computed facts public" regardless of whether a
+    // narrative was ever generated.
+    signals: selected.has("storySignals") ? story.signals : [],
+    // Independently gated from storySignals: a creator may want the one
+    // headline fact on the share card without exposing the full facts list
+    // on the page itself. signals is already notability-sorted, so [0] is
+    // always the single most notable computed fact.
+    headlineFact: selected.has("signalHeadline") ? story.signals[0]?.headline ?? null : null,
     decisionPatterns: selected.has("decisionPatterns")
       ? (story.narrative?.decisionPatterns ?? []).map(
           (line) => sanitizePublicText(line, NARRATIVE_FIELD_LIMITS.decisionPatternItem).value,

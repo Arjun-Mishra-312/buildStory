@@ -10,6 +10,8 @@ export type ShareCardData = {
   archetype: string | null;
   stats: ShareCardStat[];
   models: ShareCardModel[];
+  /** The single most notable computed fact, gated by the signalHeadline PublicFieldKey. Never model-written. */
+  headlineFact: string | null;
 };
 
 const usdFormat = new Intl.NumberFormat("en", {
@@ -54,5 +56,6 @@ export function formatShareCardData(story: PublicBuildStoryViewModel): ShareCard
     archetype: story.profile?.archetype?.name ?? null,
     stats,
     models,
+    headlineFact: story.headlineFact || null,
   };
 }

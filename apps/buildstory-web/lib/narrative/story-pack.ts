@@ -4,13 +4,14 @@ import type {
   ReportStoryPackV2,
   ReportStoryPackV3,
   ScannerProjectSnapshot,
+  Signal,
   StoryPackConfidence,
   StoryPackFinding,
-  StoryPackRecommendation,
   StoryPackPhase,
   StoryPackSource,
 } from "../ingestion/scanner-project-snapshot";
 import { computeBuilderProfile } from "../ingestion/profile";
+import { computeSignals } from "../ingestion/signals";
 import { sanitizePublicText } from "../publication/sanitization";
 
 export const STORY_PACK_OUTPUT_SCHEMA = {
@@ -35,7 +36,11 @@ export const STORY_PACK_OUTPUT_SCHEMA = {
     decisions: { type: "array", minItems: 2, maxItems: 4, items: { type: "object", additionalProperties: false, required: ["title", "rationale", "outcome", "sourceRefs"], properties: { title: { type: "string", minLength: 1, maxLength: 120 }, rationale: { type: "string", minLength: 1, maxLength: 300 }, outcome: { type: "string", minLength: 1, maxLength: 300 }, sourceRefs: { type: "array", minItems: 1, maxItems: 4, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 40 } } } } },
     learnings: { type: "array", minItems: 2, maxItems: 4, items: { type: "object", additionalProperties: false, required: ["title", "detail", "sourceRefs"], properties: { title: { type: "string", minLength: 1, maxLength: 120 }, detail: { type: "string", minLength: 1, maxLength: 300 }, sourceRefs: { type: "array", minItems: 1, maxItems: 4, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 40 } } } } },
     standoutTraits: { type: "array", minItems: 2, maxItems: 4, items: { type: "object", additionalProperties: false, required: ["title", "detail", "sourceRefs"], properties: { title: { type: "string", minLength: 1, maxLength: 120 }, detail: { type: "string", minLength: 1, maxLength: 300 }, sourceRefs: { type: "array", minItems: 1, maxItems: 4, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 40 } } } } },
-    growthEdge: { type: "object", additionalProperties: false, required: ["title", "observation", "nextStep", "sourceRefs"], properties: { title: { type: "string", minLength: 1, maxLength: 120 }, observation: { type: "string", minLength: 1, maxLength: 400 }, nextStep: { type: "string", minLength: 1, maxLength: 300 }, sourceRefs: { type: "array", minItems: 1, maxItems: 4, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 40 } } } },
+    // nextStep is deliberately absent: it was the last directive/advice line
+    // left in the Standard report (see the report-redesign sprint that cut
+    // Deep's nextBuildActions for the same reason) and is no longer part of
+    // what the model is asked to write.
+    growthEdge: { type: "object", additionalProperties: false, required: ["title", "observation", "sourceRefs"], properties: { title: { type: "string", minLength: 1, maxLength: 120 }, observation: { type: "string", minLength: 1, maxLength: 400 }, sourceRefs: { type: "array", minItems: 1, maxItems: 4, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 40 } } } },
   },
 } as const;
 
@@ -49,36 +54,28 @@ const STORY_PACK_FINDING_SCHEMA = {
   },
 } as const;
 
-const STORY_PACK_RECOMMENDATION_SCHEMA = {
-  type: "object", additionalProperties: false, required: ["title", "summary", "sourceRefs", "confidence", "priority", "rationale"],
+/** An LLM-written finding that frames one specific computed Signal - never a number the model invented. */
+const STORY_PACK_SIGNAL_FINDING_SCHEMA = {
+  type: "object", additionalProperties: false, required: ["title", "summary", "sourceRefs", "confidence", "signalId"],
   properties: {
     ...STORY_PACK_FINDING_SCHEMA.properties,
-    priority: { type: "string", enum: ["now", "next", "later"] },
-    rationale: { type: "string", minLength: 1, maxLength: 600 },
+    // Must name a real signal from COMPUTED SIGNALS (see prompt.ts's
+    // signalsBlock); validateStoryPackComponent rejects any signalId that
+    // doesn't match a signal actually computed for this snapshot, the same
+    // way refsError already rejects an unknown sourceRef.
+    signalId: { type: "string", minLength: 1, maxLength: 60 },
   },
 } as const;
 
 export const STORY_PACK_DEEP_ANALYSIS_SCHEMA = {
   type: "object", additionalProperties: false,
-  required: ["executiveSynthesis", "decisionReview", "frictionAndRecovery", "engineeringPatterns", "risksAndEvidenceGaps", "nextBuildActions", "chapterChanges"],
+  required: ["openingLine", "signatureMoves", "byTheNumbers", "whereItGotHard", "chapterChanges"],
   properties: {
-    executiveSynthesis: STORY_PACK_FINDING_SCHEMA,
-    decisionReview: { type: "array", maxItems: 8, items: STORY_PACK_FINDING_SCHEMA },
-    frictionAndRecovery: { type: "array", maxItems: 6, items: STORY_PACK_FINDING_SCHEMA },
-    engineeringPatterns: { type: "array", maxItems: 6, items: STORY_PACK_FINDING_SCHEMA },
-    risksAndEvidenceGaps: { type: "array", maxItems: 5, items: STORY_PACK_FINDING_SCHEMA },
-    nextBuildActions: { type: "array", maxItems: 6, items: STORY_PACK_RECOMMENDATION_SCHEMA },
+    openingLine: STORY_PACK_FINDING_SCHEMA,
+    signatureMoves: { type: "array", maxItems: 6, items: STORY_PACK_FINDING_SCHEMA },
+    byTheNumbers: { type: "array", minItems: 1, maxItems: 8, items: STORY_PACK_SIGNAL_FINDING_SCHEMA },
+    whereItGotHard: { type: "array", maxItems: 6, items: STORY_PACK_FINDING_SCHEMA },
     chapterChanges: { type: "array", maxItems: 5, items: STORY_PACK_FINDING_SCHEMA },
-  },
-} as const;
-
-export const STORY_PACK_DEEP_OUTPUT_SCHEMA = {
-  ...STORY_PACK_OUTPUT_SCHEMA,
-  required: ["hero", "buildArc", "moments", "turningPoint", "decisions", "learnings", "standoutTraits", "growthEdge", "deepAnalysis"],
-  properties: {
-    ...STORY_PACK_OUTPUT_SCHEMA.properties,
-    moments: { ...STORY_PACK_OUTPUT_SCHEMA.properties.moments, maxItems: 12 },
-    deepAnalysis: STORY_PACK_DEEP_ANALYSIS_SCHEMA,
   },
 } as const;
 
@@ -249,7 +246,7 @@ function validateInsightsComponent(value: Record<string, unknown>, allowed: Set<
   const growth = record(value.growthEdge);
   if (!growth) errors.push("growthEdge must be an object.");
   else {
-    for (const [key, max] of [["title", 120], ["observation", 400], ["nextStep", 300]] as const) {
+    for (const [key, max] of [["title", 120], ["observation", 400]] as const) {
       const issue = stringError(growth[key], `growthEdge.${key}`, 1, max, warnings); if (issue) errors.push(issue);
     }
     errors.push(...refsError(growth.sourceRefs, "growthEdge.sourceRefs", allowed));
@@ -257,7 +254,7 @@ function validateInsightsComponent(value: Record<string, unknown>, allowed: Set<
   return errors;
 }
 
-function validateFinding(value: unknown, path: string, allowed: Set<string>, warnings: string[], recommendation = false): string[] {
+function validateFinding(value: unknown, path: string, allowed: Set<string>, warnings: string[]): string[] {
   const entry = record(value);
   if (!entry) return [`${path} must be an object.`];
   const errors: string[] = [];
@@ -268,38 +265,49 @@ function validateFinding(value: unknown, path: string, allowed: Set<string>, war
   // schema. Keeping the post-generation validator at the base-story limit of
   // four made valid structured output fail after an unnecessary repair call.
   errors.push(...refsError(entry.sourceRefs, `${path}.sourceRefs`, allowed, 6));
-  if (recommendation) {
-    if (!["now", "next", "later"].includes(String(entry.priority))) errors.push(`${path}.priority is unsupported.`);
-    const rationale = stringError(entry.rationale, `${path}.rationale`, 1, 600, warnings); if (rationale) errors.push(rationale);
-  }
   return errors;
 }
 
-function validateDeepComponent(value: Record<string, unknown>, allowed: Set<string>, warnings: string[], includeBase = true): string[] {
+/**
+ * The anti-hallucination check: a byTheNumbers finding must cite a real,
+ * computed signalId. A number the model invented has nowhere to attach -
+ * this is enforced the same way refsError already enforces sourceRefs
+ * provenance, so an unsupported statistic cannot reach the page.
+ */
+function validateSignalFinding(value: unknown, path: string, allowed: Set<string>, allowedSignalIds: Set<string>, warnings: string[]): string[] {
+  const errors = validateFinding(value, path, allowed, warnings);
+  const entry = record(value);
+  const signalId = entry?.signalId;
+  if (typeof signalId !== "string" || !signalId.trim()) errors.push(`${path}.signalId must be a non-empty string.`);
+  else if (allowedSignalIds.size > 0 && !allowedSignalIds.has(signalId)) errors.push(`${path}.signalId references unknown signal ${signalId}.`);
+  return errors;
+}
+
+function validateDeepComponent(value: Record<string, unknown>, allowed: Set<string>, allowedSignalIds: Set<string>, warnings: string[], includeBase = true): string[] {
   const errors = includeBase ? [...validateStoryComponent(value, allowed, warnings, 12, false), ...validateInsightsComponent(value, allowed, warnings, false)] : [];
   const deep = record(value.deepAnalysis);
   if (!deep) return [...errors, "deepAnalysis must be an object."];
-  errors.push(...validateFinding(deep.executiveSynthesis, "deepAnalysis.executiveSynthesis", allowed, warnings));
-  for (const [name, max, recommendation] of [
-    ["decisionReview", 8, false],
-    ["frictionAndRecovery", 6, false],
-    ["engineeringPatterns", 6, false],
-    ["risksAndEvidenceGaps", 5, false],
-    ["nextBuildActions", 6, true],
-    ["chapterChanges", 5, false],
+  errors.push(...validateFinding(deep.openingLine, "deepAnalysis.openingLine", allowed, warnings));
+  for (const [name, max] of [
+    ["signatureMoves", 6],
+    ["whereItGotHard", 6],
+    ["chapterChanges", 5],
   ] as const) {
     const entries = deep[name];
     errors.push(...listError(entries, `deepAnalysis.${name}`, 0, max));
-    if (Array.isArray(entries)) entries.forEach((entry, index) => errors.push(...validateFinding(entry, `deepAnalysis.${name}[${index}]`, allowed, warnings, recommendation)));
+    if (Array.isArray(entries)) entries.forEach((entry, index) => errors.push(...validateFinding(entry, `deepAnalysis.${name}[${index}]`, allowed, warnings)));
   }
+  const byTheNumbers = deep.byTheNumbers;
+  errors.push(...listError(byTheNumbers, "deepAnalysis.byTheNumbers", 1, 8));
+  if (Array.isArray(byTheNumbers)) byTheNumbers.forEach((entry, index) => errors.push(...validateSignalFinding(entry, `deepAnalysis.byTheNumbers[${index}]`, allowed, allowedSignalIds, warnings)));
   return errors;
 }
 
-export function validateDeepAnalysisComponent(value: unknown, allowedRefs: Set<string>): StoryPackValidation {
+export function validateDeepAnalysisComponent(value: unknown, allowedRefs: Set<string>, allowedSignalIds: Set<string> = new Set()): StoryPackValidation {
   const candidate = record(value);
   if (!candidate) return { ok: false, errors: ["response must be a JSON object."], warnings: [] };
   const warnings: string[] = [];
-  const errors = validateDeepComponent({ deepAnalysis: candidate }, allowedRefs, warnings, false);
+  const errors = validateDeepComponent({ deepAnalysis: candidate }, allowedRefs, allowedSignalIds, warnings, false);
   return { ok: errors.length === 0, errors: errors.slice(0, 20), warnings: [...new Set(warnings)].slice(0, 20) };
 }
 
@@ -312,7 +320,7 @@ export function validateDeepAnalysisComponent(value: unknown, allowedRefs: Set<s
  * validate the structured shape, since a Deep report silently passing as a
  * legacy shape would ship a paid generation as unvalidated fallback content.
  */
-export function validateStoryPackComponent(value: unknown, component: StoryPackComponent, allowedRefs: Set<string>): StoryPackValidation {
+export function validateStoryPackComponent(value: unknown, component: StoryPackComponent, allowedRefs: Set<string>, allowedSignalIds: Set<string> = new Set()): StoryPackValidation {
   const candidate = record(value);
   if (!candidate) return { ok: false, errors: ["response must be a JSON object."], warnings: [] };
   const warnings: string[] = [];
@@ -322,7 +330,7 @@ export function validateStoryPackComponent(value: unknown, component: StoryPackC
       ? validateInsightsComponent(candidate, allowedRefs, warnings)
       : component === "deep-narrative"
         ? [...validateStoryComponent(candidate, allowedRefs, warnings, 12, false), ...validateInsightsComponent(candidate, allowedRefs, warnings, false)]
-        : validateDeepComponent(candidate, allowedRefs, warnings);
+        : validateDeepComponent(candidate, allowedRefs, allowedSignalIds, warnings);
   return { ok: errors.length === 0, errors: errors.slice(0, 20), warnings: [...new Set(warnings)].slice(0, 20) };
 }
 
@@ -369,6 +377,7 @@ export function defaultStoryPack(snapshot: ScannerProjectSnapshot): ReportStoryP
   const profile = computeBuilderProfile({ sessions: snapshot.sessions, usage: snapshot.usage, git: snapshot.git, timeWindow: snapshot.timeWindow });
   const sources = buildStoryPackSources(snapshot);
   const refs = sources.length ? [sources[0]!.ref] : [];
+  const signals = computeSignals({ sessions: snapshot.sessions, usage: snapshot.usage, git: snapshot.git, timeWindow: snapshot.timeWindow, narrativeEvidence: snapshot.narrativeEvidence, sources });
   const phases: Array<{ phase: StoryPackPhase; headline: string; summary: string }> = [
     { phase: "discover", headline: "Mapped the build surface", summary: `${snapshot.sessions.length} repository-scoped sessions established the observed build context.` },
     { phase: "decide", headline: "Turned signals into a path", summary: profile.archetype.rationale.join(" ").slice(0, 260) || "Observed activity was compared as an aggregate signal." },
@@ -376,7 +385,7 @@ export function defaultStoryPack(snapshot: ScannerProjectSnapshot): ReportStoryP
   ];
   const fallbackInsight = { title: "Evidence-bound observation", detail: "This component is metric-derived because no valid model-written result was available.", sourceRefs: refs };
   return {
-    version: "2.0.0", sources,
+    version: "2.0.0", sources, signals,
     hero: { headline: profile.archetype.name, summary: `A content-free report of ${snapshot.sessions.length} sessions and ${snapshot.git.commits} commits in the selected window.` },
     buildArc: phases.map((phase) => ({ ...phase, sourceRefs: refs })),
     moments: phases.map((phase, index) => ({ phase: phase.phase, kind: phase.phase === "discover" ? "discovery" : phase.phase === "decide" ? "decision" : "delivery", title: phase.headline, whatHappened: phase.summary, whyItMattered: "Metric-derived fallback; no model-written moment was available.", sourceRefs: sources[index]?.ref ? [sources[index]!.ref] : refs })),
@@ -384,7 +393,7 @@ export function defaultStoryPack(snapshot: ScannerProjectSnapshot): ReportStoryP
     decisions: [{ title: "Use the observed execution path", rationale: profile.archetype.rationale.join(" ").slice(0, 300), outcome: "The report preserves the deterministic evidence trail.", sourceRefs: refs }, { title: "Keep claims tied to evidence", rationale: "Source references are validated before display.", outcome: "Unsupported model claims are omitted or marked as fallbacks.", sourceRefs: refs }],
     learnings: [fallbackInsight, { title: "Keep evidence close to the claim", detail: "Every story component should resolve to a known session or repository aggregate.", sourceRefs: refs }],
     standoutTraits: [fallbackInsight, { title: profile.archetype.name, detail: profile.archetype.rationale.join(" ").slice(0, 300), sourceRefs: refs }],
-    growthEdge: { title: "Prepare the next decision earlier", observation: "Planning and steering scores are proxies derived from observable session signals.", nextStep: "Review the evidence before treating the profile as a personal conclusion.", sourceRefs: refs },
+    growthEdge: { title: "Prepare the next decision earlier", observation: "Planning and steering scores are proxies derived from observable session signals.", sourceRefs: refs },
   };
 }
 
@@ -411,7 +420,7 @@ export function normalizeStoryPack(value: unknown, snapshot: ScannerProjectSnaps
   if (decisions.length < 2) { fallbacks.push("decisions"); decisions.push(...fallback.decisions.slice(decisions.length, 2)); }
   const insightList = (name: "learnings" | "standoutTraits") => { const result = (Array.isArray(candidate[name]) ? candidate[name] : []).slice(0, 4).map((entry, index) => { const raw = item(entry); const base = fallback[name][index % fallback[name].length]!; return { title: clean(`${name}.${index}.title`, raw.title, 120, base.title, fallbacks), detail: clean(`${name}.${index}.detail`, raw.detail, 300, base.detail, fallbacks), sourceRefs: sourceRefs(`${name}.${index}.sourceRefs`, raw.sourceRefs, allowed, base.sourceRefs, fallbacks) }; }); if (result.length < 2) { fallbacks.push(name); result.push(...fallback[name].slice(result.length, 2)); } return result; };
   const turning = item(candidate.turningPoint); const growth = item(candidate.growthEdge);
-  return { storyPack: { version: "2.0.0", sources: fallback.sources, hero: { headline: clean("hero.headline", hero.headline, 120, fallback.hero.headline, fallbacks), summary: clean("hero.summary", hero.summary, 480, fallback.hero.summary, fallbacks) }, buildArc, moments, turningPoint: { quote: clean("turningPoint.quote", turning.quote, 300, fallback.turningPoint.quote, fallbacks), sourceRefs: sourceRefs("turningPoint.sourceRefs", turning.sourceRefs, allowed, fallback.turningPoint.sourceRefs, fallbacks) }, decisions, learnings: insightList("learnings"), standoutTraits: insightList("standoutTraits"), growthEdge: { title: clean("growthEdge.title", growth.title, 120, fallback.growthEdge.title, fallbacks), observation: clean("growthEdge.observation", growth.observation, 400, fallback.growthEdge.observation, fallbacks), nextStep: clean("growthEdge.nextStep", growth.nextStep, 300, fallback.growthEdge.nextStep, fallbacks), sourceRefs: sourceRefs("growthEdge.sourceRefs", growth.sourceRefs, allowed, fallback.growthEdge.sourceRefs, fallbacks) } }, fallbacksUsed: [...new Set(fallbacks)].sort() };
+  return { storyPack: { version: "2.0.0", sources: fallback.sources, signals: fallback.signals, hero: { headline: clean("hero.headline", hero.headline, 120, fallback.hero.headline, fallbacks), summary: clean("hero.summary", hero.summary, 480, fallback.hero.summary, fallbacks) }, buildArc, moments, turningPoint: { quote: clean("turningPoint.quote", turning.quote, 300, fallback.turningPoint.quote, fallbacks), sourceRefs: sourceRefs("turningPoint.sourceRefs", turning.sourceRefs, allowed, fallback.turningPoint.sourceRefs, fallbacks) }, decisions, learnings: insightList("learnings"), standoutTraits: insightList("standoutTraits"), growthEdge: { title: clean("growthEdge.title", growth.title, 120, fallback.growthEdge.title, fallbacks), observation: clean("growthEdge.observation", growth.observation, 400, fallback.growthEdge.observation, fallbacks), sourceRefs: sourceRefs("growthEdge.sourceRefs", growth.sourceRefs, allowed, fallback.growthEdge.sourceRefs, fallbacks) } }, fallbacksUsed: [...new Set(fallbacks)].sort() };
 }
 
 export function normalizeDeepStoryPack(value: unknown, snapshot: ScannerProjectSnapshot): { storyPack: ReportStoryPackV3; fallbacksUsed: string[] } {
@@ -432,16 +441,22 @@ export function normalizeDeepStoryPack(value: unknown, snapshot: ScannerProjectS
       confidence: confidence(raw.confidence),
     };
   };
-  const findings = (name: "decisionReview" | "frictionAndRecovery" | "engineeringPatterns" | "risksAndEvidenceGaps" | "chapterChanges", max: number) =>
+  const findings = (name: "signatureMoves" | "whereItGotHard" | "chapterChanges", max: number) =>
     (Array.isArray(deep[name]) ? deep[name] : []).slice(0, max).map((entry, index) => finding(entry, `deepAnalysis.${name}.${index}`));
-  const nextBuildActions: StoryPackRecommendation[] = (Array.isArray(deep.nextBuildActions) ? deep.nextBuildActions : []).slice(0, 6).map((entry, index) => {
-    const raw = record(entry) ?? {};
-    return {
-      ...finding(entry, `deepAnalysis.nextBuildActions.${index}`),
-      priority: raw.priority === "now" || raw.priority === "next" || raw.priority === "later" ? raw.priority : "next",
-      rationale: clean(`deepAnalysis.nextBuildActions.${index}.rationale`, raw.rationale, 600, "Follow up where the current evidence is weakest.", fallbacks),
-    };
-  });
+  const allowedSignalIds = new Set(normalized.storyPack.signals.map((signal) => signal.id));
+  const fallbackSignalId = normalized.storyPack.signals[0]?.id;
+  const byTheNumbers: Array<StoryPackFinding & { signalId: string }> = (Array.isArray(deep.byTheNumbers) ? deep.byTheNumbers : [])
+    .slice(0, 8)
+    .map((entry, index) => {
+      const raw = record(entry) ?? {};
+      const path = `deepAnalysis.byTheNumbers.${index}`;
+      const signalId = typeof raw.signalId === "string" && allowedSignalIds.has(raw.signalId) ? raw.signalId : fallbackSignalId;
+      if (signalId !== raw.signalId) fallbacks.push(`${path}.signalId`);
+      return { ...finding(entry, path), signalId: signalId ?? "" };
+    })
+    // No signal at all (an evidence-thin snapshot) means there is nothing
+    // for this finding to attach to - drop it rather than fabricate an id.
+    .filter((entry): entry is StoryPackFinding & { signalId: string } => entry.signalId !== "");
   const evidenceBytes = (snapshot.narrativeEvidence?.excerpts ?? []).reduce((sum, excerpt) => sum + new TextEncoder().encode(excerpt.text).byteLength, 0);
   return {
     storyPack: {
@@ -463,12 +478,10 @@ export function normalizeDeepStoryPack(value: unknown, snapshot: ScannerProjectS
           })
         : normalized.storyPack.moments,
       deepAnalysis: {
-        executiveSynthesis: finding(deep.executiveSynthesis, "deepAnalysis.executiveSynthesis"),
-        decisionReview: findings("decisionReview", 8),
-        frictionAndRecovery: findings("frictionAndRecovery", 6),
-        engineeringPatterns: findings("engineeringPatterns", 6),
-        risksAndEvidenceGaps: findings("risksAndEvidenceGaps", 5),
-        nextBuildActions,
+        openingLine: finding(deep.openingLine, "deepAnalysis.openingLine"),
+        signatureMoves: findings("signatureMoves", 6),
+        byTheNumbers,
+        whereItGotHard: findings("whereItGotHard", 6),
         chapterChanges: findings("chapterChanges", 5),
         coverage: {
           sessionsSeen: snapshot.sessions.length,
@@ -484,5 +497,5 @@ export function normalizeDeepStoryPack(value: unknown, snapshot: ScannerProjectS
 }
 
 export function sectionsFromStoryPack(pack: ReportStoryPack): GeneratedNarrativeSections {
-  return { headline: pack.hero.headline, narrative: pack.hero.summary, turningPoint: pack.turningPoint.quote, learnings: pack.learnings.map((item) => `${item.title}: ${item.detail}`), decisionPatterns: pack.decisions.map((item) => `${item.title}: ${item.rationale} ${item.outcome}`), standoutTraits: pack.standoutTraits.map((item) => `${item.title}: ${item.detail}`), growthEdge: `${pack.growthEdge.observation} ${pack.growthEdge.nextStep}` };
+  return { headline: pack.hero.headline, narrative: pack.hero.summary, turningPoint: pack.turningPoint.quote, learnings: pack.learnings.map((item) => `${item.title}: ${item.detail}`), decisionPatterns: pack.decisions.map((item) => `${item.title}: ${item.rationale} ${item.outcome}`), standoutTraits: pack.standoutTraits.map((item) => `${item.title}: ${item.detail}`), growthEdge: pack.growthEdge.observation };
 }

@@ -134,6 +134,8 @@ export const orbitNotesSnapshot = {
           totalTokens: 708000,
           cacheReadInputTokens: 0,
           cacheCreationInputTokens: 0,
+          cachedInputTokens: 0,
+          reasoningOutputTokens: 0,
         },
         costMicroUsd: 1917500,
       },
@@ -148,19 +150,22 @@ export const orbitNotesSnapshot = {
           totalTokens: 248446,
           cacheReadInputTokens: 0,
           cacheCreationInputTokens: 0,
+          cachedInputTokens: 0,
+          reasoningOutputTokens: 0,
         },
         costMicroUsd: 1245690,
       },
     ],
     tools: [
-      { id: "codex", label: "Codex", category: "agent", sessions: 6 },
-      { id: "cursor", label: "Cursor", category: "editor", sessions: 3 },
-      { id: "terminal", label: "Terminal", category: "terminal", sessions: 7 },
+      { id: "codex", label: "Codex", category: "agent", sessions: 6, callCount: 214 },
+      { id: "cursor", label: "Cursor", category: "editor", sessions: 3, callCount: 58 },
+      { id: "terminal", label: "Terminal", category: "terminal", sessions: 7, callCount: 96 },
       {
         id: "github-actions",
         label: "GitHub Actions",
         category: "automation",
         sessions: 2,
+        callCount: 12,
       },
     ],
     tokenUsage: {
@@ -169,6 +174,8 @@ export const orbitNotesSnapshot = {
       totalTokens: 956446,
       cacheReadInputTokens: 0,
       cacheCreationInputTokens: 0,
+      cachedInputTokens: 0,
+      reasoningOutputTokens: 0,
     },
     cost: {
       totalMicroUsd: 3163190,
@@ -180,6 +187,7 @@ export const orbitNotesSnapshot = {
   },
   git: {
     commits: 87,
+    mergeCommits: 4,
     additions: 18420,
     deletions: 6291,
     filesTouched: 163,
@@ -187,6 +195,7 @@ export const orbitNotesSnapshot = {
     contributors: 1,
     firstCommitSha: "a17cf09",
     lastCommitSha: "4d2b8e7",
+    workingTree: { isDirty: false, stagedEntries: 0, modifiedEntries: 0, untrackedEntries: 0, conflictedEntries: 0 },
   },
   milestones: [
     {
@@ -246,4 +255,8 @@ export const orbitNotesSnapshot = {
     snapshotHash: "sha256:15b9a8c0d17f…91c2",
     consentVersion: "private-report-v1",
   },
+  // Static demo fixture with no backing ScannerProjectSnapshot to compute
+  // real signals from - an empty list just means this demo page's report
+  // renders without a "BY THE NUMBERS" section, which is correct here.
+  signals: [],
 } satisfies ProjectSnapshot;

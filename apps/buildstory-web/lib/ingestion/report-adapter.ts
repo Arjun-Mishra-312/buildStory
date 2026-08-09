@@ -2,6 +2,8 @@ import type { ProjectSnapshot } from "@/lib/project-snapshot";
 import type { ScannerProjectSnapshot } from "./scanner-project-snapshot";
 import { PROJECT_SNAPSHOT_SCHEMA_VERSION } from "./scanner-project-snapshot";
 import { computeBuilderProfile } from "./profile";
+import { computeSignals } from "./signals";
+import { buildStoryPackSources } from "../narrative/story-pack";
 
 export type ReportOwner = {
   id: string;
@@ -129,6 +131,8 @@ export function reportSnapshotFromScanner(
               totalTokens: model.tokenUsage.totalTokens,
               cacheReadInputTokens: model.tokenUsage.cacheReadInputTokens ?? 0,
               cacheCreationInputTokens: model.tokenUsage.cacheCreationInputTokens ?? 0,
+              cachedInputTokens: model.tokenUsage.cachedInputTokens,
+              reasoningOutputTokens: model.tokenUsage.reasoningOutputTokens,
             }
           : null,
         costMicroUsd: model.costMicroUsd ?? null,
@@ -138,6 +142,7 @@ export function reportSnapshotFromScanner(
         label: tool.name,
         category: "agent" as const,
         sessions: tool.sessionCount,
+        callCount: tool.callCount,
       })),
       tokenUsage: snapshot.usage.tokenUsage
         ? {
@@ -146,6 +151,8 @@ export function reportSnapshotFromScanner(
             totalTokens: snapshot.usage.tokenUsage.totalTokens,
             cacheReadInputTokens: snapshot.usage.tokenUsage.cacheReadInputTokens ?? 0,
             cacheCreationInputTokens: snapshot.usage.tokenUsage.cacheCreationInputTokens ?? 0,
+            cachedInputTokens: snapshot.usage.tokenUsage.cachedInputTokens,
+            reasoningOutputTokens: snapshot.usage.tokenUsage.reasoningOutputTokens,
           }
         : null,
       // Absent on a snapshot from a scanner older than 1.6.0 - "no cost data," same as an unpriced model.
@@ -155,6 +162,7 @@ export function reportSnapshotFromScanner(
     },
     git: {
       commits: snapshot.git.commits,
+      mergeCommits: snapshot.git.mergeCommits,
       additions: snapshot.git.insertions,
       deletions: snapshot.git.deletions,
       filesTouched: snapshot.git.fileTouches,
@@ -162,6 +170,7 @@ export function reportSnapshotFromScanner(
       contributors: snapshot.git.contributors,
       firstCommitSha: snapshot.repository.headCommit?.slice(0, 12) ?? "not-collected",
       lastCommitSha: snapshot.repository.headCommit?.slice(0, 12) ?? "not-collected",
+      workingTree: { ...snapshot.git.workingTree },
     },
     milestones: snapshot.milestones.map((milestone, index) => ({
       id: milestone.milestoneId,
@@ -203,6 +212,19 @@ export function reportSnapshotFromScanner(
       usage: snapshot.usage,
       git: snapshot.git,
       timeWindow: snapshot.timeWindow,
+    }),
+    // Computed here - before and independent of any narrative decision - so
+    // signals are a property of the report, not of the narrative. That is
+    // what makes "off" and "local" narrative mode first-class report
+    // recipients rather than degraded ones: they need no model, no key, and
+    // no network for the facts half of the report.
+    signals: computeSignals({
+      sessions: snapshot.sessions,
+      usage: snapshot.usage,
+      git: snapshot.git,
+      timeWindow: snapshot.timeWindow,
+      narrativeEvidence: snapshot.narrativeEvidence,
+      sources: buildStoryPackSources(snapshot),
     }),
     ...(snapshot.generatedNarrative ? {
       narrative: {

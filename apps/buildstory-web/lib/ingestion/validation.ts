@@ -345,7 +345,23 @@ function contentTextEntries(snapshot: ScannerProjectSnapshot) {
       });
       entries.push(["$.generatedNarrative.storyPack.growthEdge.title", pack.growthEdge.title]);
       entries.push(["$.generatedNarrative.storyPack.growthEdge.observation", pack.growthEdge.observation]);
-      entries.push(["$.generatedNarrative.storyPack.growthEdge.nextStep", pack.growthEdge.nextStep]);
+      if (pack.growthEdge.nextStep) entries.push(["$.generatedNarrative.storyPack.growthEdge.nextStep", pack.growthEdge.nextStep]);
+      // deepAnalysis finding text was never scanned here before this report
+      // redesign - a local-mode upload with model-written deep-analysis
+      // prose could carry a leaked path/URL/host past this check. Fixed
+      // while renaming these fields rather than left in place.
+      if (pack.version === "3.0.0" && pack.deepAnalysis) {
+        const deep = pack.deepAnalysis;
+        const findingEntries = (path: string, items: Array<{ title: string; summary: string }>) => items.forEach((item, index) => {
+          entries.push([`${path}[${index}].title`, item.title]);
+          entries.push([`${path}[${index}].summary`, item.summary]);
+        });
+        if (deep.openingLine) { entries.push(["$.generatedNarrative.storyPack.deepAnalysis.openingLine.title", deep.openingLine.title]); entries.push(["$.generatedNarrative.storyPack.deepAnalysis.openingLine.summary", deep.openingLine.summary]); }
+        if (deep.signatureMoves) findingEntries("$.generatedNarrative.storyPack.deepAnalysis.signatureMoves", deep.signatureMoves);
+        if (deep.byTheNumbers) findingEntries("$.generatedNarrative.storyPack.deepAnalysis.byTheNumbers", deep.byTheNumbers);
+        if (deep.whereItGotHard) findingEntries("$.generatedNarrative.storyPack.deepAnalysis.whereItGotHard", deep.whereItGotHard);
+        if (deep.chapterChanges) findingEntries("$.generatedNarrative.storyPack.deepAnalysis.chapterChanges", deep.chapterChanges);
+      }
     }
   }
   return entries;
@@ -470,16 +486,14 @@ function storyPackViolations(snapshot: ScannerProjectSnapshot): string[] {
   pack.standoutTraits.forEach((item, index) => checkRefs(`$.generatedNarrative.storyPack.standoutTraits[${index}].sourceRefs`, item.sourceRefs));
   checkRefs("$.generatedNarrative.storyPack.growthEdge.sourceRefs", pack.growthEdge.sourceRefs);
   if (pack.version === "3.0.0" && pack.deepAnalysis) {
-    checkRefs("$.generatedNarrative.storyPack.deepAnalysis.executiveSynthesis.sourceRefs", pack.deepAnalysis.executiveSynthesis.sourceRefs);
+    if (pack.deepAnalysis.openingLine) checkRefs("$.generatedNarrative.storyPack.deepAnalysis.openingLine.sourceRefs", pack.deepAnalysis.openingLine.sourceRefs);
     const collections = [
-      ["decisionReview", pack.deepAnalysis.decisionReview],
-      ["frictionAndRecovery", pack.deepAnalysis.frictionAndRecovery],
-      ["engineeringPatterns", pack.deepAnalysis.engineeringPatterns],
-      ["risksAndEvidenceGaps", pack.deepAnalysis.risksAndEvidenceGaps],
-      ["nextBuildActions", pack.deepAnalysis.nextBuildActions],
+      ["signatureMoves", pack.deepAnalysis.signatureMoves],
+      ["byTheNumbers", pack.deepAnalysis.byTheNumbers],
+      ["whereItGotHard", pack.deepAnalysis.whereItGotHard],
       ["chapterChanges", pack.deepAnalysis.chapterChanges],
     ] as const;
-    collections.forEach(([name, items]) => items.forEach((item, index) => checkRefs(`$.generatedNarrative.storyPack.deepAnalysis.${name}[${index}].sourceRefs`, item.sourceRefs)));
+    collections.forEach(([name, items]) => (items ?? []).forEach((item, index) => checkRefs(`$.generatedNarrative.storyPack.deepAnalysis.${name}[${index}].sourceRefs`, item.sourceRefs)));
   }
   return errors.slice(0, 20);
 }

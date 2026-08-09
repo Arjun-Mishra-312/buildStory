@@ -65,6 +65,9 @@ export type AggregateTokenUsage = {
   totalTokens: number;
   cacheReadInputTokens: number;
   cacheCreationInputTokens: number;
+  /** Total cached input reused, provider-agnostic - distinct from the Anthropic-specific cacheReadInputTokens split above. */
+  cachedInputTokens: number;
+  reasoningOutputTokens: number;
 };
 
 /**
@@ -113,6 +116,7 @@ export type ToolModelUsage = {
     label: string;
     category: "agent" | "editor" | "terminal" | "automation";
     sessions: number;
+    callCount: number;
   }>;
   /** null when no session in the window reported token usage. */
   tokenUsage: AggregateTokenUsage | null;
@@ -124,6 +128,7 @@ export type ToolModelUsage = {
 
 export type GitAggregates = {
   commits: number;
+  mergeCommits: number;
   additions: number;
   deletions: number;
   filesTouched: number;
@@ -131,6 +136,13 @@ export type GitAggregates = {
   contributors: number;
   firstCommitSha: string;
   lastCommitSha: string;
+  workingTree: {
+    isDirty: boolean;
+    stagedEntries: number;
+    modifiedEntries: number;
+    untrackedEntries: number;
+    conflictedEntries: number;
+  };
 };
 
 export type ProjectMilestone = {
@@ -192,6 +204,12 @@ export type ProjectSnapshot = {
   sourceSelection?: SourceSelection;
   builderProfile?: BuilderProfile;
   narrative?: ReportNarrative;
+  /**
+   * Deterministic, ranked facts computed straight from the scanner snapshot -
+   * no model call, present on every report regardless of narrative mode
+   * (including "off"). See lib/ingestion/signals.ts.
+   */
+  signals: Signal[];
 };
 
 /** Swap this source for an upload/API implementation when ingestion lands. */
@@ -212,3 +230,4 @@ export function isProjectSnapshot(value: unknown): value is ProjectSnapshot {
   );
 }
 import type { BuilderProfile } from "./ingestion/profile";
+import type { Signal } from "./ingestion/signals";

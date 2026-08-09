@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { EditorialIllustration } from "@/components/editorial-illustration";
-import { StoryVisual, type StoryVisualStory } from "@/components/story-visual";
+import { type StoryVisualStory } from "@/components/story-visual";
+import { ProjectStackCard } from "@/components/studio/project-stack-card";
 import { requireCreator } from "@/lib/auth/runtime";
 import { buildStoryFromSnapshot } from "@/lib/build-story";
 import { getReport, listReportMedia, listUploadSessions, statusLabel } from "@/lib/ingestion/store";
 
 export const metadata: Metadata = { title: "Creator dashboard" };
 
-type StudioStoryCard = StoryVisualStory & { tagline: string };
+type StudioStoryCard = StoryVisualStory & { tagline: string; projectId: string; createdAt: string };
 
 async function storyCardForSession(creatorId: string, session: Awaited<ReturnType<typeof listUploadSessions>>[number]): Promise<StudioStoryCard | null> {
   if (!session.reportId) return null;
@@ -21,12 +22,32 @@ async function storyCardForSession(creatorId: string, session: Awaited<ReturnTyp
       storyBackgroundId: report.storyBackgroundId,
       artifactMedia: await listReportMedia(report.id),
       tagline: report.editorial.tagline,
+      projectId: report.projectId,
+      createdAt: report.createdAt,
     };
   } catch {
     // The dashboard can still show the session if a just-created report is not
     // available during a brief storage or processing transition.
     return null;
   }
+}
+
+type ReadyCard = { session: Awaited<ReturnType<typeof listUploadSessions>>[number]; story: StudioStoryCard | null };
+type ProjectStack = { key: string; cards: ReadyCard[] };
+
+/** Groups ready-report cards by project so repeat scans of the same repo collapse into one stack. */
+function groupReadyCardsByProject(cards: ReadyCard[]): ProjectStack[] {
+  const order: string[] = [];
+  const byKey = new Map<string, ReadyCard[]>();
+  for (const card of cards) {
+    const key = card.story?.projectId ?? `session:${card.session.id}`;
+    if (!byKey.has(key)) {
+      byKey.set(key, []);
+      order.push(key);
+    }
+    byKey.get(key)!.push(card);
+  }
+  return order.map((key) => ({ key, cards: byKey.get(key)! }));
 }
 
 export default async function StudioPage() {
@@ -40,6 +61,7 @@ export default async function StudioPage() {
     session,
     story: await storyCardForSession(creator.creatorId, session),
   })));
+  const projectStacks = groupReadyCardsByProject(readyCards);
 
   return (
     <section className="creator-page dashboard-page">
@@ -64,34 +86,16 @@ export default async function StudioPage() {
       <div className="dashboard-grid">
         <section className="dashboard-projects" data-guide="studio-reports">
           <header><span>YOUR PROJECTS</span><Link href="/studio/connect">Create story +</Link></header>
-          {readyCards.length ? readyCards.map(({ session, story }) => (
-            <Link
-              className="dashboard-project-card"
-              href={`/studio/reports/${session.reportId}`}
-              key={session.id}
-            >
-              <div className="dashboard-project-card__cover" aria-hidden="true">
-                <StoryVisual
-                  variant="compact"
-                  story={story ?? {
-                    name: session.projectLabel,
-                    stack: [],
-                    storyBackgroundId: "repository-topography",
-                    artifactMedia: [],
-                  }}
-                />
-              </div>
-              <div className="dashboard-project-card__body">
-                <div><span className="status-dot status-dot--shipped" /> REPORT READY</div>
-                <h2>{story?.name ?? session.projectLabel}</h2>
-                {story?.tagline ? <p>{story.tagline}</p> : null}
-                <dl>
-                  <div><dt>Report</dt><dd>Ready</dd></div>
-                  <div><dt>Snapshot</dt><dd>Validated</dd></div>
-                </dl>
-              </div>
-              <span className="dashboard-project-card__arrow" aria-hidden="true">↗</span>
-            </Link>
+          {projectStacks.length ? projectStacks.map((stack) => (
+            <ProjectStackCard
+              key={stack.key}
+              runs={stack.cards.map(({ session, story }) => ({
+                sessionId: session.id,
+                reportId: session.reportId!,
+                projectLabel: session.projectLabel,
+                story,
+              }))}
+            />
           )) : (
             <div className="dashboard-empty">
               <div className="dashboard-empty__art"><EditorialIllustration kind="studio-first-story" /></div>

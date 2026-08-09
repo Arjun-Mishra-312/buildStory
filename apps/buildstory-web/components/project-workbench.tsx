@@ -86,13 +86,13 @@ const fieldOptions: Array<{ id: PublicFieldKey; label: string; detail: string }>
   { id: "storyDecisions", label: "Story decisions", detail: "Decision, rationale, and outcome cards" },
   { id: "storyLearnings", label: "Story learnings", detail: "Titled evidence-linked insights" },
   { id: "storyTraits", label: "Story traits", detail: "Titled standout traits" },
-  { id: "storyGrowthEdge", label: "Story growth edge", detail: "Private-by-default next step" },
-  { id: "deepExecutiveSynthesis", label: "Deep executive synthesis", detail: "AI-written synthesis plus analysis coverage counts and date window; off by default" },
-  { id: "deepDecisionReview", label: "Deep decision review", detail: "AI-written findings plus analysis coverage counts and date window; off by default" },
-  { id: "deepFrictionAndRecovery", label: "Deep friction & recovery", detail: "AI-written findings plus analysis coverage counts and date window; off by default" },
-  { id: "deepEngineeringPatterns", label: "Deep engineering patterns", detail: "AI-written findings plus analysis coverage counts and date window; off by default" },
-  { id: "deepRisksAndEvidenceGaps", label: "Deep risks & evidence gaps", detail: "AI-written findings plus analysis coverage counts and date window; off by default" },
-  { id: "deepNextBuildActions", label: "Deep next-build actions", detail: "AI-written recommendations plus analysis coverage counts and date window; off by default" },
+  { id: "storyGrowthEdge", label: "Story growth edge", detail: "Private-by-default observation" },
+  { id: "storySignals", label: "By the numbers", detail: "Computed facts, never model-written" },
+  { id: "signalHeadline", label: "Headline fact on share card", detail: "The single most notable computed fact, shown on the OG image and downloadable card" },
+  { id: "deepOpeningLine", label: "Deep opening line", detail: "AI-written hook plus analysis coverage counts and date window; off by default" },
+  { id: "deepSignatureMoves", label: "Deep signature moves", detail: "AI-written findings plus analysis coverage counts and date window; off by default" },
+  { id: "deepByTheNumbers", label: "Deep by the numbers", detail: "AI framing over computed facts, plus analysis coverage counts and date window; off by default" },
+  { id: "deepWhereItGotHard", label: "Deep where it got hard", detail: "AI-written findings plus analysis coverage counts and date window; off by default" },
   { id: "deepChapterChanges", label: "Deep chapter changes", detail: "AI-written comparisons plus analysis coverage counts and date window; off by default" },
   { id: "standoutTraits", label: "Standout traits", detail: "Model-written observations" },
   { id: "decisionPatterns", label: "Decision patterns", detail: "Personal prose; off by default" },
@@ -177,12 +177,20 @@ function StoryPackView({
   const sourceCoverage = [...new Map(pack.sources.map((source) => [source.provider, (pack.sources.filter((item) => item.provider === source.provider).length)])).entries()];
   const deep = pack.version === "3.0.0" ? pack.deepAnalysis : undefined;
   const deepGroups = deep ? [
-    ["DECISION REVIEW", deep.decisionReview],
-    ["FRICTION & RECOVERY", deep.frictionAndRecovery],
-    ["ENGINEERING PATTERNS", deep.engineeringPatterns],
-    ["RISKS & EVIDENCE GAPS", deep.risksAndEvidenceGaps],
-    ["CHAPTER CHANGES", deep.chapterChanges],
+    ["SIGNATURE MOVES", deep.signatureMoves ?? []],
+    ["WHERE IT GOT HARD", deep.whereItGotHard ?? []],
+    ["WHAT CHANGED", deep.chapterChanges ?? []],
   ] as const : [];
+  // BY THE NUMBERS: every deep.byTheNumbers finding frames one specific
+  // computed signal - the stat line is always the signal's own deterministic
+  // headline, never the model's words, so a hallucinated number has nowhere
+  // to render even if one somehow got past validation. Signals the model
+  // didn't (or couldn't - Standard/local/off never generate this field)
+  // frame still show, plainly, with no model text at all: the fact set is
+  // identical on every tier, only the curated framing on top of it isn't.
+  const signalById = new Map(pack.signals.map((signal) => [signal.id, signal]));
+  const framedSignalIds = new Set((deep?.byTheNumbers ?? []).map((item) => item.signalId));
+  const unframedSignals = pack.signals.filter((signal) => !framedSignalIds.has(signal.id));
   const selected = openRef ? sourceByRef.get(openRef) : null;
   const excerpts = selected?.excerptRef
     ? reviewedEvidence.filter((excerpt) => excerpt.sessionRef === selected.sessionRef || excerpt.excerptId === selected.excerptRef)
@@ -263,9 +271,41 @@ function StoryPackView({
             <section className="story-pack__insight-card"><span>STANDOUT TRAITS</span>{pack.standoutTraits.map((item, index) => <div className="story-pack__bullet" key={`${item.title}-${index}`}><strong>{item.title}</strong><p>{item.detail}</p></div>)}</section>
           ) : null}
           {pack.growthEdge.title ? (
-            <section className="story-pack__insight-card story-pack__insight-card--growth"><span>GROWTH EDGE</span><h3>{pack.growthEdge.title}</h3><p>{pack.growthEdge.observation}</p><small>{pack.growthEdge.nextStep}</small></section>
+            <section className="story-pack__insight-card story-pack__insight-card--growth"><span>GROWTH EDGE</span><h3>{pack.growthEdge.title}</h3><p>{pack.growthEdge.observation}</p></section>
           ) : null}
         </div>
+      ) : null}
+
+      {pack.signals.length ? (
+        <section className="story-pack__moments" aria-label="By the numbers">
+          <header><span>BY THE NUMBERS</span><strong>Computed straight from the build, never model-written</strong></header>
+          <div className="story-pack__moment-grid">
+            {(deep?.byTheNumbers ?? []).map((finding, index) => {
+              const signal = signalById.get(finding.signalId);
+              if (!signal) return null;
+              return (
+                <article className="story-pack__moment-card" key={`signal-${finding.signalId}-${index}`}>
+                  <div className="story-pack__moment-index">{String(index + 1).padStart(2, "0")}</div>
+                  <div>
+                    <h3>{signal.headline}</h3>
+                    <div className="story-pack__moment-copy"><p>{finding.title}</p><p>{finding.summary}</p></div>
+                    <div className="story-pack__sources">{finding.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div>
+                  </div>
+                </article>
+              );
+            })}
+            {unframedSignals.map((signal, index) => (
+              <article className="story-pack__moment-card" key={`plain-signal-${signal.id}`}>
+                <div className="story-pack__moment-index">{String((deep?.byTheNumbers.length ?? 0) + index + 1).padStart(2, "0")}</div>
+                <div>
+                  <h3>{signal.headline}</h3>
+                  <div className="story-pack__moment-copy"><p>{signal.detail}</p></div>
+                  <div className="story-pack__sources">{signal.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
       ) : null}
 
       {deep ? (
@@ -274,14 +314,14 @@ function StoryPackView({
             <span>DEEP ANALYSIS</span>
             <strong>{deep.coverage.sessionsSeen} sessions · {deep.coverage.excerptsUsed} reviewed excerpts · {deep.coverage.evidenceBytes.toLocaleString()} bytes · {sourceDateFormat.format(new Date(deep.coverage.windowStart))}–{sourceDateFormat.format(new Date(deep.coverage.windowEnd))}</strong>
           </header>
-          {deep.executiveSynthesis.title ? (
+          {deep.openingLine?.title ? (
             <article className="story-pack__moment-card">
               <div className="story-pack__moment-index">01</div>
               <div>
-                <small>EXECUTIVE SYNTHESIS · {deep.executiveSynthesis.confidence.toUpperCase()} CONFIDENCE</small>
-                <h3>{deep.executiveSynthesis.title}</h3>
-                <p>{deep.executiveSynthesis.summary}</p>
-                <div className="story-pack__sources">{deep.executiveSynthesis.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div>
+                <small>{deep.openingLine.confidence.toUpperCase()} CONFIDENCE</small>
+                <h3>{deep.openingLine.title}</h3>
+                <p>{deep.openingLine.summary}</p>
+                <div className="story-pack__sources">{deep.openingLine.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div>
               </div>
             </article>
           ) : null}
@@ -299,19 +339,6 @@ function StoryPackView({
                 ))}
               </section>
             ) : null)}
-            {deep.nextBuildActions.length ? (
-              <section className="story-pack__insight-card story-pack__insight-card--growth">
-                <span>NEXT BUILD ACTIONS</span>
-                {deep.nextBuildActions.map((finding, index) => (
-                  <div className="story-pack__bullet" key={`${finding.title}-${index}`}>
-                    <strong>{finding.title}</strong>
-                    <p>{finding.summary}</p>
-                    <small>{finding.priority.toUpperCase()} · {finding.confidence.toUpperCase()} CONFIDENCE · {finding.rationale}</small>
-                    <div className="story-pack__sources">{finding.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div>
-                  </div>
-                ))}
-              </section>
-            ) : null}
           </div>
         </section>
       ) : null}
@@ -345,12 +372,10 @@ export function ProjectWorkbench({
     "decisionPatterns",
     "growthEdge",
     "storyGrowthEdge",
-    "deepExecutiveSynthesis",
-    "deepDecisionReview",
-    "deepFrictionAndRecovery",
-    "deepEngineeringPatterns",
-    "deepRisksAndEvidenceGaps",
-    "deepNextBuildActions",
+    "deepOpeningLine",
+    "deepSignatureMoves",
+    "deepByTheNumbers",
+    "deepWhereItGotHard",
     "deepChapterChanges",
     "artifactLinks",
     "artifactMedia",
@@ -636,18 +661,22 @@ export function ProjectWorkbench({
       case "storyLearnings": return pack?.learnings.map((item) => item.title).join("; ") || "Not available";
       case "storyTraits": return pack?.standoutTraits.map((item) => item.title).join("; ") || "Not available";
       case "storyGrowthEdge": return pack?.growthEdge.title ?? "Not available";
+      case "storySignals": return pack?.signals.map((signal) => signal.headline).join("; ") || "Not available";
       case "decisionPatterns": return privateStory.narrative?.decisionPatterns.join("; ") || "Not available";
       case "standoutTraits": return privateStory.narrative?.standoutTraits.join("; ") || "Not available";
       case "growthEdge": return privateStory.narrative?.growthEdge ?? "Not available";
-      case "deepExecutiveSynthesis": return deep ? `${deep.executiveSynthesis.title}${coverage}` : "Not available";
-      case "deepDecisionReview": return deep ? `${deep.decisionReview.map((item) => item.title).join("; ") || "No supported findings"}${coverage}` : "Not available";
-      case "deepFrictionAndRecovery": return deep ? `${deep.frictionAndRecovery.map((item) => item.title).join("; ") || "No supported findings"}${coverage}` : "Not available";
-      case "deepEngineeringPatterns": return deep ? `${deep.engineeringPatterns.map((item) => item.title).join("; ") || "No supported findings"}${coverage}` : "Not available";
-      case "deepRisksAndEvidenceGaps": return deep ? `${deep.risksAndEvidenceGaps.map((item) => item.title).join("; ") || "No supported findings"}${coverage}` : "Not available";
-      case "deepNextBuildActions": return deep ? `${deep.nextBuildActions.map((item) => item.title).join("; ") || "No supported actions"}${coverage}` : "Not available";
-      case "deepChapterChanges": return deep ? `${deep.chapterChanges.map((item) => item.title).join("; ") || "No supported changes"}${coverage}` : "Not available";
+      case "signalHeadline": return pack?.signals[0]?.headline ?? "Not available";
+      case "deepOpeningLine": return deep?.openingLine ? `${deep.openingLine.title}${coverage}` : "Not available";
+      case "deepSignatureMoves": return deep ? `${(deep.signatureMoves ?? []).map((item) => item.title).join("; ") || "No supported findings"}${coverage}` : "Not available";
+      case "deepByTheNumbers": return deep ? `${(deep.byTheNumbers ?? []).map((item) => item.title).join("; ") || "No supported findings"}${coverage}` : "Not available";
+      case "deepWhereItGotHard": return deep ? `${(deep.whereItGotHard ?? []).map((item) => item.title).join("; ") || "No supported findings"}${coverage}` : "Not available";
+      case "deepChapterChanges": return deep ? `${(deep.chapterChanges ?? []).map((item) => item.title).join("; ") || "No supported changes"}${coverage}` : "Not available";
       case "artifactLinks": return [artifactLinks.projectUrl, artifactLinks.repoUrl, artifactLinks.videoUrl].filter(Boolean).join("; ") || "No links";
       case "artifactMedia": return media.map((item) => `${item.kind} ${item.id}`).join("; ") || "No images";
+      // Deprecated fields (renamed or cut in the report-redesign sprint) -
+      // a stored selectedPublicFields array may still name one of these;
+      // there is nothing new to preview for it.
+      default: return "Not available (legacy field, no longer generated)";
     }
   }
 
@@ -1212,7 +1241,23 @@ export function ProjectWorkbench({
                   </aside>
                 ) : null}
 
-                {publicStoryPackPreview ? <StoryPackView pack={publicStoryPackPreview} privateView={false} reviewedEvidence={reviewedEvidence} fallbacksUsed={"fallbacksUsed" in displayStory ? displayStory.fallbacksUsed : []} /> : <section className="story-section story-pack-empty" aria-live="polite">
+                {publicStoryPackPreview ? <StoryPackView pack={publicStoryPackPreview} privateView={false} reviewedEvidence={reviewedEvidence} fallbacksUsed={"fallbacksUsed" in displayStory ? displayStory.fallbacksUsed : []} /> : displayStory.signals.length ? (
+                  <section className="story-section" aria-live="polite">
+                    <span className="story-section__number">02</span>
+                    <div>
+                      <span className="story-section__label">BY THE NUMBERS</span>
+                      <h2>Computed straight from the build, never model-written.</h2>
+                      <div className="story-pack__moment-grid">
+                        {displayStory.signals.map((signal, index) => (
+                          <article className="story-pack__moment-card" key={signal.id}>
+                            <div className="story-pack__moment-index">{String(index + 1).padStart(2, "0")}</div>
+                            <div><h3>{signal.headline}</h3><div className="story-pack__moment-copy"><p>{signal.detail}</p></div></div>
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+                  </section>
+                ) : <section className="story-section story-pack-empty" aria-live="polite">
                   <span className="story-section__number">02</span>
                   <div>
                     <span className="story-section__label">THE BUILD</span>
@@ -1525,8 +1570,20 @@ export function ProjectWorkbench({
 
           {resolvedNarrativeStatus === "narrative_not_requested" ? (
               <section className="report-card report-card--narrative report-card--narrative-empty">
-                <header><span>07 / AI-WRITTEN NARRATIVE</span><strong>Not requested</strong></header>
-                <p>This scan didn&apos;t opt into narrative evidence, so no AI-written narrative was generated. Metrics above are unaffected.</p>
+                <header><span>07 / BY THE NUMBERS</span><strong>{privateStory.signals.length ? "Computed facts, no narrative" : "Not requested"}</strong></header>
+                {privateStory.signals.length ? (
+                  <>
+                    <p>This scan didn&apos;t opt into narrative evidence, so there is no AI-written narrative - but every fact below is computed straight from the build, needs no model, and is ready to share.</p>
+                    <div className="story-pack__moment-grid">
+                      {privateStory.signals.map((signal, index) => (
+                        <article className="story-pack__moment-card" key={signal.id}>
+                          <div className="story-pack__moment-index">{String(index + 1).padStart(2, "0")}</div>
+                          <div><h3>{signal.headline}</h3><div className="story-pack__moment-copy"><p>{signal.detail}</p></div></div>
+                        </article>
+                      ))}
+                    </div>
+                  </>
+                ) : <p>This scan didn&apos;t opt into narrative evidence, so no AI-written narrative was generated. Metrics above are unaffected.</p>}
               </section>
             ) : resolvedNarrativeStatus === "narrative_no_evidence" ? (
               <section className="report-card report-card--narrative report-card--narrative-empty">

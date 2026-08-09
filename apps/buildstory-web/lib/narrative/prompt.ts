@@ -1,10 +1,19 @@
-import type { ScannerProjectSnapshot } from "../ingestion/scanner-project-snapshot";
+import type { ScannerProjectSnapshot, Signal } from "../ingestion/scanner-project-snapshot";
 import { computeBuilderProfile } from "../ingestion/profile";
 import { STORY_PACK_DEEP_ANALYSIS_SCHEMA, STORY_PACK_DEEP_NARRATIVE_SCHEMA, STORY_PACK_INSIGHTS_SCHEMA, STORY_PACK_OUTPUT_SCHEMA, STORY_PACK_STORY_SCHEMA, buildStoryPackSources } from "./story-pack";
 
+// Buildstory's report is not a project summary and not an audit: it is the
+// receipt a builder would actually want to share - closer to a Wrapped-style
+// "here's a cool, true, surprising thing about how you built this" than to a
+// status update or a consulting readout. See the report-redesign sprint that
+// cut Deep's decisionReview/risksAndEvidenceGaps/nextBuildActions for the
+// same reason: nobody comes to Buildstory for advice.
 const SYSTEM_PROMPT = `You write short, honest, evidence-linked "build story" narratives for Buildstory, a site where
 developers publish real, verified accounts of software they built with AI coding
-agents. You are given: (1) real, deterministic facts about one project's build
+agents. This is not a project summary and not a performance review - it's the
+kind of thing a builder would actually want to post: a surprising, true,
+specific detail about how this particular build went, not a recap of what got
+built. You are given: (1) real, deterministic facts about one project's build
 (session count, commit count, active days, models used, token usage), and (2) a
 small set of redacted excerpts from the actual conversation between the builder
 and their AI agent.
@@ -13,6 +22,11 @@ Rules:
 - Use only the facts and excerpts given to you. Never invent a feature, a
   number, a name, a company, a timeline detail, or a technical claim that
   is not directly supported by what you were given.
+- Never state a number, count, or percentage that was not given to you
+  verbatim in FACTS, COMPUTED SIGNALS, or NOTABLE PATTERNS. If you want to
+  cite a computed statistic, use the exact wording it was given to you in.
+- Never give advice, a recommendation, a next step, or a "you should."
+  Report what happened and what is true about it - not what to do next.
 - The excerpts have already been redacted (file paths, URLs, and hostnames
   replaced with bracketed placeholders like [absolute-path]). Do not try to
   guess or reconstruct what was redacted.
@@ -80,6 +94,32 @@ function excerptsBlock(snapshot: ScannerProjectSnapshot): string {
   return lines.length ? lines.join("\n\n") : "No conversation excerpts resolved to a known source.";
 }
 
+/**
+ * Full COMPUTED SIGNALS block with ids - used only by the Deep analysis
+ * pass, whose byTheNumbers findings must cite an exact signalId (enforced by
+ * validateStoryPackComponent, the same way sourceRefs provenance is
+ * enforced). Every number in this block was computed in code, not written by
+ * a model - see lib/ingestion/signals.ts.
+ */
+function signalsBlock(signals: Signal[]): string {
+  if (signals.length === 0) return "COMPUTED SIGNALS:\nNone computed for this build window.";
+  return ["COMPUTED SIGNALS:", ...signals.map((signal) => `- ${signal.id}: ${signal.headline} (${signal.detail})`)].join("\n");
+}
+
+/**
+ * Short, id-free version folded into the Standard/combined prompt as extra
+ * grounding color: the model may draw on these headlines the same way it
+ * draws on any other FACTS line (they were given to it verbatim, so citing
+ * one is never "inventing a number"), but Standard's schema has no signalId
+ * field to validate a citation against, so it never asks the model to
+ * attribute a finding to one by id the way Deep's byTheNumbers does.
+ */
+function notablePatternsBlock(signals: Signal[]): string {
+  if (signals.length === 0) return "";
+  const top = signals.slice(0, 5).map((signal) => `- ${signal.headline}`);
+  return `\n\nNOTABLE PATTERNS (already verified true; draw on these for color if natural, but invent no additional statistics):\n${top.join("\n")}`;
+}
+
 function sourceCatalogBlock(snapshot: ScannerProjectSnapshot): string {
   return buildStoryPackSources(snapshot)
     .map((source) => source.ref === "GIT"
@@ -136,6 +176,7 @@ function outputContractBlock(schema: SchemaLike, extraRules: string[]): string {
 
 const BUILD_ARC_CARDINALITY_RULE = "buildArc must contain exactly one discover, one decide, and one deliver phase entry.";
 const SOURCE_REF_PROVENANCE_RULE = "Every sourceRefs entry must be copied exactly, character for character, from a ref in SOURCE CATALOG. Never invent one.";
+const SIGNAL_ID_PROVENANCE_RULE = "Every byTheNumbers.signalId must be copied exactly, character for character, from an id in COMPUTED SIGNALS. Never invent a signalId or a statistic that isn't backed by one.";
 
 export function buildNarrativeMessages(snapshot: ScannerProjectSnapshot): Array<{ role: "system" | "user"; content: string }> {
   return [
@@ -157,24 +198,27 @@ export function buildProfileMessages(snapshot: ScannerProjectSnapshot): Array<{ 
   ];
 }
 
-export function buildCombinedMessages(snapshot: ScannerProjectSnapshot): Array<{ role: "system" | "user"; content: string }> {
+export function buildCombinedMessages(snapshot: ScannerProjectSnapshot, signals: Signal[] = []): Array<{ role: "system" | "user"; content: string }> {
   const contract = outputContractBlock(STORY_PACK_OUTPUT_SCHEMA as unknown as SchemaLike, [BUILD_ARC_CARDINALITY_RULE, SOURCE_REF_PROVENANCE_RULE]);
   return [
     { role: "system", content: SYSTEM_PROMPT },
     {
       role: "user",
-      content: `FACTS:\n${factsBlock(snapshot)}\n\nSOURCE CATALOG:\n${sourceCatalogBlock(snapshot)}\n\n${contract}\n\nEXCERPTS:\n${excerptsBlock(snapshot)}\n\nWrite hero, buildArc, moments, turningPoint, decisions, learnings, standoutTraits, and growthEdge as one JSON object matching the schema.`,
+      content: `FACTS:\n${factsBlock(snapshot)}${notablePatternsBlock(signals)}\n\nSOURCE CATALOG:\n${sourceCatalogBlock(snapshot)}\n\n${contract}\n\nEXCERPTS:\n${excerptsBlock(snapshot)}\n\nWrite hero, buildArc, moments, turningPoint, decisions, learnings, standoutTraits, and growthEdge as one JSON object matching the schema.`,
     },
   ];
 }
 
-export function buildDeepAnalysisMessages(snapshot: ScannerProjectSnapshot, previousChapter: unknown = null): Array<{ role: "system" | "user"; content: string }> {
-  const contract = outputContractBlock(STORY_PACK_DEEP_ANALYSIS_SCHEMA as unknown as SchemaLike, [SOURCE_REF_PROVENANCE_RULE]);
+export function buildDeepAnalysisMessages(snapshot: ScannerProjectSnapshot, signals: Signal[] = [], previousChapter: unknown = null): Array<{ role: "system" | "user"; content: string }> {
+  const contract = outputContractBlock(STORY_PACK_DEEP_ANALYSIS_SCHEMA as unknown as SchemaLike, [SOURCE_REF_PROVENANCE_RULE, SIGNAL_ID_PROVENANCE_RULE]);
   return [
-    { role: "system", content: `${SYSTEM_PROMPT}\nPerform a thorough engineering analysis. Prefer an empty list or low confidence over an unsupported claim. Focus on decisions, friction and recovery, engineering patterns, delivery risks, evidence gaps, and concrete next actions.` },
+    {
+      role: "system",
+      content: `${SYSTEM_PROMPT}\nPerform a thorough read of how this build actually went. Prefer an empty list or low confidence over an unsupported claim. Focus on: the one-line hook (openingLine), this builder's distinctive patterns (signatureMoves), framing the most notable COMPUTED SIGNALS into shareable findings (byTheNumbers), where the build genuinely got hard (whereItGotHard), and what changed since the previous chapter (chapterChanges). Every byTheNumbers entry must cite a real signalId - it frames a signal that was already computed, never a number you calculate or estimate yourself.`,
+    },
     {
       role: "user",
-      content: `FACTS:\n${factsBlock(snapshot)}\n\nSOURCE CATALOG:\n${sourceCatalogBlock(snapshot)}\n\n${contract}\n\nEXCERPTS:\n${excerptsBlock(snapshot)}\n\nPREVIOUS CHAPTER (final retained report only; may be null):\n${JSON.stringify(previousChapter)}\n\nReturn the deepAnalysis JSON object only. Every finding must use only source references from SOURCE CATALOG.`,
+      content: `FACTS:\n${factsBlock(snapshot)}\n\nSOURCE CATALOG:\n${sourceCatalogBlock(snapshot)}\n\n${signalsBlock(signals)}\n\n${contract}\n\nEXCERPTS:\n${excerptsBlock(snapshot)}\n\nPREVIOUS CHAPTER (final retained report only; may be null):\n${JSON.stringify(previousChapter)}\n\nReturn the deepAnalysis JSON object only. Every finding must use only source references from SOURCE CATALOG, and every byTheNumbers entry must cite a signalId from COMPUTED SIGNALS.`,
     },
   ];
 }

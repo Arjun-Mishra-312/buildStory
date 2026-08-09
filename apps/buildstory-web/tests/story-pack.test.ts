@@ -56,15 +56,28 @@ test("deep findings accept the six source references allowed by their response s
   const allowed = new Set(["S01", "S02", "S03", "S04", "S05", "S06"]);
   const finding = { title: "Cross-session finding", summary: "Supported across the selected sessions.", sourceRefs: [...allowed], confidence: "high" };
   const result = validateDeepAnalysisComponent({
-    executiveSynthesis: finding,
-    decisionReview: [finding],
-    frictionAndRecovery: [],
-    engineeringPatterns: [],
-    risksAndEvidenceGaps: [],
-    nextBuildActions: [],
+    openingLine: finding,
+    signatureMoves: [finding],
+    byTheNumbers: [{ ...finding, signalId: "night-owl-share" }],
+    whereItGotHard: [],
     chapterChanges: [],
   }, allowed);
   assert.equal(result.ok, true, result.errors.join("; "));
+});
+
+test("a byTheNumbers finding citing an unknown signalId fails validation", () => {
+  const allowed = new Set(["S01"]);
+  const finding = { title: "Fabricated stat", summary: "A number with no computed signal behind it.", sourceRefs: ["S01"], confidence: "high" };
+  const allowedSignalIds = new Set(["night-owl-share"]);
+  const result = validateDeepAnalysisComponent({
+    openingLine: finding,
+    signatureMoves: [],
+    byTheNumbers: [{ ...finding, signalId: "a-signal-that-was-never-computed" }],
+    whereItGotHard: [],
+    chapterChanges: [],
+  }, allowed, allowedSignalIds);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((error) => error.includes("references unknown signal")));
 });
 
 test("Deep narrative validation preserves up to twelve supported moments while Standard remains compact", () => {

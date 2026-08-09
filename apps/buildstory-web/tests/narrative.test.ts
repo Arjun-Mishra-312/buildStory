@@ -96,7 +96,7 @@ function openAiEnvelope(sections: Record<string, unknown>) {
   };
 }
 
-function combinedStoryOutput(): Omit<ReportStoryPackV2, "version" | "sources"> {
+function combinedStoryOutput(): Omit<ReportStoryPackV2, "version" | "sources" | "signals"> {
   const pack = defaultStoryPack(scannerFixture as unknown as ScannerProjectSnapshot);
   return {
     hero: pack.hero,
@@ -348,14 +348,13 @@ test("deep hosted generation composes validated analysis with a separate high-qu
     title: `Supported build moment ${index + 1}`,
   }));
   const sourceRef = defaultStoryPack(snapshot).sources[0]!.ref;
+  const signalId = defaultStoryPack(snapshot).signals[0]?.id ?? "fallback-signal-id";
   const finding = { title: "Evidence synthesis", summary: "The reviewed evidence supports this finding.", sourceRefs: [sourceRef], confidence: "high" };
   const deepAnalysis = {
-    executiveSynthesis: finding,
-    decisionReview: [finding],
-    frictionAndRecovery: [],
-    engineeringPatterns: [finding],
-    risksAndEvidenceGaps: [],
-    nextBuildActions: [{ ...finding, priority: "next", rationale: "Validate it in the next chapter." }],
+    openingLine: finding,
+    signatureMoves: [finding],
+    byTheNumbers: [{ ...finding, signalId }],
+    whereItGotHard: [],
     chapterChanges: [],
   };
   const stub = stubFetchOnce([openAiEnvelope(deepAnalysis), openAiEnvelope(base)]);
@@ -367,8 +366,9 @@ test("deep hosted generation composes validated analysis with a separate high-qu
     const result = await generateNarrative(snapshot, null, { analysisTier: "deep" });
     assert.equal(result.storyPack.version, "3.0.0");
     assert.equal(result.storyPack.moments.length, 8, "Deep synthesis keeps supported moments beyond the Standard five-moment cap");
-    assert.equal(result.storyPack.version === "3.0.0" && result.storyPack.deepAnalysis?.executiveSynthesis.summary, finding.summary);
-    assert.deepEqual(result.storyPack.version === "3.0.0" && result.storyPack.deepAnalysis?.decisionReview, deepAnalysis.decisionReview);
+    assert.equal(result.storyPack.version === "3.0.0" && result.storyPack.deepAnalysis?.openingLine.summary, finding.summary);
+    assert.deepEqual(result.storyPack.version === "3.0.0" && result.storyPack.deepAnalysis?.signatureMoves, deepAnalysis.signatureMoves);
+    assert.equal(result.storyPack.version === "3.0.0" && result.storyPack.deepAnalysis?.byTheNumbers[0]?.signalId, signalId);
     assert.equal(stub.callCount(), 2);
     const requests = stub.requestBodies().map((body) => JSON.parse(body) as {
       model?: string;
@@ -396,14 +396,13 @@ test("deep hosted generation composes validated analysis with a separate high-qu
 test("failed deep validation preserves charged usage and generation IDs without retaining response content", async () => {
   const snapshot = { ...structuredClone(scannerFixture), narrativeEvidence } as unknown as ScannerProjectSnapshot;
   const sourceRef = defaultStoryPack(snapshot).sources[0]!.ref;
+  const signalId = defaultStoryPack(snapshot).signals[0]?.id ?? "fallback-signal-id";
   const finding = { title: "Evidence synthesis", summary: "The reviewed evidence supports this finding.", sourceRefs: [sourceRef], confidence: "high" };
   const deepAnalysis = {
-    executiveSynthesis: finding,
-    decisionReview: [],
-    frictionAndRecovery: [],
-    engineeringPatterns: [],
-    risksAndEvidenceGaps: [],
-    nextBuildActions: [],
+    openingLine: finding,
+    signatureMoves: [],
+    byTheNumbers: [{ ...finding, signalId }],
+    whereItGotHard: [],
     chapterChanges: [],
   };
   const envelope = (id: string, value: Record<string, unknown>) => ({
@@ -517,9 +516,18 @@ test("the OUTPUT CONTRACT block states the schema's own cardinality and length b
   assert.match(combined, /buildArc must contain exactly one discover, one decide, and one deliver phase entry\./);
   assert.match(combined, /Every sourceRefs entry must be copied exactly.*SOURCE CATALOG/);
 
-  const deepAnalysis = buildDeepAnalysisMessages(snapshot).map((message) => message.content).join("\n");
-  assert.match(deepAnalysis, /decisionReview: 0-8 items/);
-  assert.match(deepAnalysis, /executiveSynthesis\.confidence: one of high\/medium\/low/);
+  const deepAnalysis = buildDeepAnalysisMessages(snapshot, []).map((message) => message.content).join("\n");
+  assert.match(deepAnalysis, /signatureMoves: 0-6 items/);
+  assert.match(deepAnalysis, /byTheNumbers: 1-8 items/);
+  assert.match(deepAnalysis, /openingLine\.confidence: one of high\/medium\/low/);
+  // The cut, advice-shaped sections must never appear anywhere in a Deep
+  // prompt - not the contract, not the system framing. (The word
+  // "recommendation" itself is expected to appear exactly once, in
+  // SYSTEM_PROMPT's rule *forbidding* one - that's checked separately below.)
+  for (const cut of ["decisionReview", "risksAndEvidenceGaps", "nextBuildActions", "next-build action"]) {
+    assert.doesNotMatch(deepAnalysis, new RegExp(cut, "i"), `Deep analysis prompt must not mention "${cut}"`);
+  }
+  assert.match(deepAnalysis, /never give advice, a recommendation, a next step/i);
 
   const deepSynthesis = buildDeepSynthesisMessages(snapshot, {}).map((message) => message.content).join("\n");
   assert.match(deepSynthesis, /moments: 3-12 items/);
@@ -563,14 +571,13 @@ test("a repair turn echoes the model's own failed output back as an assistant me
 test("an over-length Deep synthesis string is truncated as a recoverable warning, not spent on a repair call", async () => {
   const snapshot = { ...structuredClone(scannerFixture), narrativeEvidence } as unknown as ScannerProjectSnapshot;
   const sourceRef = defaultStoryPack(snapshot).sources[0]!.ref;
+  const signalId = defaultStoryPack(snapshot).signals[0]?.id ?? "fallback-signal-id";
   const finding = { title: "Evidence synthesis", summary: "The reviewed evidence supports this finding.", sourceRefs: [sourceRef], confidence: "high" };
   const deepAnalysis = {
-    executiveSynthesis: finding,
-    decisionReview: [],
-    frictionAndRecovery: [],
-    engineeringPatterns: [],
-    risksAndEvidenceGaps: [],
-    nextBuildActions: [],
+    openingLine: finding,
+    signatureMoves: [],
+    byTheNumbers: [{ ...finding, signalId }],
+    whereItGotHard: [],
     chapterChanges: [],
   };
   const base = combinedStoryOutput();
@@ -595,14 +602,13 @@ test("an over-length Deep synthesis string is truncated as a recoverable warning
 test("a legacy flat narrative shape is validated strictly for Deep instead of silently passing", async () => {
   const snapshot = { ...structuredClone(scannerFixture), narrativeEvidence } as unknown as ScannerProjectSnapshot;
   const sourceRef = defaultStoryPack(snapshot).sources[0]!.ref;
+  const signalId = defaultStoryPack(snapshot).signals[0]?.id ?? "fallback-signal-id";
   const finding = { title: "Evidence synthesis", summary: "The reviewed evidence supports this finding.", sourceRefs: [sourceRef], confidence: "high" };
   const deepAnalysis = {
-    executiveSynthesis: finding,
-    decisionReview: [],
-    frictionAndRecovery: [],
-    engineeringPatterns: [],
-    risksAndEvidenceGaps: [],
-    nextBuildActions: [],
+    openingLine: finding,
+    signatureMoves: [],
+    byTheNumbers: [{ ...finding, signalId }],
+    whereItGotHard: [],
     chapterChanges: [],
   };
   // Pre-V2 flat shape: no hero/buildArc/moments/turningPoint object, no

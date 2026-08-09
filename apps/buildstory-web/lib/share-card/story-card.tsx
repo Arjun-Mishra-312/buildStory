@@ -131,6 +131,12 @@ export function buildStoryOgCard(data: ShareCardData) {
             {data.tagline}
           </div>
         ) : null}
+        {/* The one computed, never-model-written fact - the thing this card is actually built to be shared for. */}
+        {data.headlineFact ? (
+          <div style={{ display: "flex", fontFamily: MONO, fontSize: 24, color: P.coral, marginTop: 22, maxWidth: 980, lineHeight: 1.3 }}>
+            {data.headlineFact}
+          </div>
+        ) : null}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
@@ -202,6 +208,12 @@ export function buildStoryShareCard(
             {data.archetype ? (
               <div style={{ display: "flex", padding: "9px 18px", border: `1px solid ${palette.coral}`, color: palette.coral, fontFamily: MONO, fontSize: 18, alignSelf: "flex-start" }}>
                 {data.archetype}
+              </div>
+            ) : null}
+            {/* The one computed, never-model-written fact - the thing this card is actually built to be shared for. */}
+            {data.headlineFact ? (
+              <div style={{ display: "flex", fontFamily: MONO, fontSize: 22, color: palette.coral, lineHeight: 1.4 }}>
+                {data.headlineFact}
               </div>
             ) : null}
           </div>
