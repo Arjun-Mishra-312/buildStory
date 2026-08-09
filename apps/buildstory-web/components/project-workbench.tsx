@@ -610,11 +610,11 @@ export function ProjectWorkbench({
 
         <div className="project-console-bar__actions" data-guide="workbench-actions">
           {view === "public" && !editing ? (
-            <button className="button button--secondary button--small" type="button" onClick={startEditing}>
+            <button className="button button--secondary button--small project-console-bar__edit" type="button" onClick={startEditing}>
               Edit public page
             </button>
           ) : null}
-          {projectId && (isLive || hasLiveChapter) ? <Link className="button button--secondary button--small" href={`/studio/projects/${projectId}/update`}>Scan for updates</Link> : null}
+          {projectId ? <Link className="button button--secondary button--small project-console-bar__scan" href={`/studio/projects/${projectId}/update`}>{isLive || hasLiveChapter ? "Scan for updates" : "Scan project updates"}</Link> : null}
           {isLive ? <button className="button button--text button--small project-console-bar__more" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((value) => !value)}>More</button> : null}
           {isLive ? <div className={`project-console-bar__utilities${moreOpen ? " is-open" : ""}`}>
           {isLive ? (
@@ -1268,7 +1268,7 @@ export function ProjectWorkbench({
               </section>
             ) : (
               <section className="report-card report-card--narrative">
-                <header><span>07 / AI-WRITTEN NARRATIVE</span><strong>{narrative?.mode === "cloud" ? "Cloud model" : "Local model"}</strong></header>
+                <header><span>07 / AI-WRITTEN NARRATIVE</span><strong>{narrative?.mode === "cloud" ? "Buildstory Cloud" : "Generated on your machine"}</strong></header>
                 {resolvedNarrativeStatus === "narrative_ready" && narrative?.sections ? (
                   privateStoryPack ? <StoryPackView pack={privateStoryPack} privateView reviewedEvidence={reviewedEvidence} fallbacksUsed={narrative.fallbacksUsed} /> : <section className="story-section story-pack-empty" aria-live="polite">
                     <span className="story-section__label">STRUCTURED STORY PACK</span>

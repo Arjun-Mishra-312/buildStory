@@ -52,8 +52,8 @@ const narrativeEvidence = {
  * a specific session mode must say so explicitly rather than lean on either
  * default.
  */
-async function acceptFreshSnapshot(snapshot: unknown, narrativeMode: "local" | "byok" | "cloud" | "off" = "cloud") {
-  const created = await createUploadSession(creatorId, "Narrative pipeline test", "http://localhost/", null, null, narrativeMode);
+async function acceptFreshSnapshot(snapshot: unknown, narrativeMode: "local" | "byok" | "cloud" | "off" = "cloud", narrativeModel: string | null = null) {
+  const created = await createUploadSession(creatorId, "Narrative pipeline test", "http://localhost/", null, narrativeModel, narrativeMode);
   const { sessionId, userCode } = created.deviceAuthorization;
   const claim = await claimUploadSession(sessionId, userCode);
   const raw = JSON.stringify(snapshot);
@@ -64,7 +64,9 @@ async function acceptFreshSnapshot(snapshot: unknown, narrativeMode: "local" | "
 function stubFetchOnce(responseBody: unknown | unknown[], status = 200) {
   const original = globalThis.fetch;
   let calls = 0;
-  globalThis.fetch = (async () => {
+  const requestBodies: string[] = [];
+  globalThis.fetch = (async (_input, init) => {
+    requestBodies.push(typeof init?.body === "string" ? init.body : "");
     const response = Array.isArray(responseBody)
       ? responseBody[Math.min(calls, responseBody.length - 1)]
       : responseBody;
@@ -76,6 +78,7 @@ function stubFetchOnce(responseBody: unknown | unknown[], status = 200) {
   }) as typeof fetch;
   return {
     callCount: () => calls,
+    requestBodies: () => requestBodies,
     restore: () => {
       globalThis.fetch = original;
     },
@@ -225,6 +228,35 @@ test("an evidence-bearing scan generates a narrative and sanitizes the model's o
     assert.match(report.narrative!.sections!.turningPoint, /\[REDACTED:absolute-path\]/);
     assert.doesNotMatch(report.narrative!.sections!.turningPoint, /\/Users\/dev\/private\/repo/);
     assert.equal(stub.callCount(), 2);
+  } finally {
+    stub.restore();
+    process.env.BUILDSTORY_LLM_API_KEY = previousKey;
+  }
+});
+
+test("Buildstory Cloud always requests the one supported model, even if a session somehow carries a different one", async () => {
+  // The upload-sessions route never stores a model for a cloud-mode session
+  // (model choice only means anything for local/BYOK), but this proves the
+  // generation call itself ignores a stale/tampered value too - defense in
+  // depth against any path other than that route.
+  const stub = stubFetchOnce([
+    openAiEnvelope({ headline: "Ignored the requested model", narrative: "Still used the one supported model.", turningPoint: "n/a", learnings: ["n/a"] }),
+    openAiEnvelope({ decisionPatterns: ["n/a"], standoutTraits: ["n/a"], growthEdge: "n/a" }),
+  ]);
+  const previousKey = process.env.BUILDSTORY_LLM_API_KEY;
+  process.env.BUILDSTORY_LLM_API_KEY = "test-key";
+  try {
+    const reportId = await acceptFreshSnapshot(
+      { ...structuredClone(scannerFixture), narrativeEvidence },
+      "cloud",
+      "gpt-5.6-terra",
+    );
+    const report = await getReport(creatorId, reportId);
+    assert.equal(report.narrative!.status, "ready");
+    assert.equal(report.narrative!.model, "gpt-5.6-luna");
+    for (const body of stub.requestBodies()) {
+      assert.equal((JSON.parse(body) as { model?: string }).model, "gpt-5.6-luna");
+    }
   } finally {
     stub.restore();
     process.env.BUILDSTORY_LLM_API_KEY = previousKey;

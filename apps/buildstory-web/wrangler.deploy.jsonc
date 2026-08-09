@@ -73,12 +73,14 @@
   // here - this file is committed.
   //
   // BUILDSTORY_LLM_BASE_URL/MODEL are the non-secret half of the subsidized
-  // Cloud narrative path (see docs/production-runbook.md's "Enable Cloud AI"
-  // step). The secret half, BUILDSTORY_LLM_API_KEY, is set separately with
-  // `wrangler secret put`. Until that secret is set,
-  // narrativeProviderConfigured("cloud") is false and the Cloud option stays
-  // hidden in the dashboard - having the base URL/model here with no key set
-  // is a safe, inert state, not a partial enablement.
+  // Buildstory Cloud narrative path (see docs/production-runbook.md's
+  // "Enable Buildstory Cloud" step). The secret half, BUILDSTORY_LLM_API_KEY,
+  // is set separately with `wrangler secret put`. Until that secret is set,
+  // narrativeProviderConfigured("cloud") is false and the Buildstory Cloud
+  // option stays hidden in the dashboard - having the base URL/model here
+  // with no key set is a safe, inert state, not a partial enablement.
+  // BUILDSTORY_LLM_MODEL is deliberately the only model this path will ever
+  // call - see lib/narrative/pricing.ts.
   "vars": {
     "BUILDSTORY_STORE": "d1",
     "BUILDSTORY_DEV_AUTH_BYPASS": "false",

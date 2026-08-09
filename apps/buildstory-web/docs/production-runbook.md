@@ -91,21 +91,21 @@ The scanner accepts a hosted ingestion destination only when explicitly pinned p
 
    Replace `<operator-handle>` with the operator's own Buildstory handle. Confirm with a read-only `SELECT id, handle, role FROM buildstory_users WHERE handle = '<operator-handle>'` before and after.
 
-## Enable Cloud AI (optional, subsidized narrative path)
+## Enable Buildstory Cloud (optional, subsidized narrative path)
 
-Local and BYOK narrative modes need nothing from the operator — they call Ollama or the creator's own key, respectively, and work on day one. The subsidized **Cloud** mode is different: it calls a provider using an API key *you* pay for, on the creator's behalf, budgeted per-user by `buildstory_llm_budgets`. Until you do this, `narrativeProviderConfigured("cloud")` is false, `cloudNarrativeAvailable()` is false for every account, and the Cloud option simply doesn't appear in the dashboard — that's a safe default, not a bug to fix before launch.
+Local and BYOK narrative modes need nothing from the operator — they call Ollama or the creator's own key, respectively, and work on day one. The subsidized **Buildstory Cloud** mode is different: it calls a provider using an API key *you* pay for, on the creator's behalf, budgeted per-user by `buildstory_llm_budgets`. Until you do this, `narrativeProviderConfigured("cloud")` is false, `cloudNarrativeAvailable()` is false for every account, and the Buildstory Cloud option simply doesn't appear in the dashboard — that's a safe default, not a bug to fix before launch.
 
-`BUILDSTORY_LLM_BASE_URL` (`https://api.openai.com/v1`) and `BUILDSTORY_LLM_MODEL` (`gpt-5.6-luna`) are already committed in `wrangler.deploy.jsonc`'s `vars` — non-secret, safe to have present even with no key set. The only step left is the key itself, which must never be committed:
+`BUILDSTORY_LLM_BASE_URL` (`https://api.openai.com/v1`) and `BUILDSTORY_LLM_MODEL` (`gpt-5.6-luna`) are already committed in `wrangler.deploy.jsonc`'s `vars` — non-secret, safe to have present even with no key set. `gpt-5.6-luna` is deliberately the *only* model this path will ever call: there is no user-facing model choice on Buildstory Cloud (`lib/narrative/pricing.ts`'s `SupportedNarrativeModel` has exactly one member, and `generateNarrative` in `lib/narrative/provider.ts` ignores any requested model against a real provider), so nothing in the product ever names the model to a creator. The only step left is the key itself, which must never be committed:
 
 ```powershell
 npx wrangler secret put BUILDSTORY_LLM_API_KEY -c wrangler.deploy.jsonc
 ```
 
-This prompts on stdin (nothing lands in shell history) and applies to the running Worker immediately, no redeploy needed. As soon as it's set, Cloud appears in the dashboard for every account — there's no separate feature flag beyond the key's presence, and no `--dry-run` for a secret write, so double-check the key belongs to the account you intend to bill.
+This prompts on stdin (nothing lands in shell history) and applies to the running Worker immediately, no redeploy needed. As soon as it's set, Buildstory Cloud appears in the dashboard for every account — there's no separate feature flag beyond the key's presence, and no `--dry-run` for a secret write, so double-check the key belongs to the account you intend to bill.
 
-To point at a different OpenAI-compatible provider, or to switch which model backs the free/default tier, edit `BUILDSTORY_LLM_BASE_URL`/`BUILDSTORY_LLM_MODEL` in `wrangler.deploy.jsonc` and redeploy — see `lib/narrative/pricing.ts` for the two priced models (`gpt-5.6-luna` default, `gpt-5.6-terra` Pro-only escalation) and update its per-token rates if you change providers, since the $1.00/$5.00 monthly caps in `lib/ingestion/d1-store.ts` assume those rates.
+To point at a different OpenAI-compatible provider, or to change which model this path calls, edit `BUILDSTORY_LLM_BASE_URL`/`BUILDSTORY_LLM_MODEL` in `wrangler.deploy.jsonc`, update `lib/narrative/pricing.ts`'s per-token rate for the new model, and redeploy - the $1.00/$5.00 monthly caps in `lib/ingestion/d1-store.ts` assume the current rate.
 
-To turn Cloud back off later (e.g. cost control), delete the secret rather than editing code:
+To turn Buildstory Cloud back off later (e.g. cost control), delete the secret rather than editing code:
 
 ```powershell
 npx wrangler secret delete BUILDSTORY_LLM_API_KEY -c wrangler.deploy.jsonc

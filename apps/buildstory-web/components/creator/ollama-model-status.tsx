@@ -175,7 +175,7 @@ export function OllamaModelStatus({
       </header>
 
       <div className="ollama-model-status__choice" data-guide="create-narrative">
-        <label htmlFor="narrative-mode-choice">Narrative generation mode <GuideTooltip label="narrative generation mode">Local keeps excerpts on this machine; bring-your-own-key sends excerpts only to a cloud model you configure yourself; cloud uploads reviewed excerpts through Buildstory; off produces deterministic metrics without narrative prose.</GuideTooltip></label>
+        <label htmlFor="narrative-mode-choice">Narrative generation mode <GuideTooltip label="narrative generation mode">Local keeps excerpts on this machine; bring-your-own-key sends excerpts only to a cloud model you configure yourself; Buildstory Cloud uploads reviewed excerpts through Buildstory; off produces deterministic metrics without narrative prose.</GuideTooltip></label>
         <select
           id="narrative-mode-choice"
           value={narrativeMode}
@@ -186,14 +186,14 @@ export function OllamaModelStatus({
         >
           <option value="local">Local — excerpts never leave this machine</option>
           <option value="byok">Bring your own key — excerpts go only to your chosen provider</option>
-          {cloudAvailable ? <option value="cloud">Cloud — reviewed excerpts are uploaded through Buildstory</option> : null}
+          {cloudAvailable ? <option value="cloud">Buildstory Cloud — reviewed excerpts are uploaded through Buildstory</option> : null}
           <option value="off">Off — deterministic profile only</option>
         </select>
         <small>
           Local is the default.{" "}
           {cloudAvailable
-            ? "Bring-your-own-key and Cloud are explicit opt-ins."
-            : "Bring-your-own-key is an explicit opt-in; Cloud is not available on this deployment yet."}
+            ? "Bring-your-own-key and Buildstory Cloud are explicit opt-ins."
+            : "Bring-your-own-key is an explicit opt-in; Buildstory Cloud is not available on this deployment yet."}
         </small>
         <NarrativeModeDisclosure mode={narrativeMode} />
       </div>

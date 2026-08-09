@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { cloudNarrativeAvailable, effectivePlan } from "../lib/narrative/entitlement";
-import { isProOnlyNarrativeModel, isSupportedNarrativeModel } from "../lib/narrative/pricing";
+import { isSupportedNarrativeModel } from "../lib/narrative/pricing";
 
 test("effectivePlan returns the account's real plan when the launch promotion is off", () => {
   const previous = process.env.BUILDSTORY_LAUNCH_PRO_FOR_ALL;
@@ -27,16 +27,9 @@ test("effectivePlan grants pro to every account while BUILDSTORY_LAUNCH_PRO_FOR_
   }
 });
 
-test("isProOnlyNarrativeModel gates only the cloud escalation model, never the default or an unrecognized string", () => {
-  assert.equal(isProOnlyNarrativeModel("gpt-5.6-terra"), true);
-  assert.equal(isProOnlyNarrativeModel("gpt-5.6-luna"), false);
-  assert.equal(isProOnlyNarrativeModel("gemma4:12b"), false);
-  assert.equal(isProOnlyNarrativeModel("not-a-real-model"), false);
-});
-
-test("isSupportedNarrativeModel recognizes exactly the two cloud pricing tiers", () => {
+test("isSupportedNarrativeModel recognizes only the one Buildstory Cloud model - there is no user-facing model choice on that path", () => {
   assert.equal(isSupportedNarrativeModel("gpt-5.6-luna"), true);
-  assert.equal(isSupportedNarrativeModel("gpt-5.6-terra"), true);
+  assert.equal(isSupportedNarrativeModel("gpt-5.6-terra"), false);
   assert.equal(isSupportedNarrativeModel("gemma4:12b"), false);
 });
 

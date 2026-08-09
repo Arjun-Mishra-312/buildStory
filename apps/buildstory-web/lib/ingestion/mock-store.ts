@@ -746,7 +746,7 @@ async function runNarrativeJob(narrative: StoredNarrative, reportId: string): Pr
   narrative.attempts += 1;
   try {
     if (!canUseCloudNarrative(narrative.ownerUserId)) {
-      throw new NarrativeProviderError("llm_not_entitled", "Cloud narrative generation is not enabled for this account.");
+      throw new NarrativeProviderError("llm_not_entitled", "Buildstory Cloud narrative generation is not enabled for this account.");
     }
     if (!narrativeProviderConfigured()) {
       throw new NarrativeProviderError("llm_not_configured", "No narrative provider is configured.");

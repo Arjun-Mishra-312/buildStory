@@ -1,9 +1,7 @@
 import { ingestionErrorResponse, jsonError, requireApiCreator } from "@/lib/api/responses";
 import { cliApiBaseUrl, isHostedCliEnabled, isLocalApiEnabled, readBoundedJson } from "@/lib/ingestion/local-api";
 import { createUploadSession, ensureUser, listUploadSessions } from "@/lib/ingestion/store";
-import { effectivePlan } from "@/lib/narrative/entitlement";
 import { isOllamaAutoModel, isValidOllamaModelName } from "@/lib/narrative/ollama";
-import { isProOnlyNarrativeModel } from "@/lib/narrative/pricing";
 import { assertSameOriginBrowserMutation } from "@/lib/security/browser-request";
 import { checkRateLimit } from "@/lib/social/rate-limit-dispatch";
 
@@ -86,20 +84,18 @@ export async function POST(request: Request) {
     }
     const projectLabel =
       typeof body.projectLabel === "string" ? body.projectLabel : "New local project";
+    const narrativeMode = typeof body.narrativeMode === "string" ? body.narrativeMode as "local" | "byok" | "cloud" | "off" : "local";
+    // Model choice only means anything for local/BYOK (which model runs on
+    // the creator's own machine). Buildstory Cloud always calls the one
+    // model it supports - there is no user-facing choice on that path, so
+    // any submitted value is ignored rather than validated, regardless of
+    // what a client sends.
     const narrativeModel =
-      typeof body.narrativeModel === "string" && !isOllamaAutoModel(body.narrativeModel)
+      narrativeMode !== "cloud" && typeof body.narrativeModel === "string" && !isOllamaAutoModel(body.narrativeModel)
         ? body.narrativeModel.trim()
         : null;
-    const narrativeMode = typeof body.narrativeMode === "string" ? body.narrativeMode as "local" | "byok" | "cloud" | "off" : "local";
     const targetProjectId = typeof body.projectId === "string" ? body.projectId : null;
     const user = await ensureUser(creator);
-    if (narrativeMode === "cloud" && narrativeModel && isProOnlyNarrativeModel(narrativeModel) && effectivePlan(user.plan) !== "pro") {
-      return jsonError(
-        "narrative_model_requires_pro",
-        "This narrative model is a Pro benefit on the subsidized cloud path. It is not restricted in local or bring-your-own-key mode, where the model choice and its cost are entirely yours.",
-        403,
-      );
-    }
     await checkRateLimit("upload_session", user.id, 20, 60, request);
     const result = await createUploadSession(
       creator.creatorId,

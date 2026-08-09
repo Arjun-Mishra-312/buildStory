@@ -16,6 +16,14 @@ const orderedStatuses = [
 
 const INSTALL_COMMAND = "npm install --global buildstory-scan";
 
+/** Display labels for the internal narrative-mode value, which stays "local"/"byok"/"cloud"/"off" in code, storage, and the wire protocol - only this label is user-facing. */
+const NARRATIVE_MODE_LABELS: Record<"local" | "byok" | "cloud" | "off", string> = {
+  local: "Local",
+  byok: "Bring your own key",
+  cloud: "Buildstory Cloud",
+  off: "Off",
+};
+
 type CreateResponse = {
   session: UploadSessionView;
   deviceAuthorization: DeviceAuthorization;
@@ -173,13 +181,13 @@ export function ScannerConnectionFlow({
               </label>
             ) : null}
             <p className="scanner-evidence-explainer">
-              <strong>Narrative mode <GuideTooltip label="narrative mode">Local keeps excerpts on this machine; bring-your-own-key sends excerpts only to a cloud model you configure yourself; cloud is an explicit upload opt-in through Buildstory; off creates deterministic metrics only.</GuideTooltip></strong>{" "}
+              <strong>Narrative mode <GuideTooltip label="narrative mode">Local keeps excerpts on this machine; bring-your-own-key sends excerpts only to a cloud model you configure yourself; Buildstory Cloud is an explicit upload opt-in through Buildstory; off creates deterministic metrics only.</GuideTooltip></strong>{" "}
               {narrativeMode === "local"
                 ? "Local mode asks Ollama on this machine to write the profile. Conversation excerpts are used in memory and never uploaded."
                 : narrativeMode === "byok"
                   ? "Bring-your-own-key mode sends redacted excerpts only to the cloud model you configure with your own key (BUILDSTORY_BYOK_* environment variables). Buildstory never receives the excerpts or the key — only the resulting narrative is uploaded."
                   : narrativeMode === "cloud"
-                    ? "Cloud mode uploads only the redacted excerpts you review; it is opt-in and can be disabled in settings."
+                    ? "Buildstory Cloud uploads only the redacted excerpts you review; it is opt-in and can be disabled in settings."
                     : "Off mode uploads deterministic metrics and profile scores without narrative prose."}
             </p>
             <button type="button" className="scanner-command scanner-command--secondary" onClick={() => {
@@ -192,8 +200,10 @@ export function ScannerConnectionFlow({
             <dl>
               <div><dt>Connection code</dt><dd>{authorization.userCode}</dd></div>
               <div><dt>Loopback API</dt><dd>{authorization.apiBaseUrl}</dd></div>
-              <div><dt>Narrative mode</dt><dd>{session?.narrativeMode ?? narrativeMode}</dd></div>
-              <div><dt>Narrative model</dt><dd>{session?.narrativeModel ?? "Automatic"}</dd></div>
+              <div><dt>Narrative mode</dt><dd>{NARRATIVE_MODE_LABELS[session?.narrativeMode ?? narrativeMode]}</dd></div>
+              {(session?.narrativeMode ?? narrativeMode) !== "cloud" ? (
+                <div><dt>Narrative model</dt><dd>{session?.narrativeModel ?? "Automatic"}</dd></div>
+              ) : null}
               <div><dt>Expires</dt><dd>{new Date(authorization.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</dd></div>
             </dl>
             <div className="scanner-token-note">

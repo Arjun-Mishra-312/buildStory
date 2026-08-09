@@ -61,7 +61,7 @@ export type AccountExport = {
    * previously missing from this export even though Settings promised
    * "scanner records". sourceSnapshot is the full validated ProjectSnapshot
    * the scanner uploaded for this report, including any narrativeEvidence
-   * excerpts if the creator opted into Cloud mode with evidence - this is
+   * excerpts if the creator opted into Buildstory Cloud mode with evidence - this is
    * the one place that redacted excerpt text is ever returned to the
    * creator themselves.
    */

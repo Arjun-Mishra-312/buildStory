@@ -1,29 +1,22 @@
 /**
- * Hardcoded pricing for the current default narrative model, not a
- * versioned price table. Good enough for a first cost/spend-cap check;
- * revisit as a real buildstory_model_prices table (snapshotted per report,
- * so historical cost figures don't silently re-price) once more than one
- * model is actually in rotation.
+ * Hardcoded pricing for the one supported cloud narrative model. gpt-5.6-luna
+ * is deliberately the only model Buildstory Cloud will ever call - there is
+ * no user-facing model choice on this path, so there is nothing to gate by
+ * plan here. (BYOK is unrestricted by design: the creator's own model choice
+ * costs the operator nothing.) Revisit as a real buildstory_model_prices
+ * table (snapshotted per report, so historical cost figures don't silently
+ * re-price) if a second model is ever actually put in rotation.
  */
 
-export type SupportedNarrativeModel = "gpt-5.6-luna" | "gpt-5.6-terra";
+export type SupportedNarrativeModel = "gpt-5.6-luna";
 
 const PRICING_MICRO_USD_PER_TOKEN: Record<SupportedNarrativeModel, { input: number; output: number }> = {
   // $0.20 / $1.20 per million tokens -> micro-USD per token.
   "gpt-5.6-luna": { input: 0.2, output: 1.2 },
-  // $2 / $12 per million tokens - available as an explicit escalation, never a default.
-  "gpt-5.6-terra": { input: 2, output: 12 },
 };
 
 export function isSupportedNarrativeModel(model: string): model is SupportedNarrativeModel {
   return model in PRICING_MICRO_USD_PER_TOKEN;
-}
-
-/** The escalation tier gated to Pro accounts on the subsidized cloud path only - never a BYOK restriction, since a BYOK model choice costs the operator nothing. */
-const PRO_ONLY_NARRATIVE_MODELS = new Set<SupportedNarrativeModel>(["gpt-5.6-terra"]);
-
-export function isProOnlyNarrativeModel(model: string): boolean {
-  return isSupportedNarrativeModel(model) && PRO_ONLY_NARRATIVE_MODELS.has(model);
 }
 
 /** Returns whole micro-USD (1 USD = 1,000,000 micro-USD), rounded up so a fractional cost never reads as free. */

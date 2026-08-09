@@ -181,7 +181,15 @@ export async function generateNarrative(snapshot: ScannerProjectSnapshot, reques
   const isOllama = isOllamaBaseUrl(baseUrl);
   const apiKey = process.env.BUILDSTORY_LLM_API_KEY ?? (isOllama ? "ollama-local" : undefined);
   if (!apiKey) throw new NarrativeProviderError("llm_not_configured", "BUILDSTORY_LLM_API_KEY is not set.");
-  let model = requestedModel?.trim() || process.env.BUILDSTORY_LLM_MODEL || "gpt-5.6-luna";
+  // requestedModel is honored only against a loopback Ollama endpoint - the
+  // dev-only trick of pointing BUILDSTORY_LLM_BASE_URL at local Ollama to
+  // exercise this code path without a real cloud key. Against a real
+  // provider there is no user-facing model choice on Buildstory Cloud: the
+  // upload-sessions route already never stores a model for a cloud session,
+  // but this is the defense-in-depth backstop against any other caller.
+  let model = isOllama
+    ? requestedModel?.trim() || process.env.BUILDSTORY_LLM_MODEL || "gpt-5.6-luna"
+    : process.env.BUILDSTORY_LLM_MODEL || "gpt-5.6-luna";
   if (isOllama && isOllamaAutoModel(model)) {
     try {
       model = await resolveOllamaModel();

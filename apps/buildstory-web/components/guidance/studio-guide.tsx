@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { GUIDE_KEYS, GUIDE_VERSION, type GuideKey, type GuidanceRecord } from "@/lib/guidance/contracts";
 
@@ -185,8 +185,9 @@ export function GuidanceHelp() {
 
 export function GuideTooltip({ label, children }: { label: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
+  const tooltipId = useId();
   return <span className="guide-tooltip" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
-    <button type="button" aria-label={`More about ${label}`} aria-expanded={open} onClick={() => setOpen((value) => !value)} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}>i</button>
-    {open ? <span role="tooltip">{children}</span> : null}
+    <button type="button" aria-label={`More about ${label}`} aria-expanded={open} aria-describedby={open ? tooltipId : undefined} onClick={() => setOpen(true)} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)} onKeyDown={(event) => { if (event.key === "Escape") setOpen(false); }}>i</button>
+    {open ? <span id={tooltipId} role="tooltip">{children}</span> : null}
   </span>;
 }

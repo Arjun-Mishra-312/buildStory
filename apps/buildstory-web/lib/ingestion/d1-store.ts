@@ -1150,7 +1150,7 @@ async function processNarrativeJob(narrativeId: string) {
     if (!narrative) throw new Error(`Narrative ${narrativeId} not found for a claimed job.`);
 
     if (!canUseCloudNarrative(narrative.owner_user_id)) {
-      throw new NarrativeProviderError("llm_not_entitled", "Cloud narrative generation is not enabled for this account.");
+      throw new NarrativeProviderError("llm_not_entitled", "Buildstory Cloud narrative generation is not enabled for this account.");
     }
     const report = await reportById(narrative.report_id);
     if (!report) throw new Error(`Report ${narrative.report_id} not found for narrative ${narrativeId}.`);

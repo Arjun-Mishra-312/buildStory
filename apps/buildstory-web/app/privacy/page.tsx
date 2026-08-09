@@ -27,7 +27,7 @@ const sections: LegalSection[] = [
     list: [
       <><strong>Local (the default).</strong> A small language model runs on your own machine through Ollama. Conversation excerpts are used only in your machine&rsquo;s memory during generation and are never sent anywhere. The AI-written narrative text the model produces is redacted on your machine and then uploaded to us — this is prose written from your private sessions, and it becomes part of your private report.</>,
       <><strong>Bring your own key (BYOK).</strong> The scanner calls a cloud model you configure yourself, using an API key you hold. Redacted excerpts are sent from your machine directly to that provider, under that provider&rsquo;s own terms — never through Buildstory, and never seen or stored by us. We receive only the resulting redacted narrative text, exactly as in Local mode. We never receive your API key.</>,
-      <><strong>Cloud.</strong> An explicit opt-in. After you type a confirmation on screen, a small, size-capped set of redacted excerpts from your AI coding sessions (file paths, URLs, and hostnames replaced with placeholders before anything leaves your machine) is uploaded to us and forwarded to our configured cloud model provider to generate the narrative text. This is the only mode where Buildstory itself receives excerpt text.</>,
+      <><strong>Buildstory Cloud.</strong> An explicit opt-in. After you type a confirmation on screen, a small, size-capped set of redacted excerpts from your AI coding sessions (file paths, URLs, and hostnames replaced with placeholders before anything leaves your machine) is uploaded to us and forwarded to our narrative provider to generate the narrative text. This is the only mode where Buildstory itself receives excerpt text.</>,
       <><strong>Off.</strong> No AI narrative step runs at all. Only deterministic, scanner-computed metrics and profile scores are uploaded — counts, dates, and formula-derived numbers, never prose.</>,
     ],
   },
@@ -86,9 +86,9 @@ const sections: LegalSection[] = [
     heading: "Third parties we share data with",
     list: [
       "Google and, optionally, GitHub — for sign-in only (OAuth). Each provider's own privacy policy governs what that provider does with your account data.",
-      "Our configured cloud narrative model provider — only in Cloud mode, and only the redacted excerpt bundle and deterministic build facts you explicitly reviewed and released. We do not permit that provider to use your data to train their models, per our agreement with them.",
+      "Our narrative provider — only in Buildstory Cloud mode, and only the redacted excerpt bundle and deterministic build facts you explicitly reviewed and released. We do not permit that provider to use your data to train their models, per our agreement with them.",
       "Your own chosen cloud model provider — only in BYOK mode, and only because you configured your machine to call it directly. That is a relationship and a data flow between you and that provider; Buildstory is not a party to it and never sees the excerpts or your key. Your provider's own terms and privacy policy govern that flow.",
-      "Cloudflare — our hosting, database (D1), object storage (R2), and edge-network infrastructure provider. Cloudflare processes all traffic and stored data as our infrastructure provider under their own data processing terms. This also means the Service is served from Cloudflare's global edge network and, in Cloud mode, reaches a cloud model provider that may process data outside Canada — including in the United States.",
+      "Cloudflare — our hosting, database (D1), object storage (R2), and edge-network infrastructure provider. Cloudflare processes all traffic and stored data as our infrastructure provider under their own data processing terms. This also means the Service is served from Cloudflare's global edge network and, in Buildstory Cloud mode, reaches our narrative provider, which may process data outside Canada — including in the United States.",
       "We do not sell your personal information, and we do not share it with anyone else for their own marketing purposes.",
     ],
   },
