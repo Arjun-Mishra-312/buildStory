@@ -17,7 +17,7 @@ export function MarketingLanding() {
           <p className="landing-hero__lede">Share the decisions, detours, tools, and turning points behind what you ship — with a private-first snapshot you control.</p>
           <div className="landing-hero__actions">
             <Link className="button button--primary" href="/explore">Explore build stories <span aria-hidden="true">↗</span></Link>
-            <Link className="button button--text" href="/p/orbit-notes">See a real build receipt <span aria-hidden="true">→</span></Link>
+            <Link className="button button--text" href="/u/arjun-mishra/vibe-social">See a real build receipt <span aria-hidden="true">→</span></Link>
           </div>
           <div className="landing-hero__trust" aria-label="Product promises"><span><i aria-hidden="true">✓</i> Private by default</span><span><i aria-hidden="true">✓</i> Redacted locally</span><span><i aria-hidden="true">✓</i> You edit every word</span></div>
         </div>

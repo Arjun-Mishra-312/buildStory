@@ -13,6 +13,8 @@ import { sanitizePublicText } from "@/lib/publication/sanitization";
 import { computeChapterDelta, publicChapterDelta, type ChapterDelta } from "@/lib/story/chapter-delta";
 import { MAX_MEDIA_PER_REPORT, PUBLIC_FIELD_KEYS } from "./contracts";
 import type {
+  BillingProfile,
+  BillingUpdate,
   DeviceAuthorization,
   GeneratedReport,
   LocalReportSummary,
@@ -743,6 +745,92 @@ export async function markEmailVerified(userId: string): Promise<void> {
     .prepare(`UPDATE buildstory_users SET email_verified_at = ? WHERE id = ? AND email_verified_at IS NULL`)
     .bind(new Date().toISOString(), userId)
     .run();
+}
+
+type BillingProfileRow = {
+  plan: string;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  subscription_status: string | null;
+  billing_interval: string | null;
+  current_period_end: string | null;
+  cancel_at_period_end: number;
+};
+
+function billingProfileFromRow(row: BillingProfileRow): BillingProfile {
+  return {
+    plan: row.plan === "pro" ? "pro" : "free",
+    stripeCustomerId: row.stripe_customer_id,
+    stripeSubscriptionId: row.stripe_subscription_id,
+    subscriptionStatus: row.subscription_status,
+    billingInterval: row.billing_interval === "month" || row.billing_interval === "year" ? row.billing_interval : null,
+    currentPeriodEnd: row.current_period_end,
+    cancelAtPeriodEnd: row.cancel_at_period_end === 1,
+  };
+}
+
+/** Stripe subscription state for a user, read by the Settings billing section and the checkout/portal routes. */
+export async function getBillingProfile(userId: string): Promise<BillingProfile | null> {
+  const db = await database();
+  const row = await db
+    .prepare(
+      "SELECT plan, stripe_customer_id, stripe_subscription_id, subscription_status, billing_interval, current_period_end, cancel_at_period_end FROM buildstory_users WHERE id = ?",
+    )
+    .bind(userId)
+    .first<BillingProfileRow>();
+  return row ? billingProfileFromRow(row) : null;
+}
+
+/** Resolves a Stripe customer id back to the owning user - the webhook's fallback path when an event carries no buildstoryUserId metadata. */
+export async function findUserIdByStripeCustomerId(stripeCustomerId: string): Promise<string | null> {
+  const db = await database();
+  const row = await db
+    .prepare("SELECT id FROM buildstory_users WHERE stripe_customer_id = ?")
+    .bind(stripeCustomerId)
+    .first<{ id: string }>();
+  return row?.id ?? null;
+}
+
+/** Writes Stripe subscription state onto a user row - the only place billing columns are mutated, called from the checkout route and the webhook handler. */
+export async function applyBillingUpdate(userId: string, update: BillingUpdate): Promise<void> {
+  const db = await database();
+  const sets: string[] = [];
+  const values: unknown[] = [];
+
+  if (update.stripeCustomerId !== undefined) {
+    sets.push("stripe_customer_id = ?");
+    values.push(update.stripeCustomerId);
+  }
+  if (update.stripeSubscriptionId !== undefined) {
+    sets.push("stripe_subscription_id = ?");
+    values.push(update.stripeSubscriptionId);
+  }
+  if (update.subscriptionStatus !== undefined) {
+    sets.push("subscription_status = ?");
+    values.push(update.subscriptionStatus);
+  }
+  if (update.billingInterval !== undefined) {
+    sets.push("billing_interval = ?");
+    values.push(update.billingInterval);
+  }
+  if (update.currentPeriodEnd !== undefined) {
+    sets.push("current_period_end = ?");
+    values.push(update.currentPeriodEnd);
+  }
+  if (update.cancelAtPeriodEnd !== undefined) {
+    sets.push("cancel_at_period_end = ?");
+    values.push(update.cancelAtPeriodEnd ? 1 : 0);
+  }
+  if (update.plan !== undefined) {
+    sets.push("plan = ?");
+    values.push(update.plan);
+  }
+
+  if (sets.length === 0) return;
+
+  sets.push("updated_at = ?");
+  values.push(new Date().toISOString(), userId);
+  await db.prepare(`UPDATE buildstory_users SET ${sets.join(", ")} WHERE id = ?`).bind(...values).run();
 }
 
 const HANDLE_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;

@@ -115,6 +115,29 @@ To turn Buildstory Cloud back off later (e.g. cost control), delete the secret r
 npx wrangler secret delete BUILDSTORY_OPENROUTER_API_KEY -c wrangler.deploy.jsonc
 ```
 
+## Enable Stripe billing (optional, Pro subscriptions)
+
+Until this is configured, `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` are unset, and `/api/creator/billing/checkout`, `/api/creator/billing/portal`, and `/api/webhooks/stripe` all respond `503 billing_unavailable` rather than crash - the Billing section on `/studio/settings` still renders, it just can't start a real checkout. That's a safe default, not a bug to fix before launch, same as Buildstory Cloud above.
+
+This step is entirely manual in the Stripe Dashboard - there is no CLI/API step to script here:
+
+1. Create a "Buildstory Pro" product.
+2. Create two recurring Prices on it: a monthly price and an annual price (with whatever discount you want against 12x the monthly price). Copy both Price IDs (`price_...`).
+3. Create a webhook endpoint at `https://buildstory.dev/api/webhooks/stripe`, subscribed to `checkout.session.completed`, `customer.subscription.updated`, and `customer.subscription.deleted`. Copy its signing secret (`whsec_...`).
+4. Set the two secrets and two price IDs on the Worker:
+
+   ```powershell
+   npx wrangler secret put STRIPE_SECRET_KEY -c wrangler.deploy.jsonc
+   npx wrangler secret put STRIPE_WEBHOOK_SECRET -c wrangler.deploy.jsonc
+   npx wrangler secret put STRIPE_PRICE_ID_MONTHLY -c wrangler.deploy.jsonc
+   npx wrangler secret put STRIPE_PRICE_ID_ANNUAL -c wrangler.deploy.jsonc
+   ```
+
+   Price IDs aren't sensitive, but `wrangler secret put` is the simplest way to set all four without a redeploy - each prompts on stdin and applies immediately.
+5. Start in Stripe **test mode** (test secret key, test webhook endpoint, test prices) and run a full checkout with card `4242 4242 4242 4242` via `stripe listen --forward-to https://buildstory.dev/api/webhooks/stripe` (or against local dev) before switching any of the four values to live mode.
+
+`buildstory_users.plan` becomes the real subscription plan the moment a webhook lands - it is independent of `BUILDSTORY_LAUNCH_PRO_FOR_ALL` (see `lib/narrative/entitlement.ts`), which can stay on or be turned off separately whenever the launch promotion is meant to end.
+
 ## Health and readiness
 
 - `/api/health` proves only that the Worker can answer requests. It never checks dependencies and returns no configuration.

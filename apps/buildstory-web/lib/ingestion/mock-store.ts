@@ -18,6 +18,8 @@ import { builderRoleLabel, isBuilderRole, type BuilderRole } from "@/lib/identit
 import { GUIDE_VERSION, isGuideKey, isGuideState, type GuideKey, type GuideState, type GuidanceRecord } from "@/lib/guidance/contracts";
 import { compareExploreRows, decodeExploreCursor, encodeExploreCursor, isAfterExploreCursor } from "./explore-cursor";
 import type {
+  BillingProfile,
+  BillingUpdate,
   DeviceAuthorization,
   GeneratedReport,
   LocalReportSummary,
@@ -67,6 +69,12 @@ type StoredUser = UserRecord & {
   bio: string | null;
   status: "active" | "suspended";
   handleChangedAt: string | null;
+  stripeCustomerId?: string | null;
+  stripeSubscriptionId?: string | null;
+  subscriptionStatus?: string | null;
+  billingInterval?: "month" | "year" | null;
+  currentPeriodEnd?: string | null;
+  cancelAtPeriodEnd?: boolean;
 };
 
 type StoredProject = ProjectRecord & {
@@ -517,6 +525,41 @@ export function markEmailVerified(userId: string): void {
   void userId;
   // Hygiene only in the real store (buildstory_users.email_verified_at); nothing reads
   // this in the mock store, so there's no field to update here.
+}
+
+/** Stripe subscription state for a user, read by the Settings billing section and the checkout/portal routes. */
+export function getBillingProfile(userId: string): BillingProfile | null {
+  const user = store.users.get(userId);
+  if (!user) return null;
+  return {
+    plan: user.plan === "pro" ? "pro" : "free",
+    stripeCustomerId: user.stripeCustomerId ?? null,
+    stripeSubscriptionId: user.stripeSubscriptionId ?? null,
+    subscriptionStatus: user.subscriptionStatus ?? null,
+    billingInterval: user.billingInterval ?? null,
+    currentPeriodEnd: user.currentPeriodEnd ?? null,
+    cancelAtPeriodEnd: user.cancelAtPeriodEnd ?? false,
+  };
+}
+
+/** Resolves a Stripe customer id back to the owning user - the webhook's fallback path when an event carries no buildstoryUserId metadata. */
+export function findUserIdByStripeCustomerId(stripeCustomerId: string): string | null {
+  const user = Array.from(store.users.values()).find((candidate) => candidate.stripeCustomerId === stripeCustomerId);
+  return user?.id ?? null;
+}
+
+/** Writes Stripe subscription state onto a user row - the only place billing fields are mutated, called from the checkout route and the webhook handler. */
+export function applyBillingUpdate(userId: string, update: BillingUpdate): void {
+  const user = store.users.get(userId);
+  if (!user) throw new MockIngestionError("not_found", "Account not found.", 404);
+
+  if (update.stripeCustomerId !== undefined) user.stripeCustomerId = update.stripeCustomerId;
+  if (update.stripeSubscriptionId !== undefined) user.stripeSubscriptionId = update.stripeSubscriptionId;
+  if (update.subscriptionStatus !== undefined) user.subscriptionStatus = update.subscriptionStatus;
+  if (update.billingInterval !== undefined) user.billingInterval = update.billingInterval;
+  if (update.currentPeriodEnd !== undefined) user.currentPeriodEnd = update.currentPeriodEnd;
+  if (update.cancelAtPeriodEnd !== undefined) user.cancelAtPeriodEnd = update.cancelAtPeriodEnd;
+  if (update.plan !== undefined) user.plan = update.plan;
 }
 
 const HANDLE_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;

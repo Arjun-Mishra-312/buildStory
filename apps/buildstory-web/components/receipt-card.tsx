@@ -1,4 +1,5 @@
 import type { PublicBuildStoryViewModel } from "@/lib/build-story";
+import { Tooltip } from "./shell/tooltip";
 
 type ReceiptStory = Pick<
   PublicBuildStoryViewModel,
@@ -43,9 +44,11 @@ export function ReceiptCard({ story, compact = false }: ReceiptCardProps) {
           <span className="receipt__kicker">AI Build Receipt</span>
           <strong>{story.name}</strong>
         </div>
-        <span className="receipt__seal" aria-label="Snapshot verified">
-          ✓
-        </span>
+        <Tooltip label="This receipt matches the original AI session logs" side="bottom">
+          <span className="receipt__seal" aria-label="Snapshot verified" tabIndex={0}>
+            ✓
+          </span>
+        </Tooltip>
       </div>
 
       <div className="receipt__rule" />

@@ -74,7 +74,7 @@ export function SocialActions({ storyId, ownerHandle }: { storyId: string; owner
     <div className="social-actions__reactions" role="group" aria-label="React to this build story" aria-busy={!reactions || busy}>
       {REACTION_ORDER.map((kind) => <button key={kind} type="button" className={reactions?.viewerReaction === kind ? "is-active" : undefined} onClick={() => void react(kind)} disabled={busy || !reactions} aria-pressed={reactions?.viewerReaction === kind} aria-label={`${REACTION_META[kind].label}: ${reactions?.counts[kind] ?? 0} reactions`}><span className="reaction-emoji" aria-hidden="true">{REACTION_META[kind].emoji}</span><span>{REACTION_META[kind].label}</span><strong>{reactions?.counts[kind] ?? "–"}</strong></button>)}
     </div>
-    {follow && !isSelf ? <button type="button" className={`button button--small ${follow.isFollowedByViewer ? "button--secondary" : "button--primary"}`} onClick={() => void toggleFollow()} disabled={busy}>{follow.isFollowedByViewer ? "Following" : `Follow @${ownerHandle}`}</button> : null}
+    {follow && !isSelf ? <button type="button" className={`button button--small ${follow.isFollowedByViewer ? "button--secondary" : "button--primary"}`} onClick={() => void toggleFollow()} disabled={busy}><span key={follow.isFollowedByViewer ? "following" : "follow"} className="follow-label">{follow.isFollowedByViewer ? "Following" : `Follow @${ownerHandle}`}</span></button> : null}
     {!isSelf ? <ReportDialog targetType="report" targetId={storyId} label="Report this story" /> : null}
   </div>;
 }

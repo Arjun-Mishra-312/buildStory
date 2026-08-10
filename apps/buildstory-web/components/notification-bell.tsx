@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Bell } from "lucide-react";
+import { Tooltip } from "./shell/tooltip";
 
 type NotificationActor = { id: string; handle: string; displayName: string; avatarUrl: string | null };
 type Notification = {
@@ -79,17 +81,19 @@ export function NotificationBell() {
 
   return (
     <div className="notification-bell" ref={containerRef}>
-      <button
-        type="button"
-        className="notification-bell__trigger"
-        onClick={() => void toggleOpen()}
-        aria-expanded={open}
-        aria-controls="notification-panel"
-        aria-label={unreadCount > 0 ? `${unreadCount} unread notifications` : "Notifications"}
-      >
-        <span aria-hidden="true">🔔</span>
-        {unreadCount > 0 ? <span className="notification-bell__badge">{unreadCount > 9 ? "9+" : unreadCount}</span> : null}
-      </button>
+      <Tooltip label="Notifications" side="bottom" align="end">
+        <button
+          type="button"
+          className="notification-bell__trigger"
+          onClick={() => void toggleOpen()}
+          aria-expanded={open}
+          aria-controls="notification-panel"
+          aria-label={unreadCount > 0 ? `${unreadCount} unread notifications` : "Notifications"}
+        >
+          <Bell size={17} strokeWidth={2} aria-hidden="true" />
+          {unreadCount > 0 ? <span className="notification-bell__badge">{unreadCount > 9 ? "9+" : unreadCount}</span> : null}
+        </button>
+      </Tooltip>
       {open ? (
         <div className="notification-bell__panel" id="notification-panel" role="menu">
           {notifications.length === 0 ? (

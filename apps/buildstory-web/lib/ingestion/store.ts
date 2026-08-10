@@ -1,4 +1,5 @@
 import type {
+  BillingUpdate,
   GeneratedReport,
   PublicFieldKey,
   ReportMediaKind,
@@ -80,6 +81,18 @@ export async function linkIdentity(userId: string, provider: string, subject: st
 
 export async function markEmailVerified(userId: string) {
   return (await backend()).markEmailVerified(userId);
+}
+
+export async function getBillingProfile(userId: string) {
+  return (await backend()).getBillingProfile(userId);
+}
+
+export async function findUserIdByStripeCustomerId(stripeCustomerId: string) {
+  return (await backend()).findUserIdByStripeCustomerId(stripeCustomerId);
+}
+
+export async function applyBillingUpdate(userId: string, update: BillingUpdate) {
+  return (await backend()).applyBillingUpdate(userId, update);
 }
 
 export async function getIdentityForUser(userId: string, provider: string) {

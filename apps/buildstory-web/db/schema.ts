@@ -42,6 +42,14 @@ export const users = sqliteTable(
     storyCount: integer("story_count").notNull().default(0),
     /** JWT sessions can't be revoked directly; a suspension checks this against the token's issued-at. */
     sessionsValidAfter: text("sessions_valid_after"),
+    /** Null until the user has ever started a checkout. One Stripe customer per account, reused across upgrades/downgrades. */
+    stripeCustomerId: text("stripe_customer_id"),
+    stripeSubscriptionId: text("stripe_subscription_id"),
+    /** Mirrors the Stripe subscription status string verbatim (active, trialing, past_due, canceled, ...). Null until a subscription exists. */
+    subscriptionStatus: text("subscription_status"),
+    billingInterval: text("billing_interval"),
+    currentPeriodEnd: text("current_period_end"),
+    cancelAtPeriodEnd: integer("cancel_at_period_end").notNull().default(0),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
     deletedAt: text("deleted_at"),
@@ -49,6 +57,7 @@ export const users = sqliteTable(
   (table) => [
     uniqueIndex("idx_buildstory_users_auth_subject").on(table.authSubject),
     uniqueIndex("idx_buildstory_users_handle_lower").on(table.handleLower),
+    uniqueIndex("idx_buildstory_users_stripe_customer_id").on(table.stripeCustomerId),
   ],
 );
 

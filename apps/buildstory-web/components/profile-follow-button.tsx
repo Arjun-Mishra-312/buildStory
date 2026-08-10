@@ -16,5 +16,5 @@ export function ProfileFollowButton({ handle, initialFollowed, isSelf }: { handl
     else if (response.ok) setFollowed(!followed);
     setBusy(false);
   }
-  return <button className={`button button--small ${followed ? "button--secondary" : "button--primary"}`} type="button" onClick={() => void toggle()} disabled={busy}>{followed ? "Following" : `Follow @${handle}`}</button>;
+  return <button className={`button button--small ${followed ? "button--secondary" : "button--primary"}`} type="button" onClick={() => void toggle()} disabled={busy}><span key={followed ? "following" : "follow"} className="follow-label">{followed ? "Following" : `Follow @${handle}`}</span></button>;
 }

@@ -113,6 +113,25 @@ export type UserRecord = {
   plan: "free" | "pro";
 };
 
+/**
+ * Stripe subscription state for one user. Kept separate from UserRecord,
+ * which is read on every request across the app - these fields are only
+ * needed on the billing settings surface and in the checkout/portal/webhook
+ * routes.
+ */
+export type BillingProfile = {
+  plan: "free" | "pro";
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+  /** Mirrors the Stripe subscription status string verbatim (active, trialing, past_due, canceled, ...). Null until a subscription exists. */
+  subscriptionStatus: string | null;
+  billingInterval: "month" | "year" | null;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+};
+
+export type BillingUpdate = Partial<Omit<BillingProfile, "plan">> & { plan?: "free" | "pro" };
+
 export type ProjectRecord = {
   id: string;
   ownerUserId: string;

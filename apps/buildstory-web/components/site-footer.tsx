@@ -10,10 +10,10 @@ export function SiteFooter() {
         <div className="site-footer__links">
           <Link href="/explore">Explore</Link>
           <Link href="/leaderboard">Leaderboard</Link>
-          <Link href="/p/orbit-notes">Example story</Link>
+          <Link href="/u/arjun-mishra/vibe-social">Example story</Link>
           <Link href="/terms">Terms</Link>
           <Link href="/privacy">Privacy</Link>
-          <a href="mailto:hello@buildstory.community">Say hello</a>
+          <a href="mailto:arjunmishra31204@gmail.com">Say hello</a>
         </div>
       </div>
     </footer>
