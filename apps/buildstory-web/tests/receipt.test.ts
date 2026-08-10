@@ -4,7 +4,8 @@ import path from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
-import { buildStoryFromSnapshot } from "../lib/build-story";
+import { buildStoryFromSnapshot, publicBuildStoryFromSnapshot } from "../lib/build-story";
+import type { ReportStoryPack } from "../lib/ingestion/scanner-project-snapshot";
 import { reportSnapshotFromScanner } from "../lib/ingestion/report-adapter";
 import type { ScannerProjectSnapshot } from "../lib/ingestion/scanner-project-snapshot";
 import { ReceiptCard } from "../components/receipt-card";
@@ -89,6 +90,36 @@ test("receipt shows no coverage caveat when nothing was skipped or partially pri
   const html = renderToStaticMarkup(createElement(ReceiptCard, { story }));
   assert.doesNotMatch(html, /reflected in these totals/);
   assert.doesNotMatch(html, /priced only part of its observed usage/);
+});
+
+test("legacy narrative packs without signals remain renderable", async () => {
+  const snapshot = await receiptFixture();
+  snapshot.narrative = {
+    headline: "A legacy build story",
+    narrative: "Stored before deterministic signals were added.",
+    turningPoint: "The report still has a valid evidence trail.",
+    learnings: [],
+    decisionPatterns: [],
+    standoutTraits: [],
+    growthEdge: "Keep the evidence close.",
+    storyPack: {
+      version: "2.0.0",
+      sources: [],
+      hero: { headline: "A legacy build story", summary: "Stored before deterministic signals were added." },
+      buildArc: [],
+      moments: [],
+      turningPoint: { quote: "The report still has a valid evidence trail.", sourceRefs: [] },
+      decisions: [],
+      learnings: [],
+      standoutTraits: [],
+      growthEdge: { title: "Keep the evidence close.", observation: "The report still has a valid evidence trail.", sourceRefs: [] },
+    } as unknown as ReportStoryPack,
+  };
+
+  const story = buildStoryFromSnapshot(snapshot);
+  assert.deepEqual(story.narrative?.storyPack?.signals, []);
+  const publicStory = publicBuildStoryFromSnapshot(snapshot, ["narrative", "storyBuildArc"]);
+  assert.equal(publicStory.storyPack?.signals.length, 0);
 });
 
 test("two distinct models never collapse onto the same id just because one's name contains a colon", async () => {

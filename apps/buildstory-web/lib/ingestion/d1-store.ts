@@ -398,6 +398,27 @@ async function reportById(reportId: string) {
     .first<ReportRow>();
 }
 
+/**
+ * Creator access is intentionally dual-keyed during the identity migration:
+ * newer rows carry the durable user id, while older rows only carry the
+ * original auth subject. The project owner is the authoritative fallback for
+ * a legacy report whose owner_user_id was not backfilled yet.
+ */
+async function reportByIdForCreator(creatorId: string, reportId: string) {
+  const owner = await userByAuthSubject(creatorId);
+  const ownerId = owner?.id ?? "";
+  return (await database())
+    .prepare(
+      `SELECT r.*
+       FROM buildstory_reports r
+       LEFT JOIN buildstory_projects p ON p.id = r.project_id
+       WHERE r.id = ?
+         AND (r.creator_id = ? OR r.owner_user_id = ? OR p.owner_user_id = ?)`
+    )
+    .bind(reportId, creatorId, ownerId, ownerId)
+    .first<ReportRow>();
+}
+
 async function userByAuthSubject(authSubject: string) {
   const user = await (await database())
     .prepare(
@@ -497,15 +518,19 @@ async function processReportJob(reportId: string) {
 }
 
 async function processCreatorJobs(creatorId: string) {
+  const owner = await userByAuthSubject(creatorId);
+  const ownerId = owner?.id ?? "";
   const rows = await (await database())
     .prepare(
       `SELECT j.report_id
        FROM buildstory_report_jobs j
        JOIN buildstory_reports r ON r.id = j.report_id
-       WHERE r.creator_id = ? AND j.status IN ('pending', 'processing')
+       LEFT JOIN buildstory_projects p ON p.id = r.project_id
+       WHERE (r.creator_id = ? OR r.owner_user_id = ? OR p.owner_user_id = ?)
+         AND j.status IN ('pending', 'processing')
        ORDER BY j.created_at ASC LIMIT 1`,
     )
-    .bind(creatorId)
+    .bind(creatorId, ownerId, ownerId)
     .all<{ report_id: string }>();
   if (rows.results[0]) await processReportJob(rows.results[0].report_id);
 }
@@ -517,15 +542,20 @@ export async function listUploadSessions(
 ): Promise<UploadSessionView[]> {
   await processCreatorJobs(creatorId);
   const bounded = Math.min(Math.max(1, Math.trunc(limit)), 100);
+  const owner = await userByAuthSubject(creatorId);
+  const ownerId = owner?.id ?? "";
   const rows = await (await database())
     .prepare(
       `SELECT s.*, n.status AS joined_narrative_status
        FROM buildstory_upload_sessions s
        LEFT JOIN buildstory_narratives n ON n.report_id = s.report_id
-       WHERE s.creator_id = ? AND (? IS NULL OR s.created_at < ?)
+       LEFT JOIN buildstory_reports r ON r.id = s.report_id
+       LEFT JOIN buildstory_projects p ON p.id = COALESCE(s.target_project_id, r.project_id)
+       WHERE (s.creator_id = ? OR s.owner_user_id = ? OR p.owner_user_id = ?)
+         AND (? IS NULL OR s.created_at < ?)
        ORDER BY s.created_at DESC LIMIT ?`,
     )
-    .bind(creatorId, cursor ?? null, cursor ?? null, bounded)
+    .bind(creatorId, ownerId, ownerId, cursor ?? null, cursor ?? null, bounded)
     .all<SessionRow & { joined_narrative_status: string | null }>();
   return rows.results.map((row) => cleanSession(row, narrativeStatusValue(row.joined_narrative_status)));
 }
@@ -2001,13 +2031,13 @@ export async function getReport(
   creatorId: string,
   reportId: string,
 ): Promise<GeneratedReport> {
-  let row = await reportById(reportId);
-  if (!row || row.creator_id !== creatorId) {
+  let row = await reportByIdForCreator(creatorId, reportId);
+  if (!row) {
     throw new D1IngestionError("not_found", "Report not found.", 404);
   }
   await processReportJob(reportId);
-  row = await reportById(reportId);
-  if (!row || row.creator_id !== creatorId) {
+  row = await reportByIdForCreator(creatorId, reportId);
+  if (!row) {
     throw new D1IngestionError("not_found", "Report not found.", 404);
   }
   const narrativeRow = await narrativeByReportId(reportId);
@@ -2090,7 +2120,7 @@ export async function updateReport(
            artifact_project_url = ?, artifact_repo_url = ?, artifact_video_url = ?,
            publication_status = CASE WHEN publication_status = 'published' THEN 'draft_changes' ELSE publication_status END,
            updated_at = ?
-       WHERE id = ? AND creator_id = ?`,
+       WHERE id = ? AND project_id = ?`,
     )
     .bind(
       JSON.stringify(fields),
@@ -2104,7 +2134,7 @@ export async function updateReport(
       artifact.videoUrl,
       now,
       reportId,
-      creatorId,
+      report.projectId,
     )
     .run();
   return getReport(creatorId, reportId);
@@ -2355,9 +2385,9 @@ export async function publishReport(
     db
       .prepare(
         `UPDATE buildstory_reports SET publication_status = 'published', publication_path = ?, published_at = ?, public_url = ?, chapter_index = ?, chapter_delta_json = ?, updated_at = ?
-         WHERE id = ? AND creator_id = ?`,
+         WHERE id = ? AND project_id = ?`,
       )
-      .bind(thisPath, publishedAt, thisUrl, chapterIndex, chapterDeltaJson, publishedAt, reportId, creatorId),
+      .bind(thisPath, publishedAt, thisUrl, chapterIndex, chapterDeltaJson, publishedAt, reportId, report.projectId),
   );
   statements.push(
     db.prepare(`INSERT INTO buildstory_public_story_index (report_id, story_json, category, search_text, has_live_demo, cover_url, updated_at)
@@ -2395,11 +2425,18 @@ export async function publishReport(
  */
 export async function unpublishReport(creatorId: string, reportId: string): Promise<GeneratedReport> {
   const db = await database();
+  const owner = await userByAuthSubject(creatorId);
+  const ownerId = owner?.id ?? "";
   const row = await db
     .prepare(
-      "SELECT project_id, publication_path FROM buildstory_reports WHERE id = ? AND creator_id = ? AND publication_status IN ('published', 'draft_changes')",
+      `SELECT r.project_id, r.publication_path
+       FROM buildstory_reports r
+       LEFT JOIN buildstory_projects p ON p.id = r.project_id
+       WHERE r.id = ?
+         AND (r.creator_id = ? OR r.owner_user_id = ? OR p.owner_user_id = ?)
+         AND r.publication_status IN ('published', 'draft_changes')`,
     )
-    .bind(reportId, creatorId)
+    .bind(reportId, creatorId, ownerId, ownerId)
     .first<{ project_id: string; publication_path: string | null }>();
   if (!row) throw new D1IngestionError("not_published", "Published report not found.", 404);
 
@@ -2445,13 +2482,16 @@ export async function publicationStatusForProject(
   creatorId: string,
   projectId: string,
 ) {
+  const owner = await userByAuthSubject(creatorId);
+  const ownerId = owner?.id ?? "";
   const row = await (await database())
     .prepare(
       `SELECT publication_status, publication_slug, published_at, public_url
-       FROM buildstory_reports WHERE creator_id = ? AND project_id = ?
+       FROM buildstory_reports
+       WHERE project_id = ? AND (owner_user_id = ? OR creator_id = ?)
        ORDER BY created_at DESC LIMIT 1`,
     )
-    .bind(creatorId, projectId)
+    .bind(projectId, ownerId, creatorId)
     .first<{
       publication_status: string;
       publication_slug: string;
@@ -2480,9 +2520,11 @@ export async function listProjects(creatorId: string): Promise<ProjectSummary[]>
   const reportRows = await db
     .prepare(
       `SELECT id, project_id, status, created_at, publication_status, public_url, chapter_index
-       FROM buildstory_reports WHERE creator_id = ? ORDER BY created_at DESC`,
+       FROM buildstory_reports
+       WHERE (owner_user_id = ? OR creator_id = ?)
+       ORDER BY created_at DESC`,
     )
-    .bind(creatorId)
+    .bind(owner.id, creatorId)
     .all<{ id: string; project_id: string; status: string; created_at: string; publication_status: string; public_url: string | null; chapter_index: number | null }>();
   const reportsByProject = new Map<string, typeof reportRows.results>();
   for (const row of reportRows.results) {
@@ -2528,9 +2570,11 @@ export async function getProjectDetail(creatorId: string, projectId: string): Pr
   const reportRows = await db
     .prepare(
       `SELECT id, status, chapter_index, publication_status, created_at, published_at, editorial_tagline, public_url, chapter_delta_json
-       FROM buildstory_reports WHERE project_id = ? AND creator_id = ? ORDER BY created_at DESC`,
+       FROM buildstory_reports
+       WHERE project_id = ? AND (owner_user_id = ? OR creator_id = ?)
+       ORDER BY created_at DESC`,
     )
-    .bind(projectId, creatorId)
+    .bind(projectId, owner.id, creatorId)
     .all<{ id: string; status: string; chapter_index: number | null; publication_status: string; created_at: string; published_at: string | null; editorial_tagline: string; public_url: string | null; chapter_delta_json: string | null }>();
   const canonical = reportRows.results
     .filter((row) => row.chapter_index !== null)

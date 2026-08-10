@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { BuildStoryViewModel, PublicBuildStoryViewModel } from "@/lib/build-story";
+import { normalizeReportStoryPack, type BuildStoryViewModel, type PublicBuildStoryViewModel } from "@/lib/build-story";
 import { STORY_CATEGORIES, type NarrativeRecord, type PublicationStatus, type PublicFieldKey, type ReportMediaRecord, type StoryCategory } from "@/lib/ingestion/contracts";
 import type { NarrativeDisplayStatus } from "@/lib/ingestion/narrative-status";
 import type { ReportStoryPack } from "@/lib/ingestion/scanner-project-snapshot";
@@ -483,10 +483,12 @@ export function ProjectWorkbench({
   const storyNarrative = "narrative" in story ? story.narrative : null;
   // Private-tab pack: the full, ungated narrative record (used only on the private tab,
   // which always shows everything regardless of the publication boundary).
-  const privateStoryPack = narrative?.storyPack ?? ("storyPack" in story && story.storyPack ? story.storyPack : null) ?? (
-    storyNarrative && typeof storyNarrative === "object" && "storyPack" in storyNarrative
-      ? (storyNarrative.storyPack as ReportStoryPack | undefined) ?? null
-      : null
+  const privateStoryPack = normalizeReportStoryPack(
+    narrative?.storyPack
+      ?? ("storyPack" in story && story.storyPack ? story.storyPack : null)
+      ?? (storyNarrative && typeof storyNarrative === "object" && "storyPack" in storyNarrative
+        ? (storyNarrative.storyPack as ReportStoryPack | undefined) ?? null
+        : null),
   );
   // Public visitors already see the server-gated projection on `story`. A creator's own
   // "Public" tab must render the same server-gated projection (`previewStory`, recomputed

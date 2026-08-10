@@ -84,6 +84,12 @@ test("leaderboard refreshes a cached story count when a second story is publishe
   await seedAndPublish(owner.id, 3, first.projectId);
   const thirdRead = await d1Leaderboard.getLeaderboard("all-time", 50);
   assert.equal(thirdRead.find((entry) => entry.user.id === owner.id)?.storyCount, 3);
+
+  // A published report remains live while its creator edits it; the public
+  // URL is served from the frozen publication and must still count as a story.
+  await d1Ingestion.updateReport(ownerSession.creatorId, first.reportId, { editorial: { tagline: "Edited after publishing" } });
+  const draftChangesRead = await d1Leaderboard.getLeaderboard("all-time", 50);
+  assert.equal(draftChangesRead.find((entry) => entry.user.id === owner.id)?.storyCount, 3);
 });
 
 test.after(async () => {

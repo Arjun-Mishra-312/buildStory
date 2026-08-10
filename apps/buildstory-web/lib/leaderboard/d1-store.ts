@@ -40,7 +40,7 @@ export async function recomputeLeaderboard(period: LeaderboardPeriod): Promise<v
            JOIN (
              SELECT project_id, COUNT(*) AS published_story_count
              FROM buildstory_reports
-             WHERE publication_status = 'published'
+             WHERE publication_status IN ('published', 'draft_changes')
              GROUP BY project_id
            ) AS published ON published.project_id = p.id
            GROUP BY p.owner_user_id

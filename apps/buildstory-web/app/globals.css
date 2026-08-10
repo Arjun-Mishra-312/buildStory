@@ -6688,6 +6688,15 @@ button.story-pack__source { cursor: pointer; }
 
 .story-pack--private .story-pack__hero { margin-inline: -26px; padding-inline: 26px; }
 
+/* Keep the tablet two-column receipt balanced: the public narrative hero
+   should not bleed through the page gutter while the evidence column remains inset. */
+@media (min-width: 761px) and (max-width: 1180px) {
+  .story-pack--public .story-pack__hero {
+    margin-inline: 0;
+    padding-inline: clamp(28px, 4vw, 58px);
+  }
+}
+
 @media (max-width: 760px) {
   .source-health-strip { grid-template-columns: 1fr 1fr; }
   .source-health-strip > .section-index { grid-column: 1 / -1; border-right: 0; border-bottom: 1px solid var(--line); }

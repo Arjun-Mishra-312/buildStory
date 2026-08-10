@@ -159,6 +159,35 @@ test("chapters: publishing a second chapter computes and freezes its delta, and 
   assert.equal(rolledUpComments[0]?.chapterIndex, 1, "the comment is tagged with the chapter it was actually posted on");
 });
 
+test("legacy private reports remain readable through their durable project owner", async () => {
+  const owner = await d1Ingestion.ensureUser(ownerSession);
+  const database = localD1.database;
+  const projectId = "prj_legacy_owner_access";
+  const reportId = "rpt_legacy_owner_access";
+  const sessionId = `${reportId}_session`;
+  const now = new Date().toISOString();
+
+  database.prepare(
+    `INSERT INTO buildstory_projects (id, owner_user_id, slug, name, repository_fingerprint, fingerprint_basis, first_scan_at, last_scan_at, story_count, latest_session_count, latest_commit_count, latest_active_days, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?)`,
+  ).run(projectId, owner.id, "legacy-owner-access", "Legacy owner access", "sha256:" + "d".repeat(64), "local-path", now, now, orbitNotesSnapshot.git.commits, orbitNotesSnapshot.timeWindow.activeDays, now, now);
+
+  const snapshot = JSON.stringify({ ...structuredClone(orbitNotesSnapshot), identity: { ...orbitNotesSnapshot.identity, id: projectId, slug: "legacy-owner-access" } });
+  database.prepare(
+    `INSERT INTO buildstory_upload_sessions (id, creator_id, owner_user_id, project_label, status, created_at, expires_at, report_id, status_detail, device_code_hash, device_code_attempts, updated_at)
+     VALUES (?, ?, NULL, ?, 'report_ready', ?, ?, ?, ?, ?, 0, ?)`,
+  ).run(sessionId, "legacy:chapters-owner", "Legacy owner access", now, new Date(Date.now() + 86_400_000).toISOString(), reportId, "Private report ready for review.", `${reportId}-device-hash`, now);
+  database.prepare(
+    `INSERT INTO buildstory_reports (id, creator_id, owner_user_id, project_id, upload_session_id, status, created_at, ready_at, source_snapshot_json, snapshot_json, selected_public_fields_json, editorial_tagline, editorial_description, editorial_reflection, category, publication_status, publication_slug, updated_at)
+     VALUES (?, ?, NULL, ?, ?, 'ready', ?, ?, ?, ?, ?, ?, ?, ?, 'web-apps', 'not_published', ?, ?)`,
+  ).run(reportId, "legacy:chapters-owner", projectId, sessionId, now, now, snapshot, snapshot, JSON.stringify(["tagline"]), "Legacy owner access", "A legacy report.", "Testing durable owner fallback.", "legacy-owner-access", now);
+
+  const report = await d1Ingestion.getReport(ownerSession.creatorId, reportId);
+  assert.equal(report.id, reportId);
+  const sessions = await d1Ingestion.listUploadSessions(ownerSession.creatorId);
+  assert.equal(sessions.some((session) => session.id === sessionId), true);
+});
+
 test.after(async () => {
   localD1.close();
   __setD1ForTests(null);

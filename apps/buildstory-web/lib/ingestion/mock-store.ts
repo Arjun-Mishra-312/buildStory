@@ -2158,7 +2158,7 @@ export function listProjectStatsForLeaderboard(): Array<{
 }> {
   const publishedStoryCounts = new Map<string, number>();
   for (const report of store.reports.values()) {
-    if (report.publication.status !== "published") continue;
+    if (report.publication.status !== "published" && report.publication.status !== "draft_changes") continue;
     publishedStoryCounts.set(report.projectId, (publishedStoryCounts.get(report.projectId) ?? 0) + 1);
   }
   return Array.from(store.projects.values())

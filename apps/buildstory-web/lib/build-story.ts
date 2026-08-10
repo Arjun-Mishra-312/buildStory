@@ -8,6 +8,22 @@ import { DEFAULT_STORY_BACKGROUND_ID, isStoryBackgroundId, type StoryBackgroundI
 export type BuildStoryViewModel = ReturnType<typeof buildStoryFromSnapshot>;
 export type PublicBuildStoryViewModel = ReturnType<typeof publicBuildStoryFromSnapshot>;
 
+/**
+ * Story packs are persisted with reports, so the renderer must tolerate a
+ * pack written before a field was introduced. In particular, v2 packs from
+ * the first narrative rollout have no deterministic `signals` array. Keep the
+ * original prose and evidence intact while giving every consumer a safe
+ * empty collection for the newer section.
+ */
+export function normalizeReportStoryPack(pack: ReportStoryPack | null | undefined): ReportStoryPack | null {
+  if (!pack || typeof pack !== "object") return null;
+  const legacy = pack as ReportStoryPack & { signals?: unknown };
+  return {
+    ...pack,
+    signals: Array.isArray(legacy.signals) ? legacy.signals : [],
+  } as ReportStoryPack;
+}
+
 function costShares(models: ProjectSnapshot["usage"]["models"]): Map<string, number | null> {
   const priced = models.filter((model) => model.costMicroUsd !== null);
   const total = priced.reduce((sum, model) => sum + (model.costMicroUsd ?? 0), 0);
@@ -119,7 +135,14 @@ export function buildStoryFromSnapshot(snapshot: ProjectSnapshot) {
     provenance: snapshot.provenance,
     ...(snapshot.sourceSelection ? { sourceSelection: snapshot.sourceSelection } : {}),
     profile: snapshot.builderProfile ?? null,
-    narrative: snapshot.narrative ?? null,
+    narrative: snapshot.narrative
+      ? {
+          ...snapshot.narrative,
+          ...(snapshot.narrative.storyPack
+            ? { storyPack: normalizeReportStoryPack(snapshot.narrative.storyPack) ?? undefined }
+            : {}),
+        }
+      : null,
     // Reports persisted before signals existed on ProjectSnapshot have no
     // signals array in their stored JSON despite the type saying otherwise -
     // default so every downstream .length/.map/[0] stays safe.

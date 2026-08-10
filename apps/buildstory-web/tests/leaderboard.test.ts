@@ -128,6 +128,23 @@ test("leaderboard: counts every published chapter while scoring each project onc
   assert.equal(entry!.score, 8);
 });
 
+test("leaderboard: a published story in draft_changes remains counted", async () => {
+  const creatorId = "dev:leaderboard-draft-changes";
+  const user = ensureUser({
+    creatorId,
+    name: "Leaderboard Draft Changes",
+    email: "draft-changes@buildstory.local",
+    image: null,
+  });
+
+  const reportId = await publishSnapshotForUser(creatorId, 5);
+  updateReport(creatorId, reportId, { editorial: { tagline: "Edited but still public" } });
+
+  const entry = getLeaderboard("all-time", 100).find((candidate) => candidate.user.id === user.id);
+  assert.ok(entry, "a story with saved public edits should remain on the leaderboard");
+  assert.equal(entry!.storyCount, 1);
+});
+
 test("leaderboard: unpublished reports never contribute", async () => {
   const draftCreatorId = "dev:leaderboard-draft-only";
   const draftUser = ensureUser({
