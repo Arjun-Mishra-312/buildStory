@@ -64,7 +64,12 @@ export function billingUpdateFromSubscription(subscription: Stripe.Subscription)
     subscriptionStatus: subscription.status,
     billingInterval: interval === "month" ? "month" : interval === "year" ? "year" : null,
     currentPeriodEnd: item ? new Date(item.current_period_end * 1000).toISOString() : null,
-    cancelAtPeriodEnd: subscription.cancel_at_period_end,
+    // The legacy cancel_at_period_end boolean is not reliably set by the
+    // Customer Portal on this API version - a scheduled cancellation shows up
+    // as `cancel_at` (a timestamp, equal to the period end) instead. Treat
+    // either as "scheduled to cancel" - confirmed against a live production
+    // event where cancel_at_period_end was false but cancel_at was set.
+    cancelAtPeriodEnd: subscription.cancel_at_period_end || subscription.cancel_at !== null,
     plan: subscription.status === "active" || subscription.status === "trialing" ? "pro" : "free",
   };
 }

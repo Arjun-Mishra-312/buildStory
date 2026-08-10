@@ -419,6 +419,56 @@ export const llmBudgets = sqliteTable(
   ],
 );
 
+/**
+ * Rolling per-user, per-period count for a monthly-capped Pro perk. Same
+ * period_key convention as buildstory_llm_budgets ("YYYY-MM", UTC), and the
+ * same reason: a cap resets month to month with no cron job to zero it out.
+ * One table for every count-based feature budget (feature = "rescan" |
+ * "highlight" today) rather than a near-duplicate table per feature.
+ */
+export const featureBudgets = sqliteTable(
+  "buildstory_feature_budgets",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    periodKey: text("period_key").notNull(),
+    feature: text("feature").notNull(),
+    count: integer("count").notNull().default(0),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_buildstory_feature_budgets_user_period_feature").on(
+      table.userId,
+      table.periodKey,
+      table.feature,
+    ),
+  ],
+);
+
+/**
+ * A Pro-only spotlight on a published report: shows on Explore's additive
+ * "Pro Picks" rail (never reorders the real organic ranking) until
+ * expiresAt. Expiry is read-time filtering (WHERE expires_at > now), the
+ * same lazy-staleness pattern already used by the leaderboard, rather than a
+ * new cron sweep.
+ */
+export const reportHighlights = sqliteTable(
+  "buildstory_report_highlights",
+  {
+    id: text("id").primaryKey(),
+    reportId: text("report_id")
+      .notNull()
+      .references(() => reports.id, { onDelete: "cascade" }),
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull(),
+    expiresAt: text("expires_at").notNull(),
+  },
+  (table) => [index("idx_buildstory_report_highlights_expires").on(table.expiresAt)],
+);
+
 /** No self-follow, no duplicate follow - both enforced in the store layer, not here. */
 export const follows = sqliteTable(
   "buildstory_follows",

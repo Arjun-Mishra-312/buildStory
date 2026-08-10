@@ -868,6 +868,22 @@ export async function listContentReports(status?: ContentReportStatus, limit = 5
   return (rows.results as Array<Parameters<typeof contentReportFromRow>[0]>).map(contentReportFromRow);
 }
 
+export async function getContentReport(reportId: string): Promise<ContentReportRecord | null> {
+  const db = await database();
+  const row = await db.prepare("SELECT * FROM buildstory_content_reports WHERE id = ?").bind(reportId).first();
+  return row ? contentReportFromRow(row as Parameters<typeof contentReportFromRow>[0]) : null;
+}
+
+/** Moderator enforcement for an actioned comment report: hides the comment (its body already reads back null once status != 'visible'). */
+export async function moderatorHideComment(commentId: string): Promise<void> {
+  const db = await database();
+  const now = new Date().toISOString();
+  await db
+    .prepare("UPDATE buildstory_comments SET status = 'hidden', updated_at = ? WHERE id = ? AND status = 'visible'")
+    .bind(now, commentId)
+    .run();
+}
+
 export async function resolveContentReport(reportId: string, status: ContentReportStatus, actorUserId?: string): Promise<void> {
   if (status === "open") {
     throw new SocialError("invalid_status", "A report cannot be resolved back to open.", 422);

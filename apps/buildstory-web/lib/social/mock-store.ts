@@ -645,6 +645,19 @@ export function listContentReports(status?: ContentReportStatus, limit = 50, cur
     .slice(0, bounded);
 }
 
+export function getContentReport(reportId: string): ContentReportRecord | null {
+  return store.contentReports.get(reportId) ?? null;
+}
+
+/** Moderator enforcement for an actioned comment report: hides the comment. */
+export function moderatorHideComment(commentId: string): void {
+  const comment = store.comments.get(commentId);
+  if (comment && comment.status === "visible") {
+    comment.status = "hidden";
+    comment.updatedAt = new Date().toISOString();
+  }
+}
+
 export function resolveContentReport(reportId: string, status: ContentReportStatus, actorUserId?: string): void {
   void actorUserId;
   if (status === "open") {

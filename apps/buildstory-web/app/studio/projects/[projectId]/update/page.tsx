@@ -4,8 +4,8 @@ import { OllamaModelStatus } from "@/components/creator/ollama-model-status";
 import { ScannerConnectionFlow } from "@/components/creator/scanner-connection-flow";
 import { requireCreator } from "@/lib/auth/runtime";
 import { isHostedCliEnabled, isLocalApiEnabled } from "@/lib/ingestion/local-api";
-import { ensureUser, getProjectDetail, listUploadSessions } from "@/lib/ingestion/store";
-import { cloudNarrativeAvailable } from "@/lib/narrative/entitlement";
+import { ensureUser, getFeatureBudgetCount, getProjectDetail, listUploadSessions } from "@/lib/ingestion/store";
+import { cloudNarrativeAvailable, effectivePlan } from "@/lib/narrative/entitlement";
 
 export const metadata: Metadata = { title: "Scan for updates" };
 
@@ -38,6 +38,8 @@ export default async function UpdateProjectPage({ params }: PageProps) {
   const hosted = isHostedCliEnabled();
   const localDiscovery = isLocalApiEnabled();
   const hostedOrigin = hosted ? new URL(process.env.BUILDSTORY_PUBLIC_ORIGIN!).host : null;
+  const isPro = effectivePlan(user.plan) === "pro";
+  const rescansUsed = isPro ? null : await getFeatureBudgetCount(user.id, "rescan");
 
   return (
     <main className="creator-page connect-page">
@@ -61,6 +63,12 @@ export default async function UpdateProjectPage({ params }: PageProps) {
         <strong>Same repository required.</strong>
         <span>The scan must come from the repository your earlier chapters were built from. A different repository is rejected before it ever creates a new report.</span>
       </div>
+      {rescansUsed !== null ? (
+        <p className={rescansUsed >= 3 ? "auth-notice auth-notice--error" : "auth-notice"}>
+          {rescansUsed} of 3 free project updates used this month.
+          {rescansUsed >= 3 ? " Upgrade to Pro for unlimited updates." : ""}
+        </p>
+      ) : null}
       <OllamaModelStatus discoveryAvailable={localDiscovery} cloudAvailable={await cloudNarrativeAvailable(user.id)} />
       <div data-guide="update-progress"><ScannerConnectionFlow
         initialSessions={sessions}

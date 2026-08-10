@@ -1,5 +1,6 @@
 import type {
   BillingUpdate,
+  FeatureBudgetName,
   GeneratedReport,
   PublicFieldKey,
   ReportMediaKind,
@@ -93,6 +94,22 @@ export async function findUserIdByStripeCustomerId(stripeCustomerId: string) {
 
 export async function applyBillingUpdate(userId: string, update: BillingUpdate) {
   return (await backend()).applyBillingUpdate(userId, update);
+}
+
+export async function getFeatureBudgetCount(userId: string, feature: FeatureBudgetName) {
+  return (await backend()).getFeatureBudgetCount(userId, feature);
+}
+
+export async function incrementFeatureBudget(userId: string, feature: FeatureBudgetName) {
+  return (await backend()).incrementFeatureBudget(userId, feature);
+}
+
+export async function createHighlight(userId: string, reportId: string) {
+  return (await backend()).createHighlight(userId, reportId);
+}
+
+export async function getActiveHighlights(limit?: number) {
+  return (await backend()).getActiveHighlights(limit);
 }
 
 export async function getIdentityForUser(userId: string, provider: string) {
@@ -210,6 +227,18 @@ export async function publishReport(creatorId: string, reportId: string) {
 
 export async function unpublishReport(creatorId: string, reportId: string) {
   return (await backend()).unpublishReport(creatorId, reportId);
+}
+
+export async function moderatorUnpublishReport(reportId: string) {
+  return (await backend()).moderatorUnpublishReport(reportId);
+}
+
+export async function setUserRoleByHandle(handle: string, role: "member" | "moderator" | "admin") {
+  return (await backend()).setUserRoleByHandle(handle, role);
+}
+
+export async function setUserStatusById(userId: string, status: "active" | "suspended") {
+  return (await backend()).setUserStatusById(userId, status);
 }
 
 export async function publicationStatusForProject(

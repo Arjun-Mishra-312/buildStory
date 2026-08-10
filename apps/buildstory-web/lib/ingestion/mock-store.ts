@@ -18,9 +18,11 @@ import { builderRoleLabel, isBuilderRole, type BuilderRole } from "@/lib/identit
 import { GUIDE_VERSION, isGuideKey, isGuideState, type GuideKey, type GuideState, type GuidanceRecord } from "@/lib/guidance/contracts";
 import { compareExploreRows, decodeExploreCursor, encodeExploreCursor, isAfterExploreCursor } from "./explore-cursor";
 import type {
+  ActiveHighlight,
   BillingProfile,
   BillingUpdate,
   DeviceAuthorization,
+  FeatureBudgetName,
   GeneratedReport,
   LocalReportSummary,
   NarrativeRecord,
@@ -129,6 +131,14 @@ type StoredIdentity = {
   createdAt: string;
 };
 
+type StoredHighlight = {
+  id: string;
+  reportId: string;
+  ownerUserId: string;
+  createdAt: string;
+  expiresAt: string;
+};
+
 type MockStore = {
   sessions: Map<string, StoredUploadSession>;
   reports: Map<string, GeneratedReport>;
@@ -141,6 +151,9 @@ type MockStore = {
   identities: Map<string, StoredIdentity>;
   publicStoryIndex: Map<string, { story: PublicBuildStoryViewModel & { chapterDelta: ChapterDelta | null }; category: string; searchText: string; hasLiveDemo: boolean; updatedAt: string }>;
   guidance: Map<string, GuidanceRecord>;
+  /** Keyed by `${userId}:${periodKey}:${feature}`. */
+  featureBudgets: Map<string, number>;
+  reportHighlights: Map<string, StoredHighlight>;
 };
 
 type StoreGlobal = typeof globalThis & {
@@ -170,7 +183,13 @@ function createSeedStore(): MockStore {
     status: "active",
     handleChangedAt: null,
     onboardingCompletedAt: now,
-    plan: "free",
+    // Pro, not free: this seed identity doubles as the BUILDSTORY_DEV_AUTH_BYPASS
+    // session (see auth.ts) and is reused across many unrelated test files that
+    // rescan/re-upload against it repeatedly - a free-tier cap on it would make
+    // those tests (and local dev under the bypass) trip a limit they aren't
+    // testing. Plan-specific behavior (free vs pro) has its own dedicated
+    // fixtures via ensureUser() elsewhere; this seed account isn't one of them.
+    plan: "pro",
   };
   const project: StoredProject = {
     id: projectId,
@@ -287,6 +306,8 @@ function createSeedStore(): MockStore {
       updatedAt: now,
     }]]),
     guidance: new Map(),
+    featureBudgets: new Map(),
+    reportHighlights: new Map(),
     identities: new Map([[identityKey("dev", "mina-park"), {
       id: "idn_mina_park_seed",
       userId,
@@ -562,6 +583,71 @@ export function applyBillingUpdate(userId: string, update: BillingUpdate): void 
   if (update.plan !== undefined) user.plan = update.plan;
 }
 
+/** Current count for a monthly-capped feature, for the current UTC period. Zero if the user hasn't used it this period. */
+export function getFeatureBudgetCount(userId: string, feature: FeatureBudgetName): number {
+  return store.featureBudgets.get(`${userId}:${currentBudgetPeriodKey()}:${feature}`) ?? 0;
+}
+
+export function incrementFeatureBudget(userId: string, feature: FeatureBudgetName): void {
+  const key = `${userId}:${currentBudgetPeriodKey()}:${feature}`;
+  store.featureBudgets.set(key, (store.featureBudgets.get(key) ?? 0) + 1);
+}
+
+/**
+ * Spotlights a report on Explore's additive "Pro Picks" rail for
+ * HIGHLIGHT_DURATION_MS - never reorders the real organic ranking. Pro-only,
+ * capped at MONTHLY_HIGHLIGHT_CAP_PRO per month.
+ */
+export function createHighlight(userId: string, reportId: string): void {
+  const user = store.users.get(userId);
+  if (!user || effectivePlan(user.plan) !== "pro") {
+    throw new MockIngestionError("highlight_requires_pro", "Highlighting a story is a Pro benefit.", 403);
+  }
+  const report = store.reports.get(reportId);
+  if (!report || report.creatorId !== user.authSubject || !isPubliclyVisible(report.publication.status)) {
+    throw new MockIngestionError("not_found", "Published report not found.", 404);
+  }
+  const used = getFeatureBudgetCount(userId, "highlight");
+  if (used >= MONTHLY_HIGHLIGHT_CAP_PRO) {
+    throw new MockIngestionError("highlight_limit_reached", `You've used all ${MONTHLY_HIGHLIGHT_CAP_PRO} highlights for this month.`, 403);
+  }
+  const now = new Date();
+  const id = makeId("hlt");
+  store.reportHighlights.set(id, {
+    id,
+    reportId,
+    ownerUserId: userId,
+    createdAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + HIGHLIGHT_DURATION_MS).toISOString(),
+  });
+  incrementFeatureBudget(userId, "highlight");
+}
+
+/** Currently-active highlights for the Pro Picks rail, newest first. Read-time expiry (no cron sweep needed). */
+export function getActiveHighlights(limit = 6): ActiveHighlight[] {
+  const now = Date.now();
+  return Array.from(store.reportHighlights.values())
+    .filter((highlight) => Date.parse(highlight.expiresAt) > now)
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
+    .map((highlight): ActiveHighlight | null => {
+      const report = store.reports.get(highlight.reportId);
+      const owner = store.users.get(highlight.ownerUserId);
+      if (!report || !owner || !isPubliclyVisible(report.publication.status) || !report.publication.publicUrl) return null;
+      return {
+        reportId: highlight.reportId,
+        ownerHandle: owner.handle,
+        ownerDisplayName: owner.displayName,
+        tagline: report.editorial.tagline,
+        publicUrl: report.publication.publicUrl,
+        // The mock store's explore index does not model cover images separately from report media.
+        coverUrl: null,
+        expiresAt: highlight.expiresAt,
+      };
+    })
+    .filter((highlight): highlight is ActiveHighlight => highlight !== null)
+    .slice(0, limit);
+}
+
 const HANDLE_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const MAX_BIO_LENGTH = 280;
 const MAX_DISPLAY_NAME_LENGTH = 80;
@@ -703,7 +789,8 @@ export function setGuidance(userId: string, guideKey: GuideKey, guideVersion: nu
   return record;
 }
 
-function ensureProject(ownerUserId: string, fingerprint: string, fingerprintBasis: string, stats: ProjectScanStats): ProjectRecord {
+/** isExisting distinguishes a rescan of an owner's existing project from that project's first-ever scan - see acceptSnapshot's rescan-budget check, which only applies to the former. */
+function ensureProject(ownerUserId: string, fingerprint: string, fingerprintBasis: string, stats: ProjectScanStats): ProjectRecord & { isExisting: boolean } {
   const existing = Array.from(store.projects.values()).find(
     (candidate) => candidate.ownerUserId === ownerUserId && candidate.repositoryFingerprint === fingerprint,
   );
@@ -712,7 +799,7 @@ function ensureProject(ownerUserId: string, fingerprint: string, fingerprintBasi
     existing.latestSessionCount = stats.sessionCount;
     existing.latestCommitCount = stats.commitCount;
     existing.latestActiveDays = stats.activeDays;
-    return existing;
+    return { ...existing, isExisting: true };
   }
 
   const takenSlugs = new Set(
@@ -737,7 +824,7 @@ function ensureProject(ownerUserId: string, fingerprint: string, fingerprintBasi
       verifiedRepoAt: null,
     };
     store.projects.set(project.id, project);
-    return project;
+    return { ...project, isExisting: false };
   }
   throw new MockIngestionError("project_slug_generation_failed", "Could not allocate a project slug for this repository.", 500);
 }
@@ -745,6 +832,9 @@ function ensureProject(ownerUserId: string, fingerprint: string, fingerprintBasi
 const DEFAULT_MONTHLY_LLM_CAP_MICRO_USD = 1_000_000; // $1.00/month/user, subsidized default - mirrors d1-store.ts.
 const PRO_MONTHLY_LLM_CAP_MICRO_USD = 5_000_000; // $5.00/month/user - mirrors d1-store.ts; revisit before Pro is a paid tier.
 const MAX_STORED_REPORTS_PER_ACCOUNT = 500; // Mirrors d1-store.ts's anti-abuse ceiling.
+const MONTHLY_RESCAN_CAP_FREE = 3; // Mirrors d1-store.ts's free-tier rescan cap.
+const MONTHLY_HIGHLIGHT_CAP_PRO = 5; // Mirrors d1-store.ts's Pro highlight allowance.
+const HIGHLIGHT_DURATION_MS = 24 * 60 * 60 * 1000;
 
 function monthlyLlmCapMicroUsd(ownerUserId: string): number {
   const plan = store.users.get(ownerUserId)?.plan ?? "free";
@@ -967,6 +1057,16 @@ export async function createUploadSession(
   const deviceCode = makeDeviceCode();
   const owner = ownerUserId ? store.users.get(ownerUserId) : null;
   const pro = effectivePlan(owner?.plan === "pro" ? "pro" : "free") === "pro";
+  // Early, friendly check before a device-code session is even created - acceptSnapshot's
+  // ensureProject call is the authoritative enforcement point, since targetProjectId here
+  // is only a client-side hint, not the real project match.
+  if (targetProjectId && ownerUserId && !pro && getFeatureBudgetCount(ownerUserId, "rescan") >= MONTHLY_RESCAN_CAP_FREE) {
+    throw new MockIngestionError(
+      "rescan_limit_reached",
+      `Free accounts get ${MONTHLY_RESCAN_CAP_FREE} project updates a month. Upgrade to Pro for unlimited updates.`,
+      403,
+    );
+  }
   const session: StoredUploadSession = {
     id,
     creatorId,
@@ -1186,6 +1286,19 @@ export async function acceptSnapshot(
       activeDays: activeDayCount,
     },
   );
+  // Authoritative rescan-cap enforcement: targetProjectId above is only a client-side
+  // hint, so this is the one true "this counts as a rescan" moment regardless of which
+  // UI flow the client came through. A project's first-ever scan never counts.
+  if (project.isExisting) {
+    if (effectivePlan(user.plan) !== "pro" && getFeatureBudgetCount(user.id, "rescan") >= MONTHLY_RESCAN_CAP_FREE) {
+      throw new MockIngestionError(
+        "rescan_limit_reached",
+        `Free accounts get ${MONTHLY_RESCAN_CAP_FREE} project updates a month. Upgrade to Pro for unlimited updates.`,
+        403,
+      );
+    }
+    incrementFeatureBudget(user.id, "rescan");
+  }
 
   // Carry forward the previous chapter's editorial choices - without this, every
   // update would silently reset to DEFAULT_PUBLIC_FIELDS/no category/no artifact
@@ -1712,6 +1825,65 @@ export function publicationStatusForProject(creatorId: string, projectId: string
     (candidate) => candidate.creatorId === creatorId && candidate.projectId === projectId,
   );
   return report ? structuredClone(report.publication) : null;
+}
+
+/** Moderator-triggered unpublish, mirroring unpublishReport but without an ownership check. */
+export function moderatorUnpublishReport(reportId: string): void {
+  const report = store.reports.get(reportId);
+  if (!report || !isPubliclyVisible(report.publication.status)) return;
+
+  const canonicalUrl = `${publicOrigin()}/u/`;
+  const wasCanonical =
+    Boolean(report.publication.publicUrl) &&
+    report.publication.publicUrl!.startsWith(canonicalUrl) &&
+    !/\/\d+$/.test(report.publication.publicUrl!);
+
+  report.publication.status = "not_published";
+  report.publication.publishedAt = null;
+  report.publication.publicUrl = null;
+  store.publicStoryIndex.delete(reportId);
+  registerSocialReport(reportId, userIdForCreator(report.creatorId), report);
+
+  if (wasCanonical) {
+    const next = Array.from(store.reports.values())
+      .filter((candidate) => candidate.id !== reportId && candidate.projectId === report.projectId && isPubliclyVisible(candidate.publication.status))
+      .sort((left, right) => (right.publication.chapterIndex ?? 0) - (left.publication.chapterIndex ?? 0))[0];
+    if (next) {
+      const owner = store.users.get(userIdForCreator(next.creatorId) ?? "");
+      const handle = owner?.handle ?? next.snapshot.identity.owner.handle;
+      next.publication.publicUrl = `${publicOrigin()}/u/${handle}/${next.publication.slug}`;
+      registerSocialReport(next.id, userIdForCreator(next.creatorId), next);
+    }
+  }
+}
+
+/** Bootstraps or changes a moderator/admin. Handle-based since that's the only identifier an operator has on hand. */
+export function setUserRoleByHandle(
+  handle: string,
+  role: "member" | "moderator" | "admin",
+): { id: string; handle: string; role: string } {
+  const user = Array.from(store.users.values()).find(
+    (candidate) => candidate.handleLower === handle.trim().toLocaleLowerCase("en-US"),
+  );
+  if (!user) throw new MockIngestionError("not_found", "No user with that handle.", 404);
+  user.role = role;
+  registerSocialProfile(user);
+  return { id: user.id, handle: user.handle, role: user.role };
+}
+
+/**
+ * Flips account status. Suspension relies on the account_suspended checks
+ * already scattered through this file (ensureUser and friends) - this is
+ * the missing piece that actually sets the status those checks read.
+ */
+export function setUserStatusById(
+  userId: string,
+  status: "active" | "suspended",
+): { id: string; handle: string; status: string } {
+  const user = store.users.get(userId);
+  if (!user) throw new MockIngestionError("not_found", "User not found.", 404);
+  user.status = status;
+  return { id: user.id, handle: user.handle, status: user.status };
 }
 
 export function renameProjectSlug(creatorId: string, projectId: string, requestedSlug: string): ProjectRecord {

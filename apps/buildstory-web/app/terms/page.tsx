@@ -61,6 +61,8 @@ const sections: LegalSection[] = [
     paragraphs: [
       "Pro adds the layered deep-analysis report for Buildstory Cloud and BYOK OpenRouter/OpenAI, including broader reviewed evidence, source-linked findings, risks, recommendations, and chapter-over-chapter observations. The launch promotion currently grants the deep tier to every account; ending it activates the durable Free/Pro distinction without changing existing reports.",
       "Local Ollama produces the standard-depth report, but its evidence capacity is not plan-gated: the scanner automatically selects a safe, balanced, or enhanced profile from the machine's available RAM and logical CPUs. Deep remains a cloud/BYOK pipeline because it depends on two high-reasoning passes and reliable large structured outputs, not because Buildstory intentionally reduces Local on paid or free accounts. Every account remains subject to a fair-use ceiling of 500 stored reports — an anti-abuse measure tied to storage cost, not a scan limit.",
+      "Free accounts may re-scan an existing project up to 3 times a month; Pro accounts are unlimited. This is separate from the 500-report ceiling above and resets monthly. A project's first scan is never counted or limited on any plan.",
+      "Pro accounts may spotlight up to 5 published stories a month, each shown on Explore's \"Pro Picks\" rail for 24 hours. This is a clearly labeled, additive placement — it never changes Explore's organic ranking or the leaderboard described in Section 7, and confers no advantage there.",
     ],
   },
   {

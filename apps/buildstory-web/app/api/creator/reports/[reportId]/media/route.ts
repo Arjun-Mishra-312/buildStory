@@ -3,6 +3,7 @@ import { ingestionErrorResponse, jsonError, requireApiCreator } from "@/lib/api/
 import { addReportMedia, getReport, listReportMedia } from "@/lib/ingestion/store";
 import { sniffImageType, stripJpegExif } from "@/lib/media/image";
 import { mediaObjectKey } from "@/lib/media/url";
+import { moderateImageBytes } from "@/lib/moderation/image-moderation";
 import { assertSameOriginBrowserMutation } from "@/lib/security/browser-request";
 import { checkRateLimit } from "@/lib/social/rate-limit-dispatch";
 
@@ -74,6 +75,9 @@ export async function POST(request: Request, context: RouteContext) {
       // wider ArrayBufferLike stripJpegExif's signature allows) - R2Bucket.put() requires that.
       bytes = new Uint8Array(stripJpegExif(bytes));
     }
+
+    // Content-based check, ahead of ever touching R2 - nothing lands in storage unreviewed.
+    await moderateImageBytes(bytes, sniffed);
 
     const filename = `${crypto.randomUUID()}.${EXTENSION_BY_TYPE[sniffed]}`;
     const r2Key = mediaObjectKey(reportId, filename);

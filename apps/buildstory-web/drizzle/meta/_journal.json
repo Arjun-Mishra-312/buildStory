@@ -169,6 +169,13 @@
       "when": 1786400000000,
       "tag": "0023_stripe_billing",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1786450000000,
+      "tag": "0024_feature_budgets",
+      "breakpoints": true
     }
   ]
 }

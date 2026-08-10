@@ -38,7 +38,10 @@ export async function POST(request: Request) {
         const userId = session.client_reference_id ?? undefined;
         const subscriptionId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
         const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
-        if (!userId || !subscriptionId || !customerId) break;
+        if (!userId || !subscriptionId || !customerId) {
+          logOperationalEvent("error", "billing.webhook_user_unresolved");
+          break;
+        }
         const subscription = await stripe.subscriptions.retrieve(subscriptionId);
         await applyBillingUpdate(userId, {
           stripeCustomerId: customerId,
@@ -49,14 +52,20 @@ export async function POST(request: Request) {
       case "customer.subscription.updated": {
         const subscription = event.data.object;
         const userId = await resolveUserId(subscription);
-        if (!userId) break;
+        if (!userId) {
+          logOperationalEvent("error", "billing.webhook_user_unresolved");
+          break;
+        }
         await applyBillingUpdate(userId, billingUpdateFromSubscription(subscription));
         break;
       }
       case "customer.subscription.deleted": {
         const subscription = event.data.object;
         const userId = await resolveUserId(subscription);
-        if (!userId) break;
+        if (!userId) {
+          logOperationalEvent("error", "billing.webhook_user_unresolved");
+          break;
+        }
         await applyBillingUpdate(userId, {
           plan: "free",
           stripeSubscriptionId: null,

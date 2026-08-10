@@ -25,7 +25,7 @@ const REQUIRED_VARS = [
 ];
 
 /** Secrets belong in the Worker secret store; wrangler.deploy.jsonc is committed. */
-const FORBIDDEN_VARS = ["AUTH_SECRET", "AUTH_GOOGLE_ID", "AUTH_GOOGLE_SECRET", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "BUILDSTORY_LLM_API_KEY", "BUILDSTORY_CRON_SECRET"];
+const FORBIDDEN_VARS = ["AUTH_SECRET", "AUTH_GOOGLE_ID", "AUTH_GOOGLE_SECRET", "AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "BUILDSTORY_LLM_API_KEY", "BUILDSTORY_CRON_SECRET", "BUILDSTORY_ADMIN_SECRET", "BUILDSTORY_MODERATION_API_KEY"];
 
 /**
  * Strips JSONC comments and trailing commas. Deliberately a character scanner

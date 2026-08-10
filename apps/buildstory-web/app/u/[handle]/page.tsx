@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ProfileFollowButton } from "@/components/profile-follow-button";
+import { ReportDialog } from "@/components/report-dialog";
 import { EditorialIllustration } from "@/components/editorial-illustration";
 import { getCreatorSession } from "@/lib/auth/runtime";
 import { ensureUser, listStoriesByOwner } from "@/lib/ingestion/store";
@@ -59,6 +60,9 @@ export default async function ProfilePage({ params }: PageProps) {
           <span><strong>{follow.followingCount ?? profile.followingCount}</strong> following</span>
         </div>
         <ProfileFollowButton handle={profile.handle} initialFollowed={follow.isFollowedByViewer} isSelf={viewer?.id === profile.id} />
+        {viewer && viewer.id !== profile.id ? (
+          <ReportDialog targetType="user" targetId={profile.id} label="Report this profile" />
+        ) : null}
         {viewer?.id === profile.id ? (
           <div className="profile-card__owner-actions" aria-label="Profile owner actions">
             <Link className="button button--secondary button--small" href="/studio/settings">Edit profile</Link>

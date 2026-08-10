@@ -125,6 +125,14 @@ export async function listContentReports(status?: ContentReportStatus, limit?: n
   return (await backend()).listContentReports(status, limit, cursor);
 }
 
+export async function getContentReport(reportId: string) {
+  return (await backend()).getContentReport(reportId);
+}
+
 export async function resolveContentReport(reportId: string, status: ContentReportStatus, actorUserId?: string) {
   return (await backend()).resolveContentReport(reportId, status, actorUserId);
+}
+
+export async function moderatorHideComment(commentId: string) {
+  return (await backend()).moderatorHideComment(commentId);
 }

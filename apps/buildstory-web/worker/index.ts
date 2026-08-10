@@ -11,7 +11,10 @@ interface Env {
   MEDIA?: R2Bucket;
   NARRATIVE_QUEUE: Queue<{ narrativeId: string }>;
   BUILDSTORY_ALLOWED_HOSTS?: string;
-  IMAGES: {
+  // Optional: no `images` binding is declared in wrangler.deploy.jsonc today
+  // (next/image is unused across the app - only plain <img> tags), so this is
+  // guarded rather than required. Add the binding before adopting next/image.
+  IMAGES?: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
         output(options: { format: string; quality: number }): Promise<{ response(): Response }>;
@@ -146,11 +149,15 @@ const worker = {
     if (rejected) return secured(rejected, request);
 
     if (url.pathname === "/_vinext/image") {
+      if (!env.IMAGES) {
+        return secured(new Response("Image optimization is not configured on this deployment.", { status: 501 }), request);
+      }
+      const images = env.IMAGES;
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
       const response = await handleImageOptimization(request, {
         fetchAsset: (path) => env.ASSETS.fetch(new Request(new URL(path, request.url))),
         transformImage: async (body, { width, format, quality }) => {
-          const result = await env.IMAGES.input(body).transform(width > 0 ? { width } : {}).output({ format, quality });
+          const result = await images.input(body).transform(width > 0 ? { width } : {}).output({ format, quality });
           return result.response();
         },
       }, allowedWidths);

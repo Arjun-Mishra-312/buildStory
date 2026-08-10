@@ -52,7 +52,7 @@ test("getBillingProfile/applyBillingUpdate round-trip Stripe subscription state 
   assert.equal(downgraded?.stripeCustomerId, "cus_store_test", "the Stripe customer is kept so a later resubscribe reuses it");
 });
 
-function fakeSubscriptionEvent(overrides: Partial<{ status: string; customer: string; cancelAtPeriodEnd: boolean; metadata: Record<string, string> }> = {}) {
+function fakeSubscriptionEvent(overrides: Partial<{ status: string; customer: string; cancelAtPeriodEnd: boolean; cancelAt: number | null; metadata: Record<string, string> }> = {}) {
   return {
     id: "evt_test_subscription",
     object: "event",
@@ -69,6 +69,7 @@ function fakeSubscriptionEvent(overrides: Partial<{ status: string; customer: st
         status: overrides.status ?? "active",
         customer: overrides.customer ?? "cus_webhook_test",
         cancel_at_period_end: overrides.cancelAtPeriodEnd ?? false,
+        cancel_at: overrides.cancelAt ?? null,
         metadata: overrides.metadata ?? {},
         items: {
           data: [
@@ -133,6 +134,26 @@ test("customer.subscription.updated moves the linked account to pro and back to 
   const canceled = await webhook(await signedRequest(fakeSubscriptionEvent({ customer: "cus_webhook_flow", status: "canceled" })));
   assert.equal(canceled.status, 200);
   assert.equal(getBillingProfile(user.id)?.plan, "free");
+});
+
+test("a Portal cancellation is detected via cancel_at even when cancel_at_period_end is false", async () => {
+  // Regression test for a production bug: this Stripe API version's Customer
+  // Portal sets `cancel_at` to the period-end timestamp on a scheduled
+  // cancellation but leaves the legacy `cancel_at_period_end` boolean false.
+  const user = ensureUser({ creatorId: "dev:billing-webhook-cancel-at-user", name: "Billing Webhook Cancel At User", email: "billing-webhook-cancel-at@buildstory.local", image: null });
+  applyBillingUpdate(user.id, { stripeCustomerId: "cus_webhook_cancel_at", stripeSubscriptionId: "sub_webhook_cancel_at", subscriptionStatus: "active", plan: "pro" });
+
+  const futureTimestamp = Math.floor(Date.now() / 1000) + 30 * 86_400;
+  const response = await webhook(
+    await signedRequest(
+      fakeSubscriptionEvent({ customer: "cus_webhook_cancel_at", status: "active", cancelAtPeriodEnd: false, cancelAt: futureTimestamp }),
+    ),
+  );
+  assert.equal(response.status, 200);
+
+  const profile = getBillingProfile(user.id);
+  assert.equal(profile?.plan, "pro", "still active until the period ends");
+  assert.equal(profile?.cancelAtPeriodEnd, true, "cancel_at being set must be treated as a scheduled cancellation");
 });
 
 test("customer.subscription.deleted clears subscription state but keeps the Stripe customer", async () => {

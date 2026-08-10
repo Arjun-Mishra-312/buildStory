@@ -98,7 +98,11 @@ export function BillingSettings({ plan, billingInterval, currentPeriodEnd, cance
             <span>FREE</span>
             <strong>Upgrade to Pro</strong>
           </header>
-          <p>Deeper AI-generated reports and a higher monthly cloud-analysis budget, for $5/month.</p>
+          <p>
+            Deeper, richer AI-generated reports with a higher monthly analysis budget. Unlimited project
+            re-scans (free accounts get 3/month). Spotlight up to 5 stories a month on Explore&apos;s Pro
+            Picks rail for 24 hours each. $5/month.
+          </p>
           {error ? <p className="comment-thread__error">{error}</p> : null}
           <button className="button button--primary" type="button" onClick={() => void upgrade("month")} disabled={busyInterval !== null}>
             {busyInterval === "month" ? "Starting checkout…" : "Upgrade monthly"}

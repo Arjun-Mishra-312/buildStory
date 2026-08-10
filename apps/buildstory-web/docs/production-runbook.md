@@ -82,14 +82,20 @@ The scanner accepts a hosted ingestion destination only when explicitly pinned p
 4. Apply forward-compatible migrations before routing traffic to code that needs them. Keep the previous application version available until readiness and public-route smoke tests pass. On the first run against a hand-migrated database, pass `--baseline <last-applied-tag>`; see `wrangler.deploy.jsonc` for how the current value was measured.
 5. Configure edge rate limits for Auth.js, creator mutation paths, and `/api/v1/cli/*` (now reachable in production). Do not add CORS allowances for CLI routes.
 6. Deploy only with explicit user/release approval. After deployment, verify health, readiness, Google callback, owner isolation, edit/publish, and a sanitized public projection.
-7. **First launch only — promote the operator to moderator.** Every account is created with `role = 'member'` and there is no in-product promotion path, so without this step `/studio/moderation` and `/api/content-reports` are unreachable by anyone and filed content reports can never be actioned. After the operator signs in for the first time (so their `buildstory_users` row exists), run:
+7. **First launch only — promote the operator to admin.** Every account is created with `role = 'member'`, and every self-service role route (`/studio/admin`, `PATCH /api/admin/users/[handle]/role`) requires an existing admin to call it - so without this step nobody can ever reach `/studio/moderation`, `/studio/admin`, or action a filed content report. Set the bootstrap secret, then call the bootstrap-only route once after the operator has signed in for the first time (so their `buildstory_users` row exists):
 
    ```powershell
-   npx wrangler d1 execute buildstory-d1 --remote -c wrangler.deploy.jsonc `
-     --command "UPDATE buildstory_users SET role = 'admin' WHERE handle = '<operator-handle>'"
+   npx wrangler secret put BUILDSTORY_ADMIN_SECRET -c wrangler.deploy.jsonc
    ```
 
-   Replace `<operator-handle>` with the operator's own Buildstory handle. Confirm with a read-only `SELECT id, handle, role FROM buildstory_users WHERE handle = '<operator-handle>'` before and after.
+   ```powershell
+   curl -X POST https://buildstory.dev/api/internal/users/role `
+     -H "authorization: Bearer <the secret you just set>" `
+     -H "content-type: application/json" `
+     -d "{\"handle\": \"<operator-handle>\", \"role\": \"admin\"}"
+   ```
+
+   Replace `<operator-handle>` with the operator's own Buildstory handle. From then on, manage additional moderators/admins from `/studio/admin` while signed in as that admin - the bootstrap route stays available (it's cheap to leave configured; delete the secret with `wrangler secret delete BUILDSTORY_ADMIN_SECRET` if you'd rather close it after the first promotion).
 
 ## Enable Buildstory Cloud (optional, subsidized narrative path)
 
@@ -114,6 +120,18 @@ To turn Buildstory Cloud back off later (e.g. cost control), delete the secret r
 ```powershell
 npx wrangler secret delete BUILDSTORY_OPENROUTER_API_KEY -c wrangler.deploy.jsonc
 ```
+
+## Enable automated image moderation (required before allowing report media uploads)
+
+Report cover/screenshot images (`POST /api/creator/reports/[reportId]/media`) are the only user-uploaded images on the platform. They are scanned with OpenAI's free `omni-moderation-latest` endpoint synchronously, before the bytes ever reach R2 - there is no async review queue for images, so this check **fails closed**: without `BUILDSTORY_MODERATION_API_KEY` configured, every media upload is rejected with `503 moderation_unavailable` rather than being stored unreviewed.
+
+```powershell
+npx wrangler secret put BUILDSTORY_MODERATION_API_KEY -c wrangler.deploy.jsonc
+```
+
+The key is a standard OpenAI API key (`https://platform.openai.com/api-keys`); the moderation endpoint itself is free to call. This is intentionally a separate key from `BUILDSTORY_OPENROUTER_API_KEY` (narrative generation) - it is billed and rate-limited independently, and rotating one never affects the other. After setting it, confirm with a real upload from `/studio/connect` that both a normal image succeeds and (optionally) that the endpoint responds `422 image_flagged` for content that should be blocked.
+
+A flagged upload is rejected outright; nothing lands in R2 or `buildstory_report_media`. The moderator queue (`/studio/moderation`) remains the review path for content that gets past this check or is flagged after the fact by another user (via "Report").
 
 ## Enable Stripe billing (optional, Pro subscriptions)
 

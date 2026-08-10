@@ -13,9 +13,11 @@ import { sanitizePublicText } from "@/lib/publication/sanitization";
 import { computeChapterDelta, publicChapterDelta, type ChapterDelta } from "@/lib/story/chapter-delta";
 import { MAX_MEDIA_PER_REPORT, PUBLIC_FIELD_KEYS } from "./contracts";
 import type {
+  ActiveHighlight,
   BillingProfile,
   BillingUpdate,
   DeviceAuthorization,
+  FeatureBudgetName,
   GeneratedReport,
   LocalReportSummary,
   NarrativeRecord,
@@ -49,6 +51,11 @@ const DEFAULT_MONTHLY_LLM_CAP_MICRO_USD = 1_000_000; // $1.00/month/user, subsid
 const PRO_MONTHLY_LLM_CAP_MICRO_USD = 5_000_000; // $5.00/month/user - a first number, not a considered business decision; revisit before Pro is a paid tier.
 /** Anti-abuse ceiling on stored reports per account - see acceptSnapshot. Same on every plan; storage cost is ours regardless of tier. */
 const MAX_STORED_REPORTS_PER_ACCOUNT = 500;
+/** Free-tier monthly cap on re-scanning an existing project; Pro is unlimited. First-time project scans are never capped. */
+const MONTHLY_RESCAN_CAP_FREE = 3;
+/** Pro-only monthly allowance for spotlighting a story on Explore's Pro Picks rail. */
+const MONTHLY_HIGHLIGHT_CAP_PRO = 5;
+const HIGHLIGHT_DURATION_MS = 24 * 60 * 60 * 1000;
 
 function monthlyLlmCapMicroUsd(plan: "free" | "pro"): number {
   return effectivePlan(plan) === "pro" ? PRO_MONTHLY_LLM_CAP_MICRO_USD : DEFAULT_MONTHLY_LLM_CAP_MICRO_USD;
@@ -833,6 +840,93 @@ export async function applyBillingUpdate(userId: string, update: BillingUpdate):
   await db.prepare(`UPDATE buildstory_users SET ${sets.join(", ")} WHERE id = ?`).bind(...values).run();
 }
 
+/** Current count for a monthly-capped feature, for the current UTC period. Zero if the user hasn't used it this period. */
+export async function getFeatureBudgetCount(userId: string, feature: FeatureBudgetName): Promise<number> {
+  const db = await database();
+  const row = await db
+    .prepare("SELECT count FROM buildstory_feature_budgets WHERE user_id = ? AND period_key = ? AND feature = ?")
+    .bind(userId, currentBudgetPeriodKey(), feature)
+    .first<{ count: number }>();
+  return row?.count ?? 0;
+}
+
+/** Race-safe upsert-increment for the current UTC period - a small tolerance for two concurrent requests both passing a prior budget check is acceptable for a soft, nudge-to-upgrade cap. */
+export async function incrementFeatureBudget(userId: string, feature: FeatureBudgetName): Promise<void> {
+  const db = await database();
+  const now = new Date().toISOString();
+  await db
+    .prepare(
+      `INSERT INTO buildstory_feature_budgets (user_id, period_key, feature, count, updated_at)
+       VALUES (?, ?, ?, 1, ?)
+       ON CONFLICT(user_id, period_key, feature) DO UPDATE SET count = count + 1, updated_at = excluded.updated_at`,
+    )
+    .bind(userId, currentBudgetPeriodKey(), feature, now)
+    .run();
+}
+
+/**
+ * Spotlights a report on Explore's additive "Pro Picks" rail for
+ * HIGHLIGHT_DURATION_MS - never reorders the real organic ranking (see
+ * getActiveHighlights / explorePublishedStories, which are untouched by
+ * this). Pro-only, capped at MONTHLY_HIGHLIGHT_CAP_PRO per month.
+ */
+export async function createHighlight(userId: string, reportId: string): Promise<void> {
+  const db = await database();
+  const user = await db.prepare("SELECT plan FROM buildstory_users WHERE id = ?").bind(userId).first<{ plan: string }>();
+  if (!user || effectivePlan(user.plan === "pro" ? "pro" : "free") !== "pro") {
+    throw new D1IngestionError("highlight_requires_pro", "Highlighting a story is a Pro benefit.", 403);
+  }
+  const owned = await db
+    .prepare("SELECT id FROM buildstory_reports WHERE id = ? AND owner_user_id = ? AND publication_status = 'published'")
+    .bind(reportId, userId)
+    .first();
+  if (!owned) throw new D1IngestionError("not_found", "Published report not found.", 404);
+
+  const used = await getFeatureBudgetCount(userId, "highlight");
+  if (used >= MONTHLY_HIGHLIGHT_CAP_PRO) {
+    throw new D1IngestionError("highlight_limit_reached", `You've used all ${MONTHLY_HIGHLIGHT_CAP_PRO} highlights for this month.`, 403);
+  }
+
+  const now = new Date();
+  await db
+    .prepare("INSERT INTO buildstory_report_highlights (id, report_id, owner_user_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)")
+    .bind(makeId("hlt"), reportId, userId, now.toISOString(), new Date(now.getTime() + HIGHLIGHT_DURATION_MS).toISOString())
+    .run();
+  await incrementFeatureBudget(userId, "highlight");
+}
+
+/** Currently-active highlights for the Pro Picks rail, newest first. Read-time expiry (no cron sweep needed). */
+export async function getActiveHighlights(limit = 6): Promise<ActiveHighlight[]> {
+  const db = await database();
+  const rows = await db
+    .prepare(
+      `SELECT h.report_id AS report_id, h.expires_at AS expires_at,
+              u.handle AS owner_handle, u.display_name AS owner_display_name,
+              r.editorial_tagline AS tagline, r.public_url AS public_url,
+              idx.cover_url AS cover_url
+       FROM buildstory_report_highlights h
+       JOIN buildstory_reports r ON r.id = h.report_id
+       JOIN buildstory_users u ON u.id = h.owner_user_id
+       LEFT JOIN buildstory_public_story_index idx ON idx.report_id = h.report_id
+       WHERE h.expires_at > ? AND r.publication_status = 'published'
+       ORDER BY h.created_at DESC
+       LIMIT ?`,
+    )
+    .bind(new Date().toISOString(), limit)
+    .all<{ report_id: string; expires_at: string; owner_handle: string; owner_display_name: string; tagline: string; public_url: string | null; cover_url: string | null }>();
+  return rows.results
+    .filter((row) => row.public_url)
+    .map((row) => ({
+      reportId: row.report_id,
+      ownerHandle: row.owner_handle,
+      ownerDisplayName: row.owner_display_name,
+      tagline: row.tagline,
+      publicUrl: row.public_url!,
+      coverUrl: row.cover_url,
+      expiresAt: row.expires_at,
+    }));
+}
+
 const HANDLE_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const MAX_BIO_LENGTH = 280;
 const MAX_DISPLAY_NAME_LENGTH = 80;
@@ -1032,12 +1126,13 @@ export async function setGuidance(userId: string, guideKey: GuideKey, guideVersi
  * scans, since each ProjectSnapshot already aggregates its full selected
  * time window and scan windows can overlap.
  */
+/** isExisting distinguishes a rescan of an owner's existing project from that project's first-ever scan - see acceptSnapshot's rescan-budget check, which only applies to the former. */
 export async function ensureProject(
   ownerUserId: string,
   fingerprint: string,
   fingerprintBasis: string,
   stats: ProjectScanStats,
-): Promise<ProjectRecord> {
+): Promise<ProjectRecord & { isExisting: boolean }> {
   const db = await database();
   const now = new Date().toISOString();
   const existing = await db
@@ -1063,6 +1158,7 @@ export async function ensureProject(
       slug: existing.slug,
       name: existing.name,
       repositoryFingerprint: fingerprint,
+      isExisting: true,
     };
   }
 
@@ -1105,14 +1201,15 @@ export async function ensureProject(
       )
       .run();
     if (changes(result) === 1) {
-      return { id, ownerUserId, slug: candidate, name: stats.displayName, repositoryFingerprint: fingerprint };
+      return { id, ownerUserId, slug: candidate, name: stats.displayName, repositoryFingerprint: fingerprint, isExisting: false };
     }
     const raced = await db
       .prepare("SELECT id, slug, name FROM buildstory_projects WHERE owner_user_id = ? AND repository_fingerprint = ?")
       .bind(ownerUserId, fingerprint)
       .first<{ id: string; slug: string; name: string }>();
     if (raced) {
-      return { id: raced.id, ownerUserId, slug: raced.slug, name: raced.name, repositoryFingerprint: fingerprint };
+      // Another concurrent request won the race and created it first - this is still that project's first scan, not a rescan.
+      return { id: raced.id, ownerUserId, slug: raced.slug, name: raced.name, repositoryFingerprint: fingerprint, isExisting: false };
     }
     // Otherwise the candidate slug collided within this owner; loop to the next one.
   }
@@ -1593,6 +1690,19 @@ export async function createUploadSession(
   const account = ownerUserId
     ? await (await database()).prepare("SELECT plan FROM buildstory_users WHERE id = ?").bind(ownerUserId).first<{ plan: string }>()
     : null;
+  // Early, friendly check before a device-code session is even created (and before the
+  // local scanner runs) - acceptSnapshot below is the authoritative enforcement point,
+  // since targetProjectId here is only a client-side hint, not the real project match.
+  if (targetProjectId && ownerUserId && effectivePlan(account?.plan === "pro" ? "pro" : "free") !== "pro") {
+    const used = await getFeatureBudgetCount(ownerUserId, "rescan");
+    if (used >= MONTHLY_RESCAN_CAP_FREE) {
+      throw new D1IngestionError(
+        "rescan_limit_reached",
+        `Free accounts get ${MONTHLY_RESCAN_CAP_FREE} project updates a month. Upgrade to Pro for unlimited updates.`,
+        403,
+      );
+    }
+  }
   const analysisTier = narrativeMode === "local" || narrativeMode === "off"
     ? "standard"
     : effectivePlan(account?.plan === "pro" ? "pro" : "free") === "pro" ? "deep" : "standard";
@@ -1880,6 +1990,24 @@ export async function acceptSnapshot(
       activeDays: activeDayCount,
     },
   );
+  // Authoritative rescan-cap enforcement: targetProjectId above is only a client-side
+  // hint, so this is the one true "this counts as a rescan" moment regardless of which
+  // UI flow the client came through (also catches a "Create a story" scan that happens
+  // to fingerprint-match an existing project). A project's first-ever scan never counts.
+  if (project.isExisting) {
+    const account = await (await database()).prepare("SELECT plan FROM buildstory_users WHERE id = ?").bind(user.id).first<{ plan: string }>();
+    if (effectivePlan(account?.plan === "pro" ? "pro" : "free") !== "pro") {
+      const used = await getFeatureBudgetCount(user.id, "rescan");
+      if (used >= MONTHLY_RESCAN_CAP_FREE) {
+        throw new D1IngestionError(
+          "rescan_limit_reached",
+          `Free accounts get ${MONTHLY_RESCAN_CAP_FREE} project updates a month. Upgrade to Pro for unlimited updates.`,
+          403,
+        );
+      }
+    }
+    await incrementFeatureBudget(user.id, "rescan");
+  }
 
   const acceptedAt = new Date().toISOString();
   const reportId = makeId("rpt");
@@ -2564,6 +2692,98 @@ export async function unpublishReport(creatorId: string, reportId: string): Prom
   }
   await db.batch(statements);
   return getReport(creatorId, reportId);
+}
+
+/**
+ * Moderator-triggered unpublish, unlike unpublishReport: no ownership check,
+ * and reportId is looked up directly (not scoped to a creatorId) since the
+ * caller is acting on a filed content report, not the report's own owner.
+ * Mirrors unpublishReport's canonical-path reassignment so an older chapter
+ * can still take over the project's main URL when the unpublished report
+ * held it.
+ */
+export async function moderatorUnpublishReport(reportId: string): Promise<void> {
+  const db = await database();
+  const row = await db
+    .prepare(
+      `SELECT r.project_id, r.publication_path, u.handle AS owner_handle
+       FROM buildstory_reports r
+       JOIN buildstory_projects p ON p.id = r.project_id
+       JOIN buildstory_users u ON u.id = p.owner_user_id
+       WHERE r.id = ? AND r.publication_status IN ('published', 'draft_changes')`,
+    )
+    .bind(reportId)
+    .first<{ project_id: string; publication_path: string | null; owner_handle: string }>();
+  if (!row) return;
+
+  const now = new Date().toISOString();
+  const statements = [
+    db
+      .prepare(
+        "UPDATE buildstory_reports SET publication_status = 'not_published', publication_path = NULL, published_at = NULL, public_url = NULL, updated_at = ? WHERE id = ?",
+      )
+      .bind(now, reportId),
+    db.prepare("DELETE FROM buildstory_public_story_index WHERE report_id = ?").bind(reportId),
+    db.prepare("DELETE FROM buildstory_public_story_facets WHERE report_id = ?").bind(reportId),
+  ];
+
+  const wasCanonical = Boolean(row.publication_path) && !/\/\d+$/.test(row.publication_path!);
+  if (wasCanonical) {
+    const next = await db
+      .prepare(
+        `SELECT r.id, p.slug FROM buildstory_reports r JOIN buildstory_projects p ON p.id = r.project_id
+         WHERE r.project_id = ? AND r.publication_status IN ('published', 'draft_changes') AND r.id != ?
+         ORDER BY chapter_index DESC LIMIT 1`,
+      )
+      .bind(row.project_id, reportId)
+      .first<{ id: string; slug: string }>();
+    if (next) {
+      const canonicalPath = `${row.owner_handle.toLocaleLowerCase("en-US")}/${next.slug}`;
+      const canonicalUrl = `${publicOrigin()}/u/${row.owner_handle}/${next.slug}`;
+      statements.push(
+        db
+          .prepare("UPDATE buildstory_reports SET publication_path = ?, public_url = ?, updated_at = ? WHERE id = ?")
+          .bind(canonicalPath, canonicalUrl, now, next.id),
+      );
+    }
+  }
+  await db.batch(statements);
+}
+
+/** Bootstraps or changes a moderator/admin. Handle-based since that's the only identifier an operator has on hand. */
+export async function setUserRoleByHandle(
+  handle: string,
+  role: "member" | "moderator" | "admin",
+): Promise<{ id: string; handle: string; role: string }> {
+  const db = await database();
+  const now = new Date().toISOString();
+  const row = await db
+    .prepare(
+      "UPDATE buildstory_users SET role = ?, updated_at = ? WHERE handle_lower = ? RETURNING id, handle, role",
+    )
+    .bind(role, now, handle.trim().toLocaleLowerCase("en-US"))
+    .first<{ id: string; handle: string; role: string }>();
+  if (!row) throw new D1IngestionError("not_found", "No user with that handle.", 404);
+  return row;
+}
+
+/**
+ * Flips account status. Suspension relies on the account_suspended checks
+ * already scattered through this file (ensureUser and friends) - this is
+ * the missing piece that actually sets the status those checks read.
+ */
+export async function setUserStatusById(
+  userId: string,
+  status: "active" | "suspended",
+): Promise<{ id: string; handle: string; status: string }> {
+  const db = await database();
+  const now = new Date().toISOString();
+  const row = await db
+    .prepare("UPDATE buildstory_users SET status = ?, updated_at = ? WHERE id = ? RETURNING id, handle, status")
+    .bind(status, now, userId)
+    .first<{ id: string; handle: string; status: string }>();
+  if (!row) throw new D1IngestionError("not_found", "User not found.", 404);
+  return row;
 }
 
 export async function publicationStatusForProject(

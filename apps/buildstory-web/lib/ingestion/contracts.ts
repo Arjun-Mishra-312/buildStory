@@ -132,6 +132,20 @@ export type BillingProfile = {
 
 export type BillingUpdate = Partial<Omit<BillingProfile, "plan">> & { plan?: "free" | "pro" };
 
+/** A monthly-capped Pro perk tracked in buildstory_feature_budgets. */
+export type FeatureBudgetName = "rescan" | "highlight";
+
+/** One active spotlight on Explore's additive "Pro Picks" rail - see buildstory_report_highlights. */
+export type ActiveHighlight = {
+  reportId: string;
+  ownerHandle: string;
+  ownerDisplayName: string;
+  tagline: string;
+  publicUrl: string;
+  coverUrl: string | null;
+  expiresAt: string;
+};
+
 export type ProjectRecord = {
   id: string;
   ownerUserId: string;

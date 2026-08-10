@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { ExploreFeed } from "@/components/explore-feed";
-import { explorePublishedStories } from "@/lib/ingestion/store";
+import { ProPicksRail } from "@/components/pro-picks-rail";
+import { explorePublishedStories, getActiveHighlights } from "@/lib/ingestion/store";
 
 export const metadata: Metadata = {
   title: "Explore build stories",
@@ -24,8 +25,17 @@ async function loadStories() {
   }
 }
 
+async function loadHighlights() {
+  try {
+    return await getActiveHighlights();
+  } catch {
+    // Additive only - a failure here should never take down the real feed below it.
+    return [];
+  }
+}
+
 export default async function ExplorePage() {
-  const { stories, nextCursor, unavailable, resultCount, facets } = await loadStories();
+  const [{ stories, nextCursor, unavailable, resultCount, facets }, highlights] = await Promise.all([loadStories(), loadHighlights()]);
   return (
     <section className="explore-page section-wrap">
         <header className="explore-heading">
@@ -38,6 +48,7 @@ export default async function ExplorePage() {
             enough process left in to learn from.
           </p>
         </header>
+        <ProPicksRail highlights={highlights} />
         <ExploreFeed projects={stories} initialCursor={nextCursor} resultCount={resultCount} initialFacets={facets} unavailable={unavailable} />
     </section>
   );
