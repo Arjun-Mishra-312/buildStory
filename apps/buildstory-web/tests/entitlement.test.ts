@@ -27,6 +27,44 @@ test("effectivePlan grants pro to every account while BUILDSTORY_LAUNCH_PRO_FOR_
   }
 });
 
+function withLaunchPromotionEnv(forAll: string | undefined, endsAt: string | undefined, run: () => void) {
+  const previousForAll = process.env.BUILDSTORY_LAUNCH_PRO_FOR_ALL;
+  const previousEndsAt = process.env.BUILDSTORY_LAUNCH_PRO_PROMOTION_ENDS_AT;
+  if (forAll === undefined) delete process.env.BUILDSTORY_LAUNCH_PRO_FOR_ALL;
+  else process.env.BUILDSTORY_LAUNCH_PRO_FOR_ALL = forAll;
+  if (endsAt === undefined) delete process.env.BUILDSTORY_LAUNCH_PRO_PROMOTION_ENDS_AT;
+  else process.env.BUILDSTORY_LAUNCH_PRO_PROMOTION_ENDS_AT = endsAt;
+  try {
+    run();
+  } finally {
+    if (previousForAll === undefined) delete process.env.BUILDSTORY_LAUNCH_PRO_FOR_ALL;
+    else process.env.BUILDSTORY_LAUNCH_PRO_FOR_ALL = previousForAll;
+    if (previousEndsAt === undefined) delete process.env.BUILDSTORY_LAUNCH_PRO_PROMOTION_ENDS_AT;
+    else process.env.BUILDSTORY_LAUNCH_PRO_PROMOTION_ENDS_AT = previousEndsAt;
+  }
+}
+
+test("effectivePlan keeps granting pro while BUILDSTORY_LAUNCH_PRO_PROMOTION_ENDS_AT is still in the future", () => {
+  const future = new Date(Date.now() + 60_000).toISOString();
+  withLaunchPromotionEnv("true", future, () => {
+    assert.equal(effectivePlan("free"), "pro");
+  });
+});
+
+test("effectivePlan stops granting pro on its own once BUILDSTORY_LAUNCH_PRO_PROMOTION_ENDS_AT has passed, with no other change needed", () => {
+  const past = new Date(Date.now() - 60_000).toISOString();
+  withLaunchPromotionEnv("true", past, () => {
+    assert.equal(effectivePlan("free"), "free");
+    assert.equal(effectivePlan("pro"), "pro");
+  });
+});
+
+test("effectivePlan ignores a malformed BUILDSTORY_LAUNCH_PRO_PROMOTION_ENDS_AT rather than cutting the promotion short", () => {
+  withLaunchPromotionEnv("true", "not-a-real-date", () => {
+    assert.equal(effectivePlan("free"), "pro");
+  });
+});
+
 test("isSupportedNarrativeModel recognizes hosted DeepSeek and retained BYOK Luna pricing without guessing", () => {
   assert.equal(isSupportedNarrativeModel("deepseek/deepseek-v4-flash"), true);
   assert.equal(isSupportedNarrativeModel("gpt-5.6-luna"), true);

@@ -92,7 +92,10 @@
     "BUILDSTORY_LLM_BASE_URL": "https://openrouter.ai/api/v1",
     "BUILDSTORY_LLM_MODEL": "deepseek/deepseek-v4-flash",
     "BUILDSTORY_ENABLE_HOSTED_OPENAI": "false",
-    "BUILDSTORY_LAUNCH_PRO_FOR_ALL": "true"
+    "BUILDSTORY_LAUNCH_PRO_FOR_ALL": "true",
+    // One-week launch promotion, ends itself automatically - see effectivePlan()
+    // in lib/narrative/entitlement.ts. Set 2026-08-10, expires 2026-08-17.
+    "BUILDSTORY_LAUNCH_PRO_PROMOTION_ENDS_AT": "2026-08-17T16:54:24.925Z"
   },
 
   "d1_databases": [

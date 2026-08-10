@@ -156,6 +156,15 @@ This step is entirely manual in the Stripe Dashboard - there is no CLI/API step 
 
 `buildstory_users.plan` becomes the real subscription plan the moment a webhook lands - it is independent of `BUILDSTORY_LAUNCH_PRO_FOR_ALL` (see `lib/narrative/entitlement.ts`), which can stay on or be turned off separately whenever the launch promotion is meant to end.
 
+For a time-boxed launch promotion (e.g. "everyone gets Pro for the first week"), set `BUILDSTORY_LAUNCH_PRO_PROMOTION_ENDS_AT` in `wrangler.deploy.jsonc`'s `vars` block to the exact ISO 8601 moment it should end, alongside `BUILDSTORY_LAUNCH_PRO_FOR_ALL: "true"`, then deploy once:
+
+```jsonc
+"BUILDSTORY_LAUNCH_PRO_FOR_ALL": "true",
+"BUILDSTORY_LAUNCH_PRO_PROMOTION_ENDS_AT": "2026-08-17T00:00:00.000Z"
+```
+
+The promotion then turns itself off at that instant with no further action - `effectivePlan()` re-checks the clock on every request, not just at deploy time. Accounts that paid for real during the promotion keep Pro afterward regardless (their `plan` column is durable and untouched by this). To go back to an indefinite promotion, remove `BUILDSTORY_LAUNCH_PRO_PROMOTION_ENDS_AT` (or leave it unset) and redeploy.
+
 ## Health and readiness
 
 - `/api/health` proves only that the Worker can answer requests. It never checks dependencies and returns no configuration.

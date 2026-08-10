@@ -16,6 +16,14 @@ export function canUseCloudNarrative(userId: string): boolean {
  * one var flip, not a data migration or a per-account downgrade. The column
  * always holds the account's real, durable plan.
  *
+ * BUILDSTORY_LAUNCH_PRO_PROMOTION_ENDS_AT (optional, ISO 8601) makes that
+ * flip automatic instead of relying on someone remembering to make it: once
+ * the deployment's clock passes this timestamp, the promotion stops on its
+ * own, no redeploy needed. Left unset, BUILDSTORY_LAUNCH_PRO_FOR_ALL behaves
+ * exactly as before - on indefinitely until manually turned off. A missing
+ * or unparseable value is treated the same as unset (ignored, not an outage)
+ * so a malformed date can't silently cut a live promotion short.
+ *
  * Deliberately narrow: this governs only the subsidized-cloud benefits
  * (budget cap, escalation model). Scans and chapters through local, BYOK, or
  * off mode are unlimited on every tier regardless of plan - those runs cost
@@ -23,8 +31,17 @@ export function canUseCloudNarrative(userId: string): boolean {
  * for no reason (a decision made explicit after the initial launch audit).
  */
 export function effectivePlan(accountPlan: "free" | "pro"): "free" | "pro" {
-  if (process.env.BUILDSTORY_LAUNCH_PRO_FOR_ALL === "true") return "pro";
+  if (launchPromotionActive()) return "pro";
   return accountPlan;
+}
+
+function launchPromotionActive(): boolean {
+  if (process.env.BUILDSTORY_LAUNCH_PRO_FOR_ALL !== "true") return false;
+  const endsAt = process.env.BUILDSTORY_LAUNCH_PRO_PROMOTION_ENDS_AT;
+  if (!endsAt) return true;
+  const parsed = Date.parse(endsAt);
+  if (Number.isNaN(parsed)) return true;
+  return Date.now() < parsed;
 }
 
 /**
