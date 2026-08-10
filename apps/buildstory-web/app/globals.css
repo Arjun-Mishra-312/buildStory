@@ -7532,8 +7532,8 @@ button.story-pack__source { cursor: pointer; }
 .studio-help-popover button:hover, .studio-help-popover button:focus-visible { background: var(--paper-deep); }
 .guide-tooltip { position: relative; display: inline-flex; vertical-align: middle; margin-left: 5px; }
 .guide-tooltip > button { display: inline-grid; place-items: center; width: 16px; min-width: 16px; height: 16px; min-height: 16px; padding: 0; border: 1px solid currentColor; border-radius: 50%; background: transparent; color: inherit; font: 650 10px/1 var(--font-code); cursor: pointer; }
-.guide-tooltip > span { position: absolute; z-index: 3; top: calc(100% + 7px); left: 50%; width: 220px; transform: translateX(-50%); padding: 9px 11px; background: var(--ink); color: var(--paper); font-size: .78rem; line-height: 1.4; }
-.guide-tooltip > span::before { content: ""; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-bottom-color: var(--ink); }
+.guide-tooltip > span { position: absolute; z-index: 3; top: calc(100% + 7px); left: 50%; width: 220px; transform: translateX(-50%); padding: 9px 11px; background: var(--panel); color: var(--panel-ink); font-size: .78rem; line-height: 1.4; }
+.guide-tooltip > span::before { content: ""; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-bottom-color: var(--panel); }
 
 /* Generic tooltip (components/shell/tooltip.tsx) */
 .tooltip { position: relative; display: inline-flex; }
@@ -7547,8 +7547,8 @@ button.story-pack__source { cursor: pointer; }
   max-width: 220px;
   padding: 6px 10px;
   border-radius: var(--radius-sm);
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--panel);
+  color: var(--panel-ink);
   font: 600 11px/1.4 var(--font-code);
   letter-spacing: 0.01em;
   text-align: center;
@@ -7564,7 +7564,7 @@ button.story-pack__source { cursor: pointer; }
   left: 50%;
   transform: translateX(-50%);
   border: 5px solid transparent;
-  border-top-color: var(--ink);
+  border-top-color: var(--panel);
 }
 .tooltip:hover .tooltip__bubble,
 .tooltip:focus-within .tooltip__bubble {
@@ -7573,7 +7573,7 @@ button.story-pack__source { cursor: pointer; }
   transform: translateX(-50%) translateY(0);
 }
 .tooltip--bottom .tooltip__bubble { bottom: auto; top: calc(100% + 9px); transform: translateX(-50%) translateY(-4px); }
-.tooltip--bottom .tooltip__bubble::after { top: auto; bottom: 100%; border-top-color: transparent; border-bottom-color: var(--ink); }
+.tooltip--bottom .tooltip__bubble::after { top: auto; bottom: 100%; border-top-color: transparent; border-bottom-color: var(--panel); }
 .tooltip--bottom:hover .tooltip__bubble,
 .tooltip--bottom:focus-within .tooltip__bubble { transform: translateX(-50%) translateY(0); }
 .tooltip--align-end .tooltip__bubble { left: auto; right: 0; transform: translateY(4px); }
@@ -7587,10 +7587,10 @@ button.story-pack__source { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .tooltip__bubble { transition: none; } }
 
 .update-sequence { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; list-style: none; padding: 0; margin: 26px 0; border: 1px solid var(--ink-faint); background: var(--ink-faint); }
-.update-sequence li { display: flex; align-items: center; gap: 12px; padding: 16px; background: var(--paper); }
+.update-sequence li { display: flex; align-items: center; gap: 12px; padding: 16px; background: var(--paper); color: var(--paper-ink); }
 .update-sequence li > strong { display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid currentColor; border-radius: 50%; font-size: .75rem; flex: none; }
 .update-sequence li span { display: grid; gap: 3px; }
-.update-sequence li small { color: var(--ink-muted); line-height: 1.35; }
+.update-sequence li small { color: color-mix(in srgb, var(--paper-ink) 68%, var(--paper)); line-height: 1.35; }
 
 .publish-review-backdrop {
   position: fixed;

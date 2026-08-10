@@ -990,7 +990,7 @@ export function ProjectWorkbench({
         </div>
       )}
 
-      {access === "creator" && publicationStatus !== "published" ? (
+      {access === "creator" && publicationStatus !== "published" && view === "private" ? (
         <div className={`private-report-banner${publicationStatus === "draft_changes" ? " private-report-banner--changes" : ""}`} role="status">
           <span className="private-report-banner__icon" aria-hidden="true">{publicationStatus === "draft_changes" ? "↻" : "▣"}</span>
           <div>
