@@ -68,7 +68,7 @@
   --panel-faint: #858a93;
   --ink-faint: var(--line);
   --ink-muted: var(--muted);
-  --paper-deep: var(--surface-soft);
+  --paper-deep: color-mix(in srgb, var(--paper-ink) 8%, var(--paper));
   --accent: var(--coral);
 }
 
@@ -97,7 +97,7 @@ html[data-theme="dark"] {
   --panel-faint: #858a93;
   --ink-faint: var(--line);
   --ink-muted: var(--muted);
-  --paper-deep: var(--surface-soft);
+  --paper-deep: color-mix(in srgb, var(--paper-ink) 8%, var(--paper));
   --accent: var(--coral);
 }
 
@@ -7526,7 +7526,7 @@ button.story-pack__source { cursor: pointer; }
 .guide-popover__actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 .studio-help-trigger { margin-left: auto; border: 1px solid var(--ink-faint); background: transparent; color: inherit; padding: 7px 10px; cursor: pointer; font: inherit; font-size: .78rem; }
 .studio-help-trigger span { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-left: 5px; border: 1px solid currentColor; border-radius: 50%; font-size: .65rem; }
-.studio-help-popover { position: fixed; z-index: 1001; top: 58px; right: 18px; display: grid; gap: 4px; width: 220px; padding: 13px; border: 1px solid var(--ink); background: var(--paper); box-shadow: 0 12px 30px rgb(0 0 0 / .16); }
+.studio-help-popover { position: fixed; z-index: 1001; top: 58px; right: 18px; display: grid; gap: 4px; width: 220px; padding: 13px; border: 1px solid var(--paper-ink); background: var(--paper); color: var(--paper-ink); box-shadow: 0 12px 30px rgb(0 0 0 / .16); }
 .studio-help-popover strong { font-size: .7rem; text-transform: uppercase; letter-spacing: .12em; margin-bottom: 5px; }
 .studio-help-popover button { text-align: left; border: 0; background: transparent; color: inherit; padding: 7px; cursor: pointer; font: inherit; }
 .studio-help-popover button:hover, .studio-help-popover button:focus-visible { background: var(--paper-deep); }
@@ -7611,7 +7611,7 @@ button.story-pack__source { cursor: pointer; }
   padding: clamp(20px, 4vw, 34px);
   border: 1px solid var(--line-strong);
   background: var(--paper);
-  color: var(--ink);
+  color: var(--paper-ink);
   box-shadow: 0 28px 90px rgb(0 0 0 / .34);
 }
 
