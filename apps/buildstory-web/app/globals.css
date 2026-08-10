@@ -5494,7 +5494,7 @@ html[data-theme="dark"] .closing-cta {
   gap: 16px;
   padding: 12px 16px;
   border-radius: var(--radius-medium);
-  background: var(--surface-strong);
+  background: color-mix(in srgb, var(--surface-strong) 93%, transparent);
 }
 
 .feed-tile__model-panel svg {
