@@ -7526,10 +7526,10 @@ button.story-pack__source { cursor: pointer; }
 .guide-popover__actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 .studio-help-trigger { margin-left: auto; border: 1px solid var(--ink-faint); background: transparent; color: inherit; padding: 7px 10px; cursor: pointer; font: inherit; font-size: .78rem; }
 .studio-help-trigger span { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-left: 5px; border: 1px solid currentColor; border-radius: 50%; font-size: .65rem; }
-.studio-help-popover { position: fixed; z-index: 1001; top: 58px; right: 18px; display: grid; gap: 4px; width: 220px; padding: 13px; border: 1px solid var(--paper-ink); background: var(--paper); color: var(--paper-ink); box-shadow: 0 12px 30px rgb(0 0 0 / .16); }
+.studio-help-popover { position: fixed; z-index: 1001; top: 58px; right: 18px; display: grid; gap: 4px; width: 220px; padding: 13px; border: 1px solid var(--line-strong); background: var(--surface-strong); color: var(--ink); box-shadow: 0 12px 30px rgb(0 0 0 / .16); }
 .studio-help-popover strong { font-size: .7rem; text-transform: uppercase; letter-spacing: .12em; margin-bottom: 5px; }
 .studio-help-popover button { text-align: left; border: 0; background: transparent; color: inherit; padding: 7px; cursor: pointer; font: inherit; }
-.studio-help-popover button:hover, .studio-help-popover button:focus-visible { background: var(--paper-deep); }
+.studio-help-popover button:hover, .studio-help-popover button:focus-visible { background: var(--surface-soft); }
 .guide-tooltip { position: relative; display: inline-flex; vertical-align: middle; margin-left: 5px; }
 .guide-tooltip > button { display: inline-grid; place-items: center; width: 16px; min-width: 16px; height: 16px; min-height: 16px; padding: 0; border: 1px solid currentColor; border-radius: 50%; background: transparent; color: inherit; font: 650 10px/1 var(--font-code); cursor: pointer; }
 .guide-tooltip > span { position: absolute; z-index: 3; top: calc(100% + 7px); left: 50%; width: 220px; transform: translateX(-50%); padding: 9px 11px; background: var(--panel); color: var(--panel-ink); font-size: .78rem; line-height: 1.4; }
@@ -7610,17 +7610,10 @@ button.story-pack__source { cursor: pointer; }
   overflow: auto;
   padding: clamp(20px, 4vw, 34px);
   border: 1px solid var(--line-strong);
-  background: var(--paper);
+  background: var(--surface-strong);
   color: var(--ink);
-  color-scheme: light;
   box-shadow: 0 28px 90px rgb(0 0 0 / .34);
 }
-
-/* These sit directly on the outer paper background (no nested surface of
-   their own), unlike the columns/aside/buttons below which each carry their
-   own theme-reactive surface and correctly inherit the reactive --ink. */
-.publish-review > header,
-.publish-review__acknowledgement { color: var(--paper-ink); }
 
 .publish-review > header,
 .publish-review > footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
