@@ -15,9 +15,9 @@ const REACTION_ICONS = {
 } as const;
 
 const MODEL_SLICE_COLORS = ["var(--cobalt)", "var(--coral)", "var(--success)", "var(--faint)"];
-const DONUT_SIZE = 48;
-const DONUT_RADIUS = 17;
-const DONUT_STROKE = 7;
+const DONUT_SIZE = 96;
+const DONUT_RADIUS = 34;
+const DONUT_STROKE = 14;
 const DONUT_CIRCUMFERENCE = 2 * Math.PI * DONUT_RADIUS;
 const LABEL_MAX_CHARS = 12;
 

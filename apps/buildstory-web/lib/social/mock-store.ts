@@ -630,8 +630,21 @@ export function getActivityFeed(viewerUserId: string, limit = 30, cursor?: strin
       .filter((key) => key.startsWith(`${viewerUserId}:`))
       .map((key) => key.split(":")[1]!),
   );
+  // Only the latest published chapter per project is feed-eligible, so a
+  // project never shows twice - mirrors d1-store's MAX(chapter_index) subquery.
+  const latestChapterByProject = new Map<string, number>();
+  for (const report of store.reports.values()) {
+    if (report.publicationStatus !== "published") continue;
+    const current = latestChapterByProject.get(report.projectId) ?? 0;
+    latestChapterByProject.set(report.projectId, Math.max(current, report.chapterIndex ?? 1));
+  }
+
   const published = Array.from(store.reports.values()).filter(
-    (report) => report.publicationStatus === "published" && report.ownerUserId && (!cursor || (report.publishedAt ?? "") < cursor),
+    (report) =>
+      report.publicationStatus === "published" &&
+      report.ownerUserId &&
+      (report.chapterIndex ?? 1) === latestChapterByProject.get(report.projectId) &&
+      (!cursor || (report.publishedAt ?? "") < cursor),
   );
 
   const followed = published

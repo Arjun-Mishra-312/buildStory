@@ -800,10 +800,11 @@ async function reactionCountsByReport(db: D1Database, reportIds: string[]): Prom
 /**
  * Each published chapter is its own row now (see db/schema.ts's chapterIndex
  * comment), so a project publishing a new chapter naturally surfaces as a new
- * feed entry for followers - no separate fan-out needed. Each entry links to
- * its own chapter's path (not necessarily the project's current canonical
- * one); /u/:handle/:slug/:chapter redirects to the canonical path itself if
- * that chapter happens to still be the latest.
+ * feed entry for followers - no separate fan-out needed. Only the latest
+ * published chapter per project is eligible for the feed (older chapters are
+ * excluded via the MAX(chapter_index) subquery below), so a project never
+ * shows twice. Each entry links to its own chapter's path, which for feed
+ * purposes is always the project's current canonical one.
  *
  * The feed isn't follow-only: a slice of it is backfilled with well-received
  * chapters from creators the viewer doesn't follow yet (ranked by recent
@@ -824,6 +825,7 @@ export async function getActivityFeed(viewerUserId: string, limit = 30, cursor?:
        JOIN buildstory_users u ON u.id = r.owner_user_id
        LEFT JOIN buildstory_public_story_index i ON i.report_id = r.id
        WHERE f.follower_user_id = ? AND r.publication_status = 'published' AND (? IS NULL OR r.published_at < ?)
+         AND r.chapter_index = (SELECT MAX(sr2.chapter_index) FROM buildstory_reports sr2 WHERE sr2.project_id = r.project_id AND sr2.publication_status = 'published')
        ORDER BY r.published_at DESC
        LIMIT ?`,
     )
@@ -844,6 +846,7 @@ export async function getActivityFeed(viewerUserId: string, limit = 30, cursor?:
          AND r.owner_user_id != ?
          AND r.owner_user_id NOT IN (SELECT followee_user_id FROM buildstory_follows WHERE follower_user_id = ?)
          AND (? IS NULL OR r.published_at < ?)
+         AND r.chapter_index = (SELECT MAX(sr2.chapter_index) FROM buildstory_reports sr2 WHERE sr2.project_id = r.project_id AND sr2.publication_status = 'published')
        ORDER BY (reaction_total * 2 + comment_count * 3) DESC, r.published_at DESC
        LIMIT ?`,
     )
