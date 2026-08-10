@@ -8,8 +8,8 @@ export function HomeFeed({ entries, unavailable }: { entries: FeedEntry[]; unava
       <header className="creator-page__heading">
         <div>
           <span className="section-index">( YOUR FEED )</span>
-          <h1>Build stories from people you follow.</h1>
-          <p>The latest published work from your corner of the Buildstory community.</p>
+          <h1>Build stories from your community, and beyond.</h1>
+          <p>The latest work from people you follow, plus well-received stories from across Buildstory.</p>
         </div>
         <Link className="button button--primary" href="/explore">
           Explore stories <span aria-hidden="true">→</span>
@@ -28,7 +28,7 @@ export function HomeFeed({ entries, unavailable }: { entries: FeedEntry[]; unava
           <div className="feed-empty__copy">
             <span className="section-index">( YOUR NEXT THREAD )</span>
             <strong>Your feed is quiet.</strong>
-            <p>Follow builders from their public profile pages to see their stories here.</p>
+            <p>Nobody's published a story yet. Follow builders from their public profile pages, or check back once the community starts shipping.</p>
             <Link className="button button--secondary" href="/explore">Find builders to follow <span aria-hidden="true">→</span></Link>
           </div>
         </div>

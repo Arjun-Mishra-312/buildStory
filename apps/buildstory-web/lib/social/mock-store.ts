@@ -578,6 +578,25 @@ export function markNotificationsRead(userId: string, notificationIds?: string[]
 // Activity feed
 // ---------------------------------------------------------------------------
 
+function feedEntryFromReport(report: StoredReport): FeedEntry {
+  const reactionTotal = Array.from(store.reactions.keys()).filter((key) => key.startsWith(`${report.id}:`)).length;
+  const commentCount = Array.from(store.comments.values()).filter(
+    (comment) => comment.reportId === report.id && comment.status === "visible",
+  ).length;
+  const owner = report.ownerUserId ? store.users.get(report.ownerUserId) : undefined;
+  return {
+    reportId: report.id,
+    slug: report.publicationSlug,
+    chapterIndex: report.chapterIndex ?? 1,
+    tagline: report.editorialTagline,
+    publishedAt: report.publishedAt ?? "",
+    author: owner ? authorFor(owner.id) : { id: report.ownerUserId!, handle: "unknown", displayName: "Unknown", avatarUrl: null },
+    reactionTotal,
+    commentCount,
+  };
+}
+
+/** Mirrors d1-store's getActivityFeed: follow-graph pool topped up with an engagement-ranked discovery pool. */
 export function getActivityFeed(viewerUserId: string, limit = 30, cursor?: string): FeedEntry[] {
   const bounded = Math.min(Math.max(1, Math.trunc(limit)), 100);
   const followeeIds = new Set(
@@ -585,28 +604,30 @@ export function getActivityFeed(viewerUserId: string, limit = 30, cursor?: strin
       .filter((key) => key.startsWith(`${viewerUserId}:`))
       .map((key) => key.split(":")[1]!),
   );
-  return Array.from(store.reports.values())
-    .filter((report) => report.publicationStatus === "published" && report.ownerUserId && followeeIds.has(report.ownerUserId))
-    .filter((report) => !cursor || (report.publishedAt ?? "") < cursor)
+  const published = Array.from(store.reports.values()).filter(
+    (report) => report.publicationStatus === "published" && report.ownerUserId && (!cursor || (report.publishedAt ?? "") < cursor),
+  );
+
+  const followed = published
+    .filter((report) => followeeIds.has(report.ownerUserId!))
+    .sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""))
+    .slice(0, bounded);
+
+  const discoveryLimit = Math.max(Math.ceil(bounded / 3), bounded - followed.length);
+  const discovery = published
+    .filter((report) => report.ownerUserId !== viewerUserId && !followeeIds.has(report.ownerUserId!))
+    .sort((a, b) => {
+      const score = (report: (typeof published)[number]) =>
+        Array.from(store.reactions.keys()).filter((key) => key.startsWith(`${report.id}:`)).length * 2 +
+        Array.from(store.comments.values()).filter((comment) => comment.reportId === report.id && comment.status === "visible").length * 3;
+      return score(b) - score(a) || (b.publishedAt ?? "").localeCompare(a.publishedAt ?? "");
+    })
+    .slice(0, discoveryLimit);
+
+  return [...followed, ...discovery]
     .sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""))
     .slice(0, bounded)
-    .map((report) => {
-      const owner = store.users.get(report.ownerUserId!);
-      const reactionTotal = Array.from(store.reactions.keys()).filter((key) => key.startsWith(`${report.id}:`)).length;
-      const commentCount = Array.from(store.comments.values()).filter(
-        (comment) => comment.reportId === report.id && comment.status === "visible",
-      ).length;
-      return {
-        reportId: report.id,
-        slug: report.publicationSlug,
-        chapterIndex: report.chapterIndex ?? 1,
-        tagline: report.editorialTagline,
-        publishedAt: report.publishedAt ?? "",
-        author: owner ? authorFor(owner.id) : { id: report.ownerUserId!, handle: "unknown", displayName: "Unknown", avatarUrl: null },
-        reactionTotal,
-        commentCount,
-      };
-    });
+    .map(feedEntryFromReport);
 }
 
 // ---------------------------------------------------------------------------

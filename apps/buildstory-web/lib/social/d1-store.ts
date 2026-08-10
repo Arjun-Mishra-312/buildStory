@@ -755,6 +755,24 @@ type FeedRow = {
   comment_count: number;
 };
 
+function feedEntryFromRow(row: FeedRow): FeedEntry {
+  return {
+    reportId: row.id,
+    slug: row.publication_slug,
+    chapterIndex: row.chapter_index ?? 1,
+    tagline: row.editorial_tagline,
+    publishedAt: row.published_at,
+    author: authorFromRow({ id: row.owner_id, handle: row.owner_handle, display_name: row.owner_display_name, avatar_url: row.owner_avatar_url }),
+    reactionTotal: row.reaction_total,
+    commentCount: row.comment_count,
+  };
+}
+
+const FEED_ROW_COLUMNS = `r.id, r.publication_slug, r.chapter_index, r.editorial_tagline, r.published_at,
+              u.id AS owner_id, u.handle AS owner_handle, u.display_name AS owner_display_name, u.avatar_url AS owner_avatar_url,
+              (SELECT COUNT(*) FROM buildstory_reactions WHERE report_id = r.id) AS reaction_total,
+              (SELECT COUNT(*) FROM buildstory_comments WHERE report_id = r.id AND status = 'visible') AS comment_count`;
+
 /**
  * Each published chapter is its own row now (see db/schema.ts's chapterIndex
  * comment), so a project publishing a new chapter naturally surfaces as a new
@@ -762,15 +780,21 @@ type FeedRow = {
  * its own chapter's path (not necessarily the project's current canonical
  * one); /u/:handle/:slug/:chapter redirects to the canonical path itself if
  * that chapter happens to still be the latest.
+ *
+ * The feed isn't follow-only: a slice of it is backfilled with well-received
+ * chapters from creators the viewer doesn't follow yet (ranked by recent
+ * engagement), the same way Instagram/X populate a new account's home feed
+ * before they've followed anyone. Both pools are cut off by the same cursor
+ * and re-sorted by publishedAt, so pagination stays a simple timestamp
+ * comparison.
  */
 export async function getActivityFeed(viewerUserId: string, limit = 30, cursor?: string): Promise<FeedEntry[]> {
   const bounded = Math.min(Math.max(1, Math.trunc(limit)), 100);
-  const rows = await (await database())
+  const db = await database();
+
+  const followedRows = await db
     .prepare(
-      `SELECT r.id, r.publication_slug, r.chapter_index, r.editorial_tagline, r.published_at,
-              u.id AS owner_id, u.handle AS owner_handle, u.display_name AS owner_display_name, u.avatar_url AS owner_avatar_url,
-              (SELECT COUNT(*) FROM buildstory_reactions WHERE report_id = r.id) AS reaction_total,
-              (SELECT COUNT(*) FROM buildstory_comments WHERE report_id = r.id AND status = 'visible') AS comment_count
+      `SELECT ${FEED_ROW_COLUMNS}
        FROM buildstory_reports r
        JOIN buildstory_follows f ON f.followee_user_id = r.owner_user_id
        JOIN buildstory_users u ON u.id = r.owner_user_id
@@ -780,16 +804,30 @@ export async function getActivityFeed(viewerUserId: string, limit = 30, cursor?:
     )
     .bind(viewerUserId, cursor ?? null, cursor ?? null, bounded)
     .all<FeedRow>();
-  return rows.results.map((row) => ({
-    reportId: row.id,
-    slug: row.publication_slug,
-    chapterIndex: row.chapter_index ?? 1,
-    tagline: row.editorial_tagline,
-    publishedAt: row.published_at,
-    author: authorFromRow({ id: row.owner_id, handle: row.owner_handle, display_name: row.owner_display_name, avatar_url: row.owner_avatar_url }),
-    reactionTotal: row.reaction_total,
-    commentCount: row.comment_count,
-  }));
+
+  // Fill roughly a third of the page with discovery picks, more if the
+  // follow-graph pool came up thin (new accounts, or accounts they follow
+  // haven't posted recently).
+  const discoveryLimit = Math.max(Math.ceil(bounded / 3), bounded - followedRows.results.length);
+  const discoveryRows = await db
+    .prepare(
+      `SELECT ${FEED_ROW_COLUMNS}
+       FROM buildstory_reports r
+       JOIN buildstory_users u ON u.id = r.owner_user_id
+       WHERE r.publication_status = 'published'
+         AND r.owner_user_id != ?
+         AND r.owner_user_id NOT IN (SELECT followee_user_id FROM buildstory_follows WHERE follower_user_id = ?)
+         AND (? IS NULL OR r.published_at < ?)
+       ORDER BY (reaction_total * 2 + comment_count * 3) DESC, r.published_at DESC
+       LIMIT ?`,
+    )
+    .bind(viewerUserId, viewerUserId, cursor ?? null, cursor ?? null, discoveryLimit)
+    .all<FeedRow>();
+
+  return [...followedRows.results, ...discoveryRows.results]
+    .sort((a, b) => b.published_at.localeCompare(a.published_at))
+    .slice(0, bounded)
+    .map(feedEntryFromRow);
 }
 
 // ---------------------------------------------------------------------------

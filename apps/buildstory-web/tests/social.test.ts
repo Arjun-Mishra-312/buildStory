@@ -223,11 +223,80 @@ test("activity feed: only shows published stories from people the viewer follows
     publishedAt: null,
     chapterIndex: null,
   });
-  seedReport("rpt_feed_stranger", stranger);
+  registerReport({
+    id: "rpt_feed_stranger",
+    ownerUserId: stranger,
+    projectId: "prj_feed_stranger",
+    publicationStatus: "published",
+    publicationSlug: "feed-stranger",
+    editorialTagline: "Stranger story",
+    publishedAt: "2025-01-01T00:00:00.000Z",
+    chapterIndex: 1,
+  });
 
-  const feed = getActivityFeed(viewer);
+  // Bounded by a cursor just after "feed-new" so unrelated reports seeded by
+  // other tests in this shared in-memory store (published "now") can't leak
+  // into this viewer's discovery pool.
+  const feed = getActivityFeed(viewer, 30, "2026-06-02T00:00:00.000Z");
+  // Followed users' posts always appear; an unfollowed stranger's published
+  // post is backfilled in via discovery (oldest here, so it sorts last).
   assert.deepEqual(
     feed.map((entry) => entry.slug),
-    ["feed-new", "feed-old"],
+    ["feed-new", "feed-old", "feed-stranger"],
+  );
+});
+
+test("activity feed: backfills discovery picks ranked by engagement when the viewer follows nobody", () => {
+  const viewer = seedUser("viewer7");
+  const authorA = seedUser("authorA7");
+  const authorB = seedUser("authorB7");
+  const authorC = seedUser("authorC7");
+  const fan1 = seedUser("fan1_7");
+  const fan2 = seedUser("fan2_7");
+
+  registerReport({
+    id: "rpt_disc_a",
+    ownerUserId: authorA,
+    projectId: "prj_disc_a",
+    publicationStatus: "published",
+    publicationSlug: "disc-a",
+    editorialTagline: "Well received but old",
+    publishedAt: "2020-01-01T00:00:00.000Z",
+    chapterIndex: 1,
+  });
+  registerReport({
+    id: "rpt_disc_b",
+    ownerUserId: authorB,
+    projectId: "prj_disc_b",
+    publicationStatus: "published",
+    publicationSlug: "disc-b",
+    editorialTagline: "Newer with a little engagement",
+    publishedAt: "2026-01-01T00:00:00.000Z",
+    chapterIndex: 1,
+  });
+  registerReport({
+    id: "rpt_disc_c",
+    ownerUserId: authorC,
+    projectId: "prj_disc_c",
+    publicationStatus: "published",
+    publicationSlug: "disc-c",
+    editorialTagline: "No engagement at all",
+    publishedAt: "2023-01-01T00:00:00.000Z",
+    chapterIndex: 1,
+  });
+
+  setReaction("rpt_disc_a", fan1, "fire");
+  setReaction("rpt_disc_a", fan2, "shipped");
+  createComment("rpt_disc_a", fan1, "This is a great story about building software.", null);
+  setReaction("rpt_disc_b", fan1, "fire");
+
+  // limit=2 forces the discovery pool down to 2 candidates, so the
+  // unengaged story (disc-c) should lose out to the two engaged ones. The
+  // cursor keeps unrelated reports seeded by other tests (published "now")
+  // out of this viewer's discovery pool.
+  const feed = getActivityFeed(viewer, 2, "2026-01-02T00:00:00.000Z");
+  assert.deepEqual(
+    feed.map((entry) => entry.slug),
+    ["disc-b", "disc-a"],
   );
 });
