@@ -1422,7 +1422,7 @@ export function ProjectWorkbench({
             </footer>
           </section>
 
-          {publishReviewOpen ? (
+          {publishReviewOpen && view === "private" ? (
             <div className="publish-review-backdrop" role="presentation" onMouseDown={(event) => {
               if (event.currentTarget === event.target) {
                 setPublishReviewOpen(false);
@@ -1616,6 +1616,59 @@ export function ProjectWorkbench({
               </section>
             )}
         </section>
+      ) : null}
+
+      {publishReviewOpen && view === "public" ? (
+        <div className="publish-review-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.currentTarget === event.target) {
+            setPublishReviewOpen(false);
+            setPublishReviewAcknowledged(false);
+          }
+        }}>
+          <section className="publish-review" role="dialog" aria-modal="true" aria-labelledby="publish-review-title">
+            <header>
+              <div>
+                <span className="section-index">FINAL PRIVACY REVIEW</span>
+                <h2 id="publish-review-title">This is what becomes public.</h2>
+              </div>
+              <button ref={publishReviewCloseRef} type="button" className="button button--text" onClick={() => { setPublishReviewOpen(false); setPublishReviewAcknowledged(false); }} aria-label="Close publish review">Close</button>
+            </header>
+            <div className="publish-review__columns">
+              <section>
+                <h3>Always public</h3>
+                <dl>
+                  <div><dt>Project</dt><dd>{story.name}</dd></div>
+                  <div><dt>Owner</dt><dd>{story.owner.name} (@{story.owner.handle}) / {story.owner.role}</dd></div>
+                  <div><dt>Category / status</dt><dd>{category} / {story.status}</dd></div>
+                  <div><dt>Tech stack</dt><dd>{story.stack.join(", ") || "No stack labels"}</dd></div>
+                  <div><dt>Visual</dt><dd>{storyBackgroundOption(storyBackgroundId).label}</dd></div>
+                  <div><dt>Receipt</dt><dd>{reviewedPublicReceiptId}</dd></div>
+                </dl>
+              </section>
+              <section>
+                <h3>Selected optional data ({selectedFields.length})</h3>
+                <ul>{fieldOptions.filter((field) => selectedFields.includes(field.id)).map((field) => <li key={field.id}><strong>{field.label}</strong><span>{field.detail}</span><small>{publicationFieldReviewValue(field.id)}</small></li>)}</ul>
+              </section>
+            </div>
+            <aside>
+              <strong>Still private</strong>
+              <p>Repository path and remotes, branch and commit hashes, full source snapshot, raw transcripts and tool payloads, reviewed excerpt text, connection credentials, and every unchecked optional field.</p>
+              {(selectedFields.includes("narrative") || fieldOptions.some((field) => field.id.startsWith("story") && selectedFields.includes(field.id))) ? <p>AI-written prose can reflect the meaning of private conversations. Pattern redaction reduces known secret, path, host, URL, and email exposure, but it is not a guarantee of anonymity -- read the public preview before confirming.</p> : null}
+              {selectedFields.includes("artifactLinks") && artifactLinks.videoUrl ? <p>The video link is public. Visitors must choose to load an embed before their browser connects to the video provider.</p> : null}
+              {selectedFields.includes("artifactMedia") ? <p>{media.length} uploaded image{media.length === 1 ? "" : "s"} will be public until you unpublish or remove them.</p> : null}
+            </aside>
+            <label className="publish-review__acknowledgement">
+              <input type="checkbox" checked={publishReviewAcknowledged} onChange={(event) => setPublishReviewAcknowledged(event.target.checked)} />
+              <span>I reviewed the exact categories above and understand this creates or replaces a page anyone can view.</span>
+            </label>
+            <footer>
+              <button type="button" className="button button--secondary" onClick={() => { setPublishReviewOpen(false); setPublishReviewAcknowledged(false); }}>Keep private</button>
+              <button type="button" className="button button--primary" onClick={() => void publishChanges()} disabled={!publishReviewAcknowledged || saveState === "saving"}>
+                {saveState === "saving" ? "Publishing..." : isLive ? "Confirm and republish" : "Confirm and publish"}
+              </button>
+            </footer>
+          </section>
+        </div>
       ) : null}
     </main>
   );
