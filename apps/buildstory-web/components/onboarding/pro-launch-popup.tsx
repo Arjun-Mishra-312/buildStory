@@ -34,7 +34,7 @@ export function ProLaunchPopup({ open, onContinue, daysRemaining }: ProLaunchPop
     <div className="pro-launch-popup-backdrop" role="presentation" onClick={onContinue}>
       <div className="pro-launch-popup" role="dialog" aria-modal="true" aria-labelledby="pro-launch-popup-title" onClick={(event) => event.stopPropagation()}>
         <span className="section-index">( ON US TO LAUNCH )</span>
-        <h2 id="pro-launch-popup-title">You've got Pro. {countdown}</h2>
+        <h2 id="pro-launch-popup-title">You&apos;ve got Pro. {countdown}</h2>
         <p>Every new account gets full Pro access while we launch Buildstory — no card, no catch.</p>
         <ul className="pro-launch-popup__benefits">
           {BENEFITS.map((benefit) => (
