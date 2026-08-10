@@ -10,7 +10,7 @@ export function LandingReceipt() {
           <span className="avatar avatar--coral">AR</span>
           <span>
             <strong>Contrast FM</strong>
-            <small>by Anika Rao</small>
+            <small>by Arjun Mishra</small>
           </span>
           <small>3 day build</small>
         </div>
