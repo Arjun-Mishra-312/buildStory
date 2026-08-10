@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { EditorialIllustration } from "@/components/editorial-illustration";
+import { FeedTile } from "@/components/feed-tile";
 import type { FeedEntry } from "@/lib/social/contracts";
 
 export function HomeFeed({ entries, unavailable }: { entries: FeedEntry[]; unavailable: boolean }) {
@@ -33,22 +34,9 @@ export function HomeFeed({ entries, unavailable }: { entries: FeedEntry[]; unava
           </div>
         </div>
       ) : (
-        <div className="feed-list">
+        <div className="feed-grid">
           {entries.map((entry) => (
-            <article key={entry.reportId} className="feed-list__item">
-              <div>
-                <strong>{entry.author.displayName}</strong>
-                <small>@{entry.author.handle}</small>
-              </div>
-              <Link href={`/u/${entry.author.handle}/${entry.slug}/${entry.chapterIndex}`}>
-                {entry.chapterIndex > 1 ? <span className="feed-list__update-badge">UPDATE · CH. {entry.chapterIndex}</span> : null}
-                {entry.tagline}
-              </Link>
-              <div className="feed-list__meta">
-                <span>{entry.reactionTotal} reactions</span>
-                <span>{entry.commentCount} comments</span>
-              </div>
-            </article>
+            <FeedTile key={entry.reportId} entry={entry} />
           ))}
         </div>
       )}

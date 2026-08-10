@@ -1,6 +1,7 @@
 import { getD1 } from "@/db";
 import { effectivePlan } from "@/lib/narrative/entitlement";
 import { sanitizePublicText } from "@/lib/publication/sanitization";
+import { feedTileFromStory, parseFeedStoryJson } from "./feed-projection";
 import {
   isReactionKind,
   REACTION_KINDS,
@@ -753,9 +754,11 @@ type FeedRow = {
   owner_avatar_url: string | null;
   reaction_total: number;
   comment_count: number;
+  story_json: string | null;
 };
 
-function feedEntryFromRow(row: FeedRow): FeedEntry {
+function feedEntryFromRow(row: FeedRow, reactionCounts: Record<ReactionKind, number>): FeedEntry {
+  const projection = feedTileFromStory(parseFeedStoryJson(row.story_json));
   return {
     reportId: row.id,
     slug: row.publication_slug,
@@ -765,13 +768,34 @@ function feedEntryFromRow(row: FeedRow): FeedEntry {
     author: authorFromRow({ id: row.owner_id, handle: row.owner_handle, display_name: row.owner_display_name, avatar_url: row.owner_avatar_url }),
     reactionTotal: row.reaction_total,
     commentCount: row.comment_count,
+    reactionCounts,
+    visual: projection?.visual ?? null,
+    stats: projection?.stats ?? null,
   };
 }
 
 const FEED_ROW_COLUMNS = `r.id, r.publication_slug, r.chapter_index, r.editorial_tagline, r.published_at,
               u.id AS owner_id, u.handle AS owner_handle, u.display_name AS owner_display_name, u.avatar_url AS owner_avatar_url,
               (SELECT COUNT(*) FROM buildstory_reactions WHERE report_id = r.id) AS reaction_total,
-              (SELECT COUNT(*) FROM buildstory_comments WHERE report_id = r.id AND status = 'visible') AS comment_count`;
+              (SELECT COUNT(*) FROM buildstory_comments WHERE report_id = r.id AND status = 'visible') AS comment_count,
+              i.story_json`;
+
+/** Batched per-kind reaction counts for a page of feed rows - one GROUP BY query for the whole page, no N+1. */
+async function reactionCountsByReport(db: D1Database, reportIds: string[]): Promise<Map<string, Record<ReactionKind, number>>> {
+  const result = new Map<string, Record<ReactionKind, number>>();
+  if (reportIds.length === 0) return result;
+  const placeholders = reportIds.map(() => "?").join(",");
+  const rows = await db
+    .prepare(`SELECT report_id, kind, COUNT(*) AS count FROM buildstory_reactions WHERE report_id IN (${placeholders}) GROUP BY report_id, kind`)
+    .bind(...reportIds)
+    .all<{ report_id: string; kind: string; count: number }>();
+  for (const row of rows.results) {
+    const bucket = result.get(row.report_id) ?? emptyReactionCounts();
+    if (isReactionKind(row.kind)) bucket[row.kind] = row.count;
+    result.set(row.report_id, bucket);
+  }
+  return result;
+}
 
 /**
  * Each published chapter is its own row now (see db/schema.ts's chapterIndex
@@ -798,6 +822,7 @@ export async function getActivityFeed(viewerUserId: string, limit = 30, cursor?:
        FROM buildstory_reports r
        JOIN buildstory_follows f ON f.followee_user_id = r.owner_user_id
        JOIN buildstory_users u ON u.id = r.owner_user_id
+       LEFT JOIN buildstory_public_story_index i ON i.report_id = r.id
        WHERE f.follower_user_id = ? AND r.publication_status = 'published' AND (? IS NULL OR r.published_at < ?)
        ORDER BY r.published_at DESC
        LIMIT ?`,
@@ -814,6 +839,7 @@ export async function getActivityFeed(viewerUserId: string, limit = 30, cursor?:
       `SELECT ${FEED_ROW_COLUMNS}
        FROM buildstory_reports r
        JOIN buildstory_users u ON u.id = r.owner_user_id
+       LEFT JOIN buildstory_public_story_index i ON i.report_id = r.id
        WHERE r.publication_status = 'published'
          AND r.owner_user_id != ?
          AND r.owner_user_id NOT IN (SELECT followee_user_id FROM buildstory_follows WHERE follower_user_id = ?)
@@ -824,10 +850,11 @@ export async function getActivityFeed(viewerUserId: string, limit = 30, cursor?:
     .bind(viewerUserId, viewerUserId, cursor ?? null, cursor ?? null, discoveryLimit)
     .all<FeedRow>();
 
-  return [...followedRows.results, ...discoveryRows.results]
+  const merged = [...followedRows.results, ...discoveryRows.results]
     .sort((a, b) => b.published_at.localeCompare(a.published_at))
-    .slice(0, bounded)
-    .map(feedEntryFromRow);
+    .slice(0, bounded);
+  const reactionCounts = await reactionCountsByReport(db, merged.map((row) => row.id));
+  return merged.map((row) => feedEntryFromRow(row, reactionCounts.get(row.id) ?? emptyReactionCounts()));
 }
 
 // ---------------------------------------------------------------------------

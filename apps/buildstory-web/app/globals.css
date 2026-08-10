@@ -5155,6 +5155,7 @@ html[data-theme="dark"] .closing-cta {
 
 /* Social: activity feed */
 
+/* Also used by the search page's people/stories result rows (app/search/page.tsx) - keep this generic. */
 .feed-list {
   display: flex;
   flex-direction: column;
@@ -5177,28 +5178,183 @@ html[data-theme="dark"] .closing-cta {
   color: var(--muted);
 }
 
-.feed-list__item a {
-  font-size: 15px;
-  font-weight: 600;
+.feed-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  margin-top: 20px;
 }
 
-.feed-list__meta {
+.feed-tile {
   display: flex;
-  gap: 16px;
-  color: var(--muted);
-  font-size: 12px;
+  flex-direction: column;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xs);
+  background: var(--surface-strong);
+  overflow: hidden;
+  transition: transform 160ms ease, box-shadow 160ms ease;
 }
 
-.feed-list__update-badge {
-  display: inline-block;
-  margin-right: 8px;
+.feed-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-small);
+}
+
+.feed-tile__visual {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: var(--midnight);
+}
+
+.feed-tile__visual img,
+.feed-tile__visual .explore-story-card__cover,
+.feed-tile__visual .explore-story-card__receipt {
+  width: 100%;
+  height: 100%;
+}
+
+.feed-tile__status,
+.feed-tile__category {
+  position: absolute;
+  top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-strong);
+  font-family: var(--font-code);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.feed-tile__status {
+  left: 10px;
+  color: var(--ink);
+}
+
+.feed-tile__category {
+  right: 10px;
+  color: var(--muted);
+}
+
+.feed-tile__update-badge {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
   padding: 3px 7px;
   border: 1px solid var(--cobalt);
   color: var(--cobalt);
-  font-family: var(--font-geist-mono), monospace;
+  background: var(--surface-strong);
+  font-family: var(--font-code);
   font-size: 9px;
   letter-spacing: 0.06em;
-  vertical-align: middle;
+}
+
+.feed-tile__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.feed-tile__title {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-editorial);
+  font-size: 19px;
+  font-weight: 400;
+  line-height: 1.25;
+}
+
+.feed-tile__fact {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--coral);
+  background: var(--coral-soft);
+}
+
+.feed-tile__fact small {
+  color: var(--muted);
+  font-family: var(--font-code);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.feed-tile__fact strong {
+  font-family: var(--font-editorial);
+  font-size: 13px;
+  font-style: italic;
+  font-weight: 400;
+}
+
+.feed-tile__stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.feed-tile__stats > span {
+  min-width: 0;
+  padding: 8px 10px 8px 0;
+}
+
+.feed-tile__stats small,
+.feed-tile__stats strong {
+  display: block;
+}
+
+.feed-tile__stats small {
+  color: var(--muted);
+  font-family: var(--font-code);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.feed-tile__stats strong {
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--ink);
+  font: 600 11px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feed-tile__byline {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.feed-tile__footer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-family: var(--font-code);
+  font-size: 12px;
+}
+
+.feed-tile__footer span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.feed-tile__footer-comments {
+  margin-left: auto;
+}
+
+@media (max-width: 640px) {
+  .feed-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Leaderboard */

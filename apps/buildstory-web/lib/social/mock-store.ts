@@ -1,5 +1,7 @@
 import { effectivePlan } from "@/lib/narrative/entitlement";
 import { sanitizePublicText } from "@/lib/publication/sanitization";
+import type { PublicBuildStoryViewModel } from "@/lib/build-story";
+import { feedTileFromStory } from "./feed-projection";
 import {
   REACTION_KINDS,
   SocialError,
@@ -45,6 +47,8 @@ type StoredReport = {
   editorialTagline: string;
   publishedAt: string | null;
   chapterIndex: number | null;
+  /** The frozen public story view-model, mirroring D1's buildstory_public_story_index. Null once unpublished. */
+  story: PublicBuildStoryViewModel | null;
 };
 
 type StoredComment = {
@@ -165,7 +169,13 @@ export function registerProfile(user: {
   });
 }
 
-/** Registers/refreshes the minimal report fields the social mock store needs, independent of the ingestion mock store's own report map. */
+/**
+ * Registers/refreshes the minimal report fields the social mock store needs, independent
+ * of the ingestion mock store's own report map. `story` is optional: omitting it (undefined)
+ * preserves whatever story was previously registered for this report id (most call sites
+ * touch unrelated fields and have no fresh story to hand over); pass `null` explicitly to
+ * clear it (unpublish).
+ */
 export function registerReport(report: {
   id: string;
   ownerUserId: string | null;
@@ -175,8 +185,11 @@ export function registerReport(report: {
   editorialTagline: string;
   publishedAt: string | null;
   chapterIndex: number | null;
+  story?: PublicBuildStoryViewModel | null;
 }) {
-  store.reports.set(report.id, { ...report });
+  const existing = store.reports.get(report.id);
+  const story = report.story !== undefined ? report.story : existing?.story ?? null;
+  store.reports.set(report.id, { ...report, story });
 }
 
 /** Every published (or draft_changes) report id for a project, most recent chapter first - mirrors d1-store.ts's publishedReportIdsForProject. */
@@ -578,12 +591,22 @@ export function markNotificationsRead(userId: string, notificationIds?: string[]
 // Activity feed
 // ---------------------------------------------------------------------------
 
+function reactionCountsForReport(reportId: string): Record<ReactionKind, number> {
+  const counts = Object.fromEntries(REACTION_KINDS.map((kind) => [kind, 0])) as Record<ReactionKind, number>;
+  for (const [key, reaction] of store.reactions) {
+    if (key.startsWith(`${reportId}:`)) counts[reaction.kind] += 1;
+  }
+  return counts;
+}
+
 function feedEntryFromReport(report: StoredReport): FeedEntry {
-  const reactionTotal = Array.from(store.reactions.keys()).filter((key) => key.startsWith(`${report.id}:`)).length;
+  const reactionCounts = reactionCountsForReport(report.id);
+  const reactionTotal = Object.values(reactionCounts).reduce((sum, count) => sum + count, 0);
   const commentCount = Array.from(store.comments.values()).filter(
     (comment) => comment.reportId === report.id && comment.status === "visible",
   ).length;
   const owner = report.ownerUserId ? store.users.get(report.ownerUserId) : undefined;
+  const projection = feedTileFromStory(report.story);
   return {
     reportId: report.id,
     slug: report.publicationSlug,
@@ -593,6 +616,9 @@ function feedEntryFromReport(report: StoredReport): FeedEntry {
     author: owner ? authorFor(owner.id) : { id: report.ownerUserId!, handle: "unknown", displayName: "Unknown", avatarUrl: null },
     reactionTotal,
     commentCount,
+    reactionCounts,
+    visual: projection?.visual ?? null,
+    stats: projection?.stats ?? null,
   };
 }
 

@@ -1,5 +1,6 @@
 export const REACTION_KINDS = ["fire", "mindblown", "relatable", "shipped"] as const;
 import type { BuilderRole } from "@/lib/identity/builder-roles";
+import type { FeedTileStats, FeedTileVisual } from "./feed-projection";
 export type ReactionKind = (typeof REACTION_KINDS)[number];
 
 export function isReactionKind(value: unknown): value is ReactionKind {
@@ -83,6 +84,11 @@ export type FeedEntry = {
   author: CommentAuthor;
   reactionTotal: number;
   commentCount: number;
+  /** Per-kind breakdown backing the feed tile's reaction icon row. */
+  reactionCounts: Record<ReactionKind, number>;
+  /** Null when the report predates (or fell out of sync with) the public story index - the tile degrades to a bare card rather than guessing. */
+  visual: FeedTileVisual | null;
+  stats: FeedTileStats | null;
 };
 
 export const CONTENT_REPORT_TARGET_TYPES = ["report", "comment", "user"] as const;

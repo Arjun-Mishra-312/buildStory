@@ -395,8 +395,18 @@ function userIdForCreator(creatorId: string): string | null {
   return Array.from(store.users.values()).find((candidate) => candidate.authSubject === creatorId)?.id ?? null;
 }
 
-/** Keeps the (separately module-scoped) social mock store's shadow report record in sync. */
-function registerSocialReport(reportId: string, ownerUserId: string | null, report: GeneratedReport) {
+/**
+ * Keeps the (separately module-scoped) social mock store's shadow report record in sync.
+ * `story` is only passed at the publish call site, where a freshly computed public
+ * view-model is in scope; omit it (undefined) elsewhere to leave a report's previously
+ * stored story untouched, or pass `null` explicitly (unpublish) to clear it.
+ */
+function registerSocialReport(
+  reportId: string,
+  ownerUserId: string | null,
+  report: GeneratedReport,
+  story?: PublicBuildStoryViewModel | null,
+) {
   registerSocialReportRecord({
     id: reportId,
     ownerUserId,
@@ -406,6 +416,7 @@ function registerSocialReport(reportId: string, ownerUserId: string | null, repo
     editorialTagline: report.editorial.tagline,
     publishedAt: report.publication.publishedAt,
     chapterIndex: report.publication.chapterIndex,
+    story,
   });
 }
 
@@ -1784,7 +1795,7 @@ export async function publishReport(creatorId: string, reportId: string): Promis
     hasLiveDemo: Boolean(publicStory.artifactLinks.projectUrl),
     updatedAt: now,
   });
-  registerSocialReport(reportId, userIdForCreator(creatorId), report);
+  registerSocialReport(reportId, userIdForCreator(creatorId), report, publicStoryWithDelta);
   if (thisChapterIndex !== null && thisChapterIndex > 1 && owner) {
     await notifyFollowersOfStoryUpdate(reportId, owner.id);
   }
@@ -1842,7 +1853,7 @@ export function moderatorUnpublishReport(reportId: string): void {
   report.publication.publishedAt = null;
   report.publication.publicUrl = null;
   store.publicStoryIndex.delete(reportId);
-  registerSocialReport(reportId, userIdForCreator(report.creatorId), report);
+  registerSocialReport(reportId, userIdForCreator(report.creatorId), report, null);
 
   if (wasCanonical) {
     const next = Array.from(store.reports.values())
