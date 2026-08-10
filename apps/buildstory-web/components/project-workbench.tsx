@@ -634,6 +634,52 @@ export function ProjectWorkbench({
     setPublishReviewOpen(true);
   }
 
+  // Mirrors the data sources publicationFieldReviewValue reads, but as a boolean
+  // gate: a field with nothing behind it can be selected and it will change
+  // nothing on the public page, so the checkbox grid uses this to grey it out
+  // instead of offering a toggle that's silently a no-op.
+  function fieldHasData(field: PublicFieldKey): boolean {
+    if (!privateStory) return true;
+    const pack = privateStoryPack;
+    const deep = pack?.version === "3.0.0" ? pack.deepAnalysis : undefined;
+    switch (field) {
+      case "tagline": return Boolean(tagline);
+      case "description": return Boolean(description || reflection);
+      case "timeWindow": return true;
+      case "sessionSummary": return privateStory.sessionCount > 0;
+      case "milestones": return privateStory.milestones.length > 0;
+      case "modelMix": return privateStory.models.length > 0;
+      case "costEstimate": return privateStory.cost?.totalMicroUsd != null;
+      case "toolUsage": return privateStory.tools.length > 0;
+      case "gitAggregates": return privateStory.git.commits > 0;
+      case "redactionSummary": return true;
+      case "archetype": return Boolean(privateStory.profile?.archetype);
+      case "profileScores": return Boolean(privateStory.profile);
+      case "workPatterns": return Boolean(privateStory.profile);
+      case "narrative": return Boolean(privateStory.narrative?.headline);
+      case "storyBuildArc": return Boolean(pack?.buildArc.length);
+      case "storyMoments": return Boolean(pack?.moments.length);
+      case "storyTurningPoint": return Boolean(pack?.turningPoint.quote);
+      case "storyDecisions": return Boolean(pack?.decisions.length);
+      case "storyLearnings": return Boolean(pack?.learnings.length);
+      case "storyTraits": return Boolean(pack?.standoutTraits.length);
+      case "storyGrowthEdge": return Boolean(pack?.growthEdge.title);
+      case "storySignals": return Boolean(pack?.signals.length);
+      case "decisionPatterns": return Boolean(privateStory.narrative?.decisionPatterns.length);
+      case "standoutTraits": return Boolean(privateStory.narrative?.standoutTraits.length);
+      case "growthEdge": return Boolean(privateStory.narrative?.growthEdge);
+      case "signalHeadline": return Boolean(pack?.signals[0]?.headline);
+      case "deepOpeningLine": return Boolean(deep?.openingLine);
+      case "deepSignatureMoves": return Boolean(deep?.signatureMoves?.length);
+      case "deepByTheNumbers": return Boolean(deep?.byTheNumbers?.length);
+      case "deepWhereItGotHard": return Boolean(deep?.whereItGotHard?.length);
+      case "deepChapterChanges": return Boolean(deep?.chapterChanges?.length);
+      case "artifactLinks": return Boolean(artifactLinks.projectUrl || artifactLinks.repoUrl || artifactLinks.videoUrl);
+      case "artifactMedia": return media.length > 0;
+      default: return false;
+    }
+  }
+
   function publicationFieldReviewValue(field: PublicFieldKey): string {
     if (!privateStory) return "See public preview";
     const pack = privateStoryPack;
@@ -1386,15 +1432,27 @@ export function ProjectWorkbench({
             <div className="public-field-grid">
               {fieldOptions.map((field) => {
                 const checked = selectedFields.includes(field.id);
+                const hasData = fieldHasData(field.id);
+                // Never block unchecking a field that lost its data after being selected -
+                // only block turning on a toggle that would be a silent no-op.
+                const disabled = field.id === "tagline" || (!hasData && !checked);
+                const showEmptyBadge = !hasData && field.id !== "tagline";
                 return (
-                  <label key={field.id} className={checked ? "is-selected" : ""}>
+                  <label
+                    key={field.id}
+                    className={[checked ? "is-selected" : "", showEmptyBadge ? "is-unavailable" : ""].filter(Boolean).join(" ")}
+                  >
                     <input
                       type="checkbox"
                       checked={checked}
-                      disabled={field.id === "tagline"}
+                      disabled={disabled}
                       onChange={() => togglePublicField(field.id)}
                     />
-                    <span><strong>{field.label}</strong><small>{field.detail}</small></span>
+                    <span>
+                      <strong>{field.label}</strong>
+                      <small>{field.detail}</small>
+                      {showEmptyBadge ? <em>No data for this report</em> : null}
+                    </span>
                     <i aria-hidden="true">{checked ? "✓" : ""}</i>
                   </label>
                 );
