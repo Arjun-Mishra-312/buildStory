@@ -5319,6 +5319,21 @@ html[data-theme="dark"] .closing-cta {
   color: var(--muted);
 }
 
+.feed-tile__model-donut {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  display: flex;
+  padding: 6px;
+  border-radius: var(--radius-circle);
+  background: var(--surface-strong);
+  transform: translateY(-50%);
+}
+
+.feed-tile__model-donut svg {
+  display: block;
+}
+
 .feed-tile__update-badge {
   position: absolute;
   bottom: 10px;

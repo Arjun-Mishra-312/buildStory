@@ -2,12 +2,16 @@ import type { PublicBuildStoryViewModel } from "@/lib/build-story";
 import { DEFAULT_STORY_BACKGROUND_ID, isStoryBackgroundId, type StoryBackgroundId } from "@/lib/background-options";
 
 export type FeedTileVisual = {
+  /** The project/story's own name (e.g. "Orbit Notes") - shown on the image overlay, distinct from the editorial tagline shown in the tile body. */
+  projectName: string;
   category: string;
   status: PublicBuildStoryViewModel["status"];
   coverUrl: string | null;
   storyBackgroundId: StoryBackgroundId;
   stack: string[];
 };
+
+export type ModelShareSlice = { label: string; share: number };
 
 export type FeedTileStats = {
   sessionCount: number;
@@ -16,9 +20,21 @@ export type FeedTileStats = {
   commits: number;
   primaryModel: { label: string; share: number | null } | null;
   headlineFact: string | null;
+  /** Top 3 models by share plus an aggregated "Other" slice; null when no report on this card has public cost-share data to chart. */
+  modelBreakdown: ModelShareSlice[] | null;
 };
 
 export type FeedTileProjection = { visual: FeedTileVisual; stats: FeedTileStats };
+
+function modelBreakdownFrom(models: PublicBuildStoryViewModel["models"]): ModelShareSlice[] | null {
+  const priced = models.filter((model): model is typeof model & { share: number } => typeof model.share === "number");
+  if (priced.length === 0) return null;
+  const sorted = [...priced].sort((a, b) => b.share - a.share);
+  const slices = sorted.slice(0, 3).map((model) => ({ label: model.label, share: model.share }));
+  const otherShare = sorted.slice(3).reduce((sum, model) => sum + model.share, 0);
+  if (otherShare > 0) slices.push({ label: "Other", share: otherShare });
+  return slices;
+}
 
 /**
  * Projects the frozen public story view-model (buildstory_public_story_index's
@@ -33,6 +49,7 @@ export function feedTileFromStory(story: PublicBuildStoryViewModel | null | unde
   const primary = story.models[0];
   return {
     visual: {
+      projectName: story.name,
       category: story.category,
       status: story.status,
       coverUrl: story.artifactMedia?.find((media) => media.kind === "cover")?.url ?? story.artifactMedia?.[0]?.url ?? null,
@@ -46,6 +63,7 @@ export function feedTileFromStory(story: PublicBuildStoryViewModel | null | unde
       commits: story.git.commits,
       primaryModel: primary ? { label: primary.label, share: primary.share } : null,
       headlineFact: story.headlineFact,
+      modelBreakdown: modelBreakdownFrom(story.models),
     },
   };
 }

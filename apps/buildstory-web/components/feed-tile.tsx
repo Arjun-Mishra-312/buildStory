@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Flame, Handshake, MessageCircle, Rocket, Sparkles } from "lucide-react";
 import type { FeedEntry } from "@/lib/social/contracts";
+import type { ModelShareSlice } from "@/lib/social/feed-projection";
 import { initialsFrom } from "@/lib/identity/initials";
 import { categoryLabel, formatBuildTime, statusClass } from "@/lib/story/display-labels";
 import { DEFAULT_STORY_BACKGROUND_ID } from "@/lib/background-options";
@@ -13,11 +14,55 @@ const REACTION_ICONS = {
   shipped: Rocket,
 } as const;
 
+const MODEL_SLICE_COLORS = ["var(--cobalt)", "var(--coral)", "var(--success)", "var(--faint)"];
+const DONUT_RADIUS = 24;
+const DONUT_CIRCUMFERENCE = 2 * Math.PI * DONUT_RADIUS;
+
+type DonutArc = { slice: ModelShareSlice; dash: number; offset: number };
+
+function donutArcsFrom(breakdown: ModelShareSlice[]): DonutArc[] {
+  const total = breakdown.reduce((sum, slice) => sum + slice.share, 0) || 1;
+  return breakdown.reduce<DonutArc[]>((arcs, slice) => {
+    const dash = (slice.share / total) * DONUT_CIRCUMFERENCE;
+    const previous = arcs[arcs.length - 1];
+    const offset = previous ? previous.offset + previous.dash : 0;
+    return [...arcs, { slice, dash, offset }];
+  }, []);
+}
+
+function ModelDonut({ breakdown }: { breakdown: ModelShareSlice[] }) {
+  const arcs = donutArcsFrom(breakdown);
+  return (
+    <div className="feed-tile__model-donut" aria-hidden="true">
+      <svg viewBox="0 0 64 64" width="56" height="56" role="img">
+        <title>Model usage breakdown</title>
+        <circle cx="32" cy="32" r={DONUT_RADIUS} fill="none" stroke="var(--surface-soft)" strokeWidth="9" />
+        {arcs.map(({ slice, dash, offset }, index) => (
+          <circle
+            key={slice.label}
+            cx="32"
+            cy="32"
+            r={DONUT_RADIUS}
+            fill="none"
+            stroke={MODEL_SLICE_COLORS[index % MODEL_SLICE_COLORS.length]}
+            strokeWidth="9"
+            strokeDasharray={`${dash} ${DONUT_CIRCUMFERENCE - dash}`}
+            strokeDashoffset={-offset}
+            transform="rotate(-90 32 32)"
+          >
+            <title>{`${slice.label} · ${slice.share}%`}</title>
+          </circle>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
 export function FeedTile({ entry }: { entry: FeedEntry }) {
   const { visual, stats } = entry;
   const href = `/u/${entry.author.handle}/${entry.slug}/${entry.chapterIndex}`;
   const visualStory = {
-    name: entry.tagline,
+    name: visual?.projectName ?? entry.tagline,
     stack: visual?.stack ?? [],
     storyBackgroundId: visual?.storyBackgroundId ?? DEFAULT_STORY_BACKGROUND_ID,
     artifactMedia: visual?.coverUrl ? [{ id: "cover", kind: "cover" as const, url: visual.coverUrl }] : [],
@@ -37,6 +82,7 @@ export function FeedTile({ entry }: { entry: FeedEntry }) {
               <span className="feed-tile__category">{categoryLabel(visual.category)}</span>
             </>
           ) : null}
+          {stats?.modelBreakdown ? <ModelDonut breakdown={stats.modelBreakdown} /> : null}
           {entry.chapterIndex > 1 ? <span className="feed-tile__update-badge">UPDATE · CH. {entry.chapterIndex}</span> : null}
         </div>
         <div className="feed-tile__body">
