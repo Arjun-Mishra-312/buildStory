@@ -296,9 +296,10 @@ a {
 }
 
 .section-wrap {
+  --section-gutter: clamp(24px, 4vw, 64px);
   width: min(100%, var(--max-width));
   margin-inline: auto;
-  padding-inline: clamp(24px, 4vw, 64px);
+  padding-inline: var(--section-gutter);
 }
 
 .site-header {
@@ -6680,7 +6681,7 @@ button.story-pack__source { cursor: pointer; }
 .story-pack__evidence-drawer p { color: var(--muted); font-size: 13px; line-height: 1.55; }
 .story-pack__evidence-drawer blockquote { margin: 18px 0; padding: 16px; border-left: 3px solid var(--coral); background: var(--surface-soft); color: var(--ink); font: 15px/1.6 var(--font-editorial); }
 
-.story-pack--public .story-pack__hero { margin-inline: calc(clamp(24px, 4vw, 64px) * -1); padding-inline: clamp(24px, 4vw, 64px); }
+.story-pack--public .story-pack__hero { margin-inline: calc(var(--section-gutter, clamp(24px, 4vw, 64px)) * -1); padding-inline: var(--section-gutter, clamp(24px, 4vw, 64px)); }
 .story-pack--public .story-pack__arc,
 .story-pack--public .story-pack__moments,
 .story-pack--public .story-pack__insight-grid { max-width: 100%; }
@@ -6697,7 +6698,7 @@ button.story-pack__source { cursor: pointer; }
   .story-pack__insight-card--turning { grid-column: auto; }
   .story-pack__moment-card { grid-template-columns: 42px 1fr; padding: 18px; }
   .story-pack__hero { padding: 28px 20px; }
-  .story-pack--public .story-pack__hero { margin-inline: -24px; padding-inline: 24px; }
+  .story-pack--public .story-pack__hero { margin-inline: calc(var(--section-gutter, 24px) * -1); padding-inline: var(--section-gutter, 24px); }
 }
 
 /* Cohesion follow-up: compact discovery metrics and accessible reaction rhythm. */

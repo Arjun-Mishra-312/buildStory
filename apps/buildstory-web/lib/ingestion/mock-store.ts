@@ -1872,15 +1872,21 @@ export function getPublishedStory(handle: string, slug: string) {
 
 /** A specific chapter of a project's public story, by its 1-based chapterIndex - used for the archival "<slug>/<n>" path. */
 export function getPublishedStoryChapter(handle: string, slug: string, chapterIndex: number) {
-  const report = Array.from(store.reports.values()).find((candidate) => {
+  const canonical = canonicalOf(Array.from(store.reports.values()).filter((candidate) => {
     const owner = store.users.get(userIdForCreator(candidate.creatorId) ?? "");
     return (
       owner?.handleLower === handle.toLocaleLowerCase("en-US") &&
       candidate.publication.slug === slug &&
-      isPubliclyVisible(candidate.publication.status) &&
-      candidate.publication.chapterIndex === chapterIndex
+      isPubliclyVisible(candidate.publication.status)
     );
-  });
+  }));
+  const report = canonical
+    ? Array.from(store.reports.values()).find((candidate) =>
+      candidate.projectId === canonical.projectId &&
+      candidate.publication.chapterIndex === chapterIndex &&
+      isPubliclyVisible(candidate.publication.status),
+    )
+    : undefined;
   if (!report) return null;
   if (report.publication.status === "draft_changes") return frozenPublicStory(report.id);
   const snapshot = structuredClone(report.snapshot);
@@ -1896,11 +1902,12 @@ export function getPublishedStoryChapter(handle: string, slug: string, chapterIn
 
 /** All currently-published chapters of a project, oldest first - powers the timeline nav. */
 export function listPublishedChapters(handle: string, slug: string) {
+  const canonical = canonicalOf(Array.from(store.reports.values()).filter((candidate) => {
+    const owner = store.users.get(userIdForCreator(candidate.creatorId) ?? "");
+    return owner?.handleLower === handle.toLocaleLowerCase("en-US") && candidate.publication.slug === slug && isPubliclyVisible(candidate.publication.status);
+  }));
   return Array.from(store.reports.values())
-    .filter((candidate) => {
-      const owner = store.users.get(userIdForCreator(candidate.creatorId) ?? "");
-      return owner?.handleLower === handle.toLocaleLowerCase("en-US") && candidate.publication.slug === slug && isPubliclyVisible(candidate.publication.status);
-    })
+    .filter((candidate) => canonical && candidate.projectId === canonical.projectId && isPubliclyVisible(candidate.publication.status))
     .sort((left, right) => (left.publication.chapterIndex ?? 0) - (right.publication.chapterIndex ?? 0))
     .map((report) => {
       // Reads the frozen, already-gated public projection, never the private snapshot -
@@ -2147,19 +2154,21 @@ export function listProjectStatsForLeaderboard(): Array<{
   latestCommitCount: number;
   latestActiveDays: number;
   verifiedRepoAt: string | null;
+  publishedStoryCount: number;
 }> {
-  const publishedProjectIds = new Set(
-    Array.from(store.reports.values())
-      .filter((report) => report.publication.status === "published")
-      .map((report) => report.projectId),
-  );
+  const publishedStoryCounts = new Map<string, number>();
+  for (const report of store.reports.values()) {
+    if (report.publication.status !== "published") continue;
+    publishedStoryCounts.set(report.projectId, (publishedStoryCounts.get(report.projectId) ?? 0) + 1);
+  }
   return Array.from(store.projects.values())
-    .filter((project) => publishedProjectIds.has(project.id))
+    .filter((project) => publishedStoryCounts.has(project.id))
     .map((project) => ({
       ownerUserId: project.ownerUserId,
       latestCommitCount: project.latestCommitCount,
       latestActiveDays: project.latestActiveDays,
       verifiedRepoAt: project.verifiedRepoAt,
+      publishedStoryCount: publishedStoryCounts.get(project.id) ?? 0,
     }));
 }
 

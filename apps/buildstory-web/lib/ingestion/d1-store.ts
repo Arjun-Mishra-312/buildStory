@@ -2277,6 +2277,10 @@ export async function publishReport(
   if (!owner) throw new D1IngestionError("not_found", "Creator account not found.", 404);
 
   const db = await database();
+  const project = await db
+    .prepare("SELECT slug FROM buildstory_projects WHERE id = ? AND owner_user_id = ?")
+    .bind(report.projectId, owner.id)
+    .first<{ slug: string }>();
   const existing = await db
     .prepare("SELECT chapter_index FROM buildstory_reports WHERE id = ?")
     .bind(reportId)
@@ -2301,8 +2305,9 @@ export async function publishReport(
 
   const becomesCanonical = !currentCanonical || currentCanonical.chapter_index < chapterIndex;
   const handle = owner.handle.toLocaleLowerCase("en-US");
-  const canonicalPath = `${handle}/${report.publication.slug}`;
-  const canonicalUrl = `${publicOrigin()}/u/${owner.handle}/${report.publication.slug}`;
+  const canonicalSlug = project?.slug ?? report.publication.slug;
+  const canonicalPath = `${handle}/${canonicalSlug}`;
+  const canonicalUrl = `${publicOrigin()}/u/${owner.handle}/${canonicalSlug}`;
   const publishedAt = new Date().toISOString();
 
   const statements = [];
@@ -2413,17 +2418,17 @@ export async function unpublishReport(creatorId: string, reportId: string): Prom
   if (wasCanonical) {
     const next = await db
       .prepare(
-        `SELECT id, publication_slug FROM buildstory_reports
-         WHERE project_id = ? AND publication_status IN ('published', 'draft_changes') AND id != ?
+        `SELECT r.id, p.slug FROM buildstory_reports r JOIN buildstory_projects p ON p.id = r.project_id
+         WHERE r.project_id = ? AND r.publication_status IN ('published', 'draft_changes') AND r.id != ?
          ORDER BY chapter_index DESC LIMIT 1`,
       )
       .bind(row.project_id, reportId)
-      .first<{ id: string; publication_slug: string }>();
+      .first<{ id: string; slug: string }>();
     if (next) {
       const owner = await userByAuthSubject(creatorId);
       if (owner) {
-        const canonicalPath = `${owner.handle.toLocaleLowerCase("en-US")}/${next.publication_slug}`;
-        const canonicalUrl = `${publicOrigin()}/u/${owner.handle}/${next.publication_slug}`;
+        const canonicalPath = `${owner.handle.toLocaleLowerCase("en-US")}/${next.slug}`;
+        const canonicalUrl = `${publicOrigin()}/u/${owner.handle}/${next.slug}`;
         statements.push(
           db
             .prepare("UPDATE buildstory_reports SET publication_path = ?, public_url = ?, updated_at = ? WHERE id = ?")
@@ -2717,8 +2722,8 @@ export async function getPublishedStory(handle: string, slug: string) {
     `SELECT r.id AS report_id, r.publication_status, r.snapshot_json, r.selected_public_fields_json, r.editorial_tagline, r.editorial_description, r.editorial_reflection, r.category, r.story_background_id,
             r.artifact_project_url, r.artifact_repo_url, r.artifact_video_url, r.chapter_delta_json
      FROM buildstory_reports r JOIN buildstory_users u ON u.id = r.owner_user_id
-     WHERE u.handle_lower = ? AND r.publication_slug = ? AND r.publication_path = ? AND r.publication_status IN ('published', 'draft_changes') LIMIT 1`,
-  ).bind(handle.toLocaleLowerCase("en-US"), slug, `${handle.toLocaleLowerCase("en-US")}/${slug}`).first<{
+     WHERE u.handle_lower = ? AND r.publication_path = ? AND r.publication_status IN ('published', 'draft_changes') LIMIT 1`,
+  ).bind(handle.toLocaleLowerCase("en-US"), `${handle.toLocaleLowerCase("en-US")}/${slug}`).first<{
     report_id: string; publication_status: string; snapshot_json: string; selected_public_fields_json: string; editorial_tagline: string; editorial_description: string; editorial_reflection: string; category: string | null; story_background_id: string;
     artifact_project_url: string | null; artifact_repo_url: string | null; artifact_video_url: string | null; chapter_delta_json: string | null;
   }>();
@@ -2744,12 +2749,22 @@ export async function getPublishedStory(handle: string, slug: string) {
 
 /** A specific chapter of a project's public story, by its 1-based chapterIndex - used for the archival "<slug>/<n>" path. */
 export async function getPublishedStoryChapter(handle: string, slug: string, chapterIndex: number) {
-  const row = await (await database()).prepare(
+  const db = await database();
+  // The current project slug is the public namespace. An older chapter can
+  // retain the slug it had when it was first published, while the timeline
+  // correctly links it beneath the project's current canonical URL.
+  const canonical = await db.prepare(
+    `SELECT r.project_id FROM buildstory_reports r JOIN buildstory_users u ON u.id = r.owner_user_id
+     WHERE u.handle_lower = ? AND r.publication_path = ? AND r.publication_status IN ('published', 'draft_changes') LIMIT 1`,
+  ).bind(handle.toLocaleLowerCase("en-US"), `${handle.toLocaleLowerCase("en-US")}/${slug}`).first<{ project_id: string }>();
+  if (!canonical) return null;
+
+  const row = await db.prepare(
     `SELECT r.id AS report_id, r.publication_status, r.snapshot_json, r.selected_public_fields_json, r.editorial_tagline, r.editorial_description, r.editorial_reflection, r.category, r.story_background_id,
             r.artifact_project_url, r.artifact_repo_url, r.artifact_video_url, r.chapter_delta_json
      FROM buildstory_reports r JOIN buildstory_users u ON u.id = r.owner_user_id
-     WHERE u.handle_lower = ? AND r.publication_slug = ? AND r.publication_status IN ('published', 'draft_changes') AND r.chapter_index = ? LIMIT 1`,
-  ).bind(handle.toLocaleLowerCase("en-US"), slug, chapterIndex).first<{
+     WHERE u.handle_lower = ? AND r.project_id = ? AND r.publication_status IN ('published', 'draft_changes') AND r.chapter_index = ? LIMIT 1`,
+  ).bind(handle.toLocaleLowerCase("en-US"), canonical.project_id, chapterIndex).first<{
     report_id: string; publication_status: string; snapshot_json: string; selected_public_fields_json: string; editorial_tagline: string; editorial_description: string; editorial_reflection: string; category: string | null; story_background_id: string;
     artifact_project_url: string | null; artifact_repo_url: string | null; artifact_video_url: string | null; chapter_delta_json: string | null;
   }>();

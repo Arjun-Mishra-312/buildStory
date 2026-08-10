@@ -1158,7 +1158,9 @@ export function ProjectWorkbench({
             ) : null}
 
             {access === "public" && displayStory.chapterDelta ? (
-              <ChapterDeltaSummary delta={displayStory.chapterDelta} />
+              <div className="section-wrap chapter-delta-wrap">
+                <ChapterDeltaSummary delta={displayStory.chapterDelta} />
+              </div>
             ) : null}
 
             {access === "public" ? <ProjectChangelog chapters={chapters} /> : null}

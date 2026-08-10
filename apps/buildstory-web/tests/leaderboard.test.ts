@@ -110,6 +110,24 @@ test("leaderboard: a repo-verified project scores higher than an identical unver
   assert.ok(verifiedEntry!.score > unverifiedEntry!.score, "verification measurably outranks an identical unverified project");
 });
 
+test("leaderboard: counts every published chapter while scoring each project once", async () => {
+  const creatorId = "dev:leaderboard-chapters";
+  const user = ensureUser({
+    creatorId,
+    name: "Leaderboard Chapters",
+    email: "chapters@buildstory.local",
+    image: null,
+  });
+
+  await publishSnapshotForUser(creatorId, 5);
+  await publishSnapshotForUser(creatorId, 8);
+
+  const entry = getLeaderboard("all-time", 100).find((candidate) => candidate.user.id === user.id);
+  assert.ok(entry, "builder with published chapters should appear on the leaderboard");
+  assert.equal(entry!.storyCount, 2);
+  assert.equal(entry!.score, 8);
+});
+
 test("leaderboard: unpublished reports never contribute", async () => {
   const draftCreatorId = "dev:leaderboard-draft-only";
   const draftUser = ensureUser({

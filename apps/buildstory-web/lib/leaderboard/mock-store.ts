@@ -20,7 +20,7 @@ export function getLeaderboard(_period: LeaderboardPeriod, limit = 50): Leaderbo
     const existing = totals.get(project.ownerUserId) ?? { score: 0, activeDays: 0, storyCount: 0 };
     existing.score += boosted;
     existing.activeDays += project.latestActiveDays;
-    existing.storyCount += 1;
+    existing.storyCount += project.publishedStoryCount;
     totals.set(project.ownerUserId, existing);
   }
 

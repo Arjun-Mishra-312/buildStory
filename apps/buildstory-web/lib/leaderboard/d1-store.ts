@@ -35,12 +35,14 @@ export async function recomputeLeaderboard(period: LeaderboardPeriod): Promise<v
                     CASE WHEN p.verified_repo_at IS NOT NULL THEN ? ELSE 1.0 END
                   ) AS INTEGER)) AS score,
                   SUM(p.latest_active_days) AS active_days,
-                  COUNT(DISTINCT p.id) AS story_count
+                  SUM(published.published_story_count) AS story_count
            FROM buildstory_projects p
-           WHERE EXISTS (
-             SELECT 1 FROM buildstory_reports r
-             WHERE r.project_id = p.id AND r.publication_status = 'published'
-           )
+           JOIN (
+             SELECT project_id, COUNT(*) AS published_story_count
+             FROM buildstory_reports
+             WHERE publication_status = 'published'
+             GROUP BY project_id
+           ) AS published ON published.project_id = p.id
            GROUP BY p.owner_user_id
          ) AS ranked`,
       )

@@ -50,23 +50,28 @@ function insertReadyReport(args: { reportId: string; projectId: string; slug: st
   );
 }
 
-async function seedAndPublish(ownerUserId: string, index: number) {
+async function seedAndPublish(ownerUserId: string, index: number, existingProjectId?: string) {
   const now = new Date().toISOString();
-  const projectId = `prj_leaderboard_cache_${index}`;
+  const existingProject = existingProjectId
+    ? localD1.database.prepare("SELECT slug FROM buildstory_projects WHERE id = ?").get(existingProjectId) as { slug: string } | undefined
+    : undefined;
+  const projectId = existingProjectId ?? `prj_leaderboard_cache_${index}`;
   const reportId = `rpt_leaderboard_cache_${index}`;
-  const slug = `cache-project-${index}`;
-  localD1.database.prepare(
-    `INSERT INTO buildstory_projects (id, owner_user_id, slug, name, repository_fingerprint, fingerprint_basis, first_scan_at, last_scan_at, story_count, latest_session_count, latest_commit_count, latest_active_days, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?)`,
-  ).run(projectId, ownerUserId, slug, `Cache project ${index}`, `sha256:${String(index).repeat(64)}`, "local-path", now, now, orbitNotesSnapshot.git.commits, orbitNotesSnapshot.timeWindow.activeDays, now, now);
+  const slug = existingProject?.slug ?? `cache-project-${index}`;
+  if (!existingProject) {
+    localD1.database.prepare(
+      `INSERT INTO buildstory_projects (id, owner_user_id, slug, name, repository_fingerprint, fingerprint_basis, first_scan_at, last_scan_at, story_count, latest_session_count, latest_commit_count, latest_active_days, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?)`,
+    ).run(projectId, ownerUserId, slug, `Cache project ${index}`, `sha256:${String(index).repeat(64)}`, "local-path", now, now, orbitNotesSnapshot.git.commits, orbitNotesSnapshot.timeWindow.activeDays, now, now);
+  }
   insertReadyReport({ reportId, projectId, slug, label: `Cache project ${index}` });
   await d1Ingestion.publishReport(ownerSession.creatorId, reportId);
-  return reportId;
+  return { reportId, projectId };
 }
 
 test("leaderboard refreshes a cached story count when a second story is published", async () => {
   const owner = await d1Ingestion.ensureUser(ownerSession);
-  await seedAndPublish(owner.id, 1);
+  const first = await seedAndPublish(owner.id, 1);
   const firstRead = await d1Leaderboard.getLeaderboard("all-time", 50);
   assert.equal(firstRead.find((entry) => entry.user.id === owner.id)?.storyCount, 1);
 
@@ -74,6 +79,11 @@ test("leaderboard refreshes a cached story count when a second story is publishe
   await seedAndPublish(owner.id, 2);
   const secondRead = await d1Leaderboard.getLeaderboard("all-time", 50);
   assert.equal(secondRead.find((entry) => entry.user.id === owner.id)?.storyCount, 2);
+
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await seedAndPublish(owner.id, 3, first.projectId);
+  const thirdRead = await d1Leaderboard.getLeaderboard("all-time", 50);
+  assert.equal(thirdRead.find((entry) => entry.user.id === owner.id)?.storyCount, 3);
 });
 
 test.after(async () => {

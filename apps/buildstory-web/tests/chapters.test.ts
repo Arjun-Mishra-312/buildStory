@@ -75,6 +75,9 @@ test("chapters: publishing a second chapter keeps the first published at an arch
   const storyAtCanonical2 = await d1Ingestion.getPublishedStory(owner.handle, slug);
   assert.equal(storyAtCanonical2?.reportId, "rpt_chapter_2", "chapter 2 is now canonical");
 
+  // Older reports may retain a legacy publication slug after the project slug
+  // changes. The current canonical URL must still resolve their chapter paths.
+  database.prepare("UPDATE buildstory_reports SET publication_slug = ? WHERE id = ?").run("legacy-chapters-project", "rpt_chapter_1");
   const archivalChapter1 = await d1Ingestion.getPublishedStoryChapter(owner.handle, slug, 1);
   assert.equal(archivalChapter1?.reportId, "rpt_chapter_1", "chapter 1 remains reachable at its own archival path");
 
