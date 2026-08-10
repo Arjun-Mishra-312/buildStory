@@ -1,18 +1,18 @@
 # Local package artifacts
 
-`buildstory-scan-1.1.0.tgz` is the current packed archive built from
+`buildstory-scan-1.1.1.tgz` is the current packed archive built from
 `packages/buildstory-scanner`. It is the same tarball `npm publish` uploads, so
 installing it locally exercises the real published layout.
 
 ```powershell
-npm install --global ./artifacts/buildstory-scan-1.1.0.tgz
+npm install --global ./artifacts/buildstory-scan-1.1.1.tgz
 buildstory-scan --version
 ```
 
 SHA-256 for the committed archive:
 
 ```text
-3026b8d356f3c2b286609d86747201bded1bce959fbab04cbf771237d0e53c47
+9476c4c4e5bde673d4b07332f16aef9fbab48284ab3c393a6df4272959dac924
 ```
 
 Rebuild it with `npm run package:scanner`; update this checksum whenever package
@@ -22,6 +22,10 @@ manifest, so a version bump without a repack fails the check rather than
 silently validating an older archive. It checks the embedded schema version
 and that this README names the current archive; keeping the checksum itself
 current is still a manual step every repack.
+
+`1.1.1` is a version-sync release that adds progress reporting for local
+narrative generation while keeping the `1.1.0` snapshot and story-pack
+contracts unchanged.
 
 `1.1.0` redesigns the generated report around deterministic, computed facts
 instead of model-invented ones. Every story pack now carries a `signals`
