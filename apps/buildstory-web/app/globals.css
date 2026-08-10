@@ -5485,31 +5485,59 @@ html[data-theme="dark"] .closing-cta {
   color: var(--muted);
 }
 
-.feed-tile__model-donut {
+.feed-tile__model-panel {
   position: absolute;
-  top: 50%;
-  right: 12px;
-  transform: translateY(-50%);
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-medium);
+  background: var(--surface-strong);
 }
 
-.feed-tile__model-donut svg {
+.feed-tile__model-panel svg {
   display: block;
-  overflow: visible;
+  flex-shrink: 0;
 }
 
-.feed-tile__model-donut-label {
-  position: absolute;
-  right: calc(100% + 6px);
-  max-width: 100px;
-  overflow: hidden;
-  transform: translateY(-50%);
+.feed-tile__model-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.feed-tile__model-legend li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   font-family: var(--font-code);
   font-size: 9px;
   letter-spacing: 0.02em;
-  text-align: right;
+}
+
+.feed-tile__model-legend-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.feed-tile__model-legend-label {
+  color: var(--ink);
+  max-width: 84px;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-shadow: 0 1px 2px var(--midnight);
+}
+
+.feed-tile__model-legend-share {
+  color: var(--muted);
+  margin-left: auto;
 }
 
 .feed-tile__update-badge {
