@@ -15,45 +15,90 @@ const REACTION_ICONS = {
 } as const;
 
 const MODEL_SLICE_COLORS = ["var(--cobalt)", "var(--coral)", "var(--success)", "var(--faint)"];
-const DONUT_RADIUS = 24;
+const DONUT_SIZE = 72;
+const DONUT_RADIUS = 26;
+const DONUT_STROKE = 9;
 const DONUT_CIRCUMFERENCE = 2 * Math.PI * DONUT_RADIUS;
+// Labels grow leftward into the open space beside the donut - the donut sits
+// near the tile's right edge, so a label growing rightward would run off the
+// card. Vertical placement still follows each slice's angle, so a label's
+// row roughly lines up with where its slice sits (top slices label above
+// center, bottom slices below), even though horizontal growth is fixed.
+const LABEL_VERTICAL_RADIUS = DONUT_SIZE / 2 + 4;
+const LABEL_MAX_CHARS = 14;
 
-type DonutArc = { slice: ModelShareSlice; dash: number; offset: number };
+function truncateModelLabel(label: string): string {
+  return label.length > LABEL_MAX_CHARS ? `${label.slice(0, LABEL_MAX_CHARS - 1)}…` : label;
+}
+
+type DonutArc = { slice: ModelShareSlice; dash: number; offset: number; midAngleDeg: number; color: string };
 
 function donutArcsFrom(breakdown: ModelShareSlice[]): DonutArc[] {
   const total = breakdown.reduce((sum, slice) => sum + slice.share, 0) || 1;
-  return breakdown.reduce<DonutArc[]>((arcs, slice) => {
+  return breakdown.reduce<DonutArc[]>((arcs, slice, index) => {
     const dash = (slice.share / total) * DONUT_CIRCUMFERENCE;
     const previous = arcs[arcs.length - 1];
     const offset = previous ? previous.offset + previous.dash : 0;
-    return [...arcs, { slice, dash, offset }];
+    const midAngleDeg = ((offset + dash / 2) / DONUT_CIRCUMFERENCE) * 360;
+    const color = MODEL_SLICE_COLORS[index % MODEL_SLICE_COLORS.length];
+    return [...arcs, { slice, dash, offset, midAngleDeg, color }];
+  }, []);
+}
+
+// Two slices on opposite sides of the donut can land at nearly the same
+// vertical position (labels only vary by row, not by angle around a fixed
+// horizontal anchor - see LABEL_VERTICAL_RADIUS above), which would stack
+// their text on top of each other. Sort by each label's natural row and push
+// down any row that lands within LABEL_MIN_GAP of the one above it.
+const LABEL_MIN_GAP = 14;
+
+type DonutLabel = { key: string; text: string; color: string; top: number };
+
+function resolveLabelRows(arcs: DonutArc[]): DonutLabel[] {
+  const center = DONUT_SIZE / 2;
+  const withIdealTop = arcs.map((arc) => {
+    const rad = ((arc.midAngleDeg - 90) * Math.PI) / 180;
+    return { key: arc.slice.label, text: truncateModelLabel(arc.slice.label), color: arc.color, idealTop: center + LABEL_VERTICAL_RADIUS * Math.sin(rad) };
+  });
+  const sorted = [...withIdealTop].sort((a, b) => a.idealTop - b.idealTop);
+  return sorted.reduce<DonutLabel[]>((rows, item) => {
+    const previous = rows[rows.length - 1];
+    const top = previous ? Math.max(item.idealTop, previous.top + LABEL_MIN_GAP) : item.idealTop;
+    return [...rows, { key: item.key, text: item.text, color: item.color, top }];
   }, []);
 }
 
 function ModelDonut({ breakdown }: { breakdown: ModelShareSlice[] }) {
   const arcs = donutArcsFrom(breakdown);
+  const center = DONUT_SIZE / 2;
   return (
-    <div className="feed-tile__model-donut" aria-hidden="true">
-      <svg viewBox="0 0 64 64" width="56" height="56" role="img">
+    <div className="feed-tile__model-donut" aria-hidden="true" style={{ width: DONUT_SIZE, height: DONUT_SIZE }}>
+      <svg viewBox={`0 0 ${DONUT_SIZE} ${DONUT_SIZE}`} width={DONUT_SIZE} height={DONUT_SIZE} role="img">
         <title>Model usage breakdown</title>
-        <circle cx="32" cy="32" r={DONUT_RADIUS} fill="none" stroke="var(--surface-soft)" strokeWidth="9" />
-        {arcs.map(({ slice, dash, offset }, index) => (
+        <circle cx={center} cy={center} r={DONUT_RADIUS + DONUT_STROKE / 2 + 4} fill="var(--surface-strong)" />
+        <circle cx={center} cy={center} r={DONUT_RADIUS} fill="none" stroke="var(--surface-soft)" strokeWidth={DONUT_STROKE} />
+        {arcs.map(({ slice, dash, offset, color }) => (
           <circle
             key={slice.label}
-            cx="32"
-            cy="32"
+            cx={center}
+            cy={center}
             r={DONUT_RADIUS}
             fill="none"
-            stroke={MODEL_SLICE_COLORS[index % MODEL_SLICE_COLORS.length]}
-            strokeWidth="9"
+            stroke={color}
+            strokeWidth={DONUT_STROKE}
             strokeDasharray={`${dash} ${DONUT_CIRCUMFERENCE - dash}`}
             strokeDashoffset={-offset}
-            transform="rotate(-90 32 32)"
+            transform={`rotate(-90 ${center} ${center})`}
           >
             <title>{`${slice.label} · ${slice.share}%`}</title>
           </circle>
         ))}
       </svg>
+      {resolveLabelRows(arcs).map(({ key, text, color, top }) => (
+        <span key={key} className="feed-tile__model-donut-label" style={{ top, color }}>
+          {text}
+        </span>
+      ))}
     </div>
   );
 }

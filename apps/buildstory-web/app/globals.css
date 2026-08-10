@@ -5489,15 +5489,27 @@ html[data-theme="dark"] .closing-cta {
   position: absolute;
   top: 50%;
   right: 12px;
-  display: flex;
-  padding: 6px;
-  border-radius: var(--radius-circle);
-  background: var(--surface-strong);
   transform: translateY(-50%);
 }
 
 .feed-tile__model-donut svg {
   display: block;
+  overflow: visible;
+}
+
+.feed-tile__model-donut-label {
+  position: absolute;
+  right: calc(100% + 6px);
+  max-width: 100px;
+  overflow: hidden;
+  transform: translateY(-50%);
+  font-family: var(--font-code);
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px var(--midnight);
 }
 
 .feed-tile__update-badge {
