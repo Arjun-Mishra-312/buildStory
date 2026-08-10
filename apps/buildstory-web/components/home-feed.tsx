@@ -28,7 +28,7 @@ export function HomeFeed({ entries, unavailable }: { entries: FeedEntry[]; unava
           <div className="feed-empty__copy">
             <span className="section-index">( YOUR NEXT THREAD )</span>
             <strong>Your feed is quiet.</strong>
-            <p>Nobody's published a story yet. Follow builders from their public profile pages, or check back once the community starts shipping.</p>
+            <p>Nobody&apos;s published a story yet. Follow builders from their public profile pages, or check back once the community starts shipping.</p>
             <Link className="button button--secondary" href="/explore">Find builders to follow <span aria-hidden="true">→</span></Link>
           </div>
         </div>
