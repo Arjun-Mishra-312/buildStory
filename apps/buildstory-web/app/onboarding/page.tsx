@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { requireCreator, safeReturnPath } from "@/lib/auth/runtime";
 import { ensureUser } from "@/lib/ingestion/store";
+import { launchPromotionStatus } from "@/lib/narrative/entitlement";
 import { OnboardingFlow } from "@/components/onboarding/onboarding-flow";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +15,7 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
   const user = await ensureUser(creator);
   const next = safeReturnPath((await searchParams).next);
   if (user.onboardingCompletedAt) redirect(next);
+  const promotion = launchPromotionStatus();
 
   return (
     <OnboardingFlow
@@ -25,6 +27,7 @@ export default async function OnboardingPage({ searchParams }: PageProps) {
         builderRole: null,
         avatarUrl: user.avatarUrl,
       }}
+      proLaunchPromo={promotion.active ? { daysRemaining: promotion.daysRemaining } : null}
     />
   );
 }

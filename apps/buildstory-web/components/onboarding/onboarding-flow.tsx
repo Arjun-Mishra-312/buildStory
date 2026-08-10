@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useState } from "react";
 import { BUILDER_ROLE_LABELS, BUILDER_ROLES, type BuilderRole } from "@/lib/identity/builder-roles";
+import { ProLaunchPopup } from "@/components/onboarding/pro-launch-popup";
 
 type OnboardingFlowProps = {
   next: string;
@@ -17,9 +18,10 @@ type OnboardingFlowProps = {
     builderRole: BuilderRole | null;
     avatarUrl: string | null;
   };
+  proLaunchPromo: { daysRemaining: number | null } | null;
 };
 
-export function OnboardingFlow({ next, initialProfile }: OnboardingFlowProps) {
+export function OnboardingFlow({ next, initialProfile, proLaunchPromo }: OnboardingFlowProps) {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [displayName, setDisplayName] = useState(initialProfile.displayName);
@@ -29,6 +31,13 @@ export function OnboardingFlow({ next, initialProfile }: OnboardingFlowProps) {
   const [destination, setDestination] = useState<"create" | "explore" | "next">("create");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showProPopup, setShowProPopup] = useState(false);
+
+  function navigateToDestination() {
+    const target = destination === "create" ? "/studio/connect" : destination === "explore" ? "/explore" : next;
+    router.push(target);
+    router.refresh();
+  }
 
   async function finish() {
     if (busy) return;
@@ -45,9 +54,11 @@ export function OnboardingFlow({ next, initialProfile }: OnboardingFlowProps) {
         setError(payload?.error?.message ?? "Could not finish your profile. Try again.");
         return;
       }
-      const target = destination === "create" ? "/studio/connect" : destination === "explore" ? "/explore" : next;
-      router.push(target);
-      router.refresh();
+      if (proLaunchPromo) {
+        setShowProPopup(true);
+        return;
+      }
+      navigateToDestination();
     } catch {
       setError("Could not finish your profile. Try again shortly.");
     } finally {
@@ -78,7 +89,7 @@ export function OnboardingFlow({ next, initialProfile }: OnboardingFlowProps) {
           ) : null}
 
           {step === 1 ? (
-            <section className="onboarding-step" aria-labelledby="onboarding-profile-title">
+            <section className="onboarding-step onboarding-step--single" aria-labelledby="onboarding-profile-title">
               <div className="onboarding-step__copy">
                 <span className="section-index">( YOUR PUBLIC PROFILE )</span>
                 <h1 id="onboarding-profile-title">Make it easy to find you.</h1>
@@ -98,7 +109,7 @@ export function OnboardingFlow({ next, initialProfile }: OnboardingFlowProps) {
           ) : null}
 
           {step === 2 ? (
-            <section className="onboarding-step" aria-labelledby="onboarding-start-title">
+            <section className="onboarding-step onboarding-step--single" aria-labelledby="onboarding-start-title">
               <div className="onboarding-step__copy">
                 <span className="section-index">( YOUR FIRST MOVE )</span>
                 <h1 id="onboarding-start-title">Where should we start?</h1>
@@ -115,6 +126,9 @@ export function OnboardingFlow({ next, initialProfile }: OnboardingFlowProps) {
           ) : null}
         </div>
       </div>
+      {proLaunchPromo ? (
+        <ProLaunchPopup open={showProPopup} onContinue={navigateToDestination} daysRemaining={proLaunchPromo.daysRemaining} />
+      ) : null}
     </main>
   );
 }

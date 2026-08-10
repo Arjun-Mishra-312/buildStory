@@ -35,13 +35,29 @@ export function effectivePlan(accountPlan: "free" | "pro"): "free" | "pro" {
   return accountPlan;
 }
 
-function launchPromotionActive(): boolean {
+export function launchPromotionActive(): boolean {
   if (process.env.BUILDSTORY_LAUNCH_PRO_FOR_ALL !== "true") return false;
   const endsAt = process.env.BUILDSTORY_LAUNCH_PRO_PROMOTION_ENDS_AT;
   if (!endsAt) return true;
   const parsed = Date.parse(endsAt);
   if (Number.isNaN(parsed)) return true;
   return Date.now() < parsed;
+}
+
+/**
+ * UI-facing view of the same promotion, for surfaces that announce it
+ * (onboarding popup, in-studio expiry reminder) rather than just enforcing
+ * it. daysRemaining is null when there's no parseable end date to count
+ * down to - the promotion is active but open-ended.
+ */
+export function launchPromotionStatus(): { active: boolean; endsAt: string | null; daysRemaining: number | null } {
+  const active = launchPromotionActive();
+  const endsAt = process.env.BUILDSTORY_LAUNCH_PRO_PROMOTION_ENDS_AT ?? null;
+  if (!active || !endsAt) return { active, endsAt: null, daysRemaining: null };
+  const parsed = Date.parse(endsAt);
+  if (Number.isNaN(parsed)) return { active, endsAt: null, daysRemaining: null };
+  const daysRemaining = Math.max(0, Math.ceil((parsed - Date.now()) / (24 * 60 * 60 * 1000)));
+  return { active, endsAt, daysRemaining };
 }
 
 /**
