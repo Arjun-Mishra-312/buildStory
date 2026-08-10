@@ -434,7 +434,9 @@ export function ProjectWorkbench({
       ? "AI made it cheap to explore three architectures. Tester feedback made it obvious which one deserved to survive."
       : ""));
   const resolvedCategory = initialCategory ?? ("category" in story ? story.category : null);
-  const [view, setView] = useState<"public" | "private">("public");
+  const [view, setView] = useState<"public" | "private">(
+    access === "creator" && initialPublicationStatus === "not_published" ? "private" : "public",
+  );
   const [editing, setEditing] = useState(false);
   const [tagline, setTagline] = useState(initialTagline);
   const [description, setDescription] = useState(initialDescription);
@@ -479,6 +481,7 @@ export function ProjectWorkbench({
   const [publicationError, setPublicationError] = useState<string | null>(null);
   const [publishReviewOpen, setPublishReviewOpen] = useState(false);
   const [publishReviewAcknowledged, setPublishReviewAcknowledged] = useState(false);
+  const [privateNoticeOpen, setPrivateNoticeOpen] = useState(false);
   const publishReviewCloseRef = useRef<HTMLButtonElement | null>(null);
   const storyNarrative = "narrative" in story ? story.narrative : null;
   // Private-tab pack: the full, ungated narrative record (used only on the private tab,
@@ -520,6 +523,30 @@ export function ProjectWorkbench({
     publishReviewCloseRef.current?.focus();
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [publishReviewOpen]);
+
+  useEffect(() => {
+    if (access !== "creator" || initialPublicationStatus !== "not_published") return;
+    const timer = window.setTimeout(() => {
+      try {
+        if (window.localStorage.getItem(`buildstory:private-report-notice:${story.id}`) !== "dismissed") {
+          setPrivateNoticeOpen(true);
+        }
+      } catch {
+        // A blocked storage context should not prevent the privacy reminder from showing.
+        setPrivateNoticeOpen(true);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [access, initialPublicationStatus, story.id]);
+
+  function dismissPrivateNotice() {
+    try {
+      window.localStorage.setItem(`buildstory:private-report-notice:${story.id}`, "dismissed");
+    } catch {
+      // Dismissal still works for this visit when storage is unavailable.
+    }
+    setPrivateNoticeOpen(false);
+  }
 
   function startEditing() {
     setDraft({
@@ -873,6 +900,7 @@ export function ProjectWorkbench({
           </div>
         </div>
 
+        <div className="view-switcher-shell">
         <div className="view-switcher" role="tablist" aria-label="Project views" data-guide="workbench-views">
           <button
             id="public-tab"
@@ -883,7 +911,7 @@ export function ProjectWorkbench({
             className={view === "public" ? "is-active" : undefined}
             onClick={() => setView("public")}
           >
-            <span className="view-status view-status--public" /> Public page
+            <span className="view-status view-status--public" /> Public page preview
           </button>
           <button
             id="private-tab"
@@ -897,6 +925,22 @@ export function ProjectWorkbench({
             <span className="view-status view-status--private" /> Private report
           </button>
           <GuideTooltip label="public and private views">Public is the reader-facing story; Private is the complete report.</GuideTooltip>
+        </div>
+          {privateNoticeOpen ? (
+            <aside className="private-report-popover" role="status" aria-label="Private report reminder">
+              <span className="private-report-popover__eyebrow"><i aria-hidden="true" /> PRIVATE BY DEFAULT</span>
+              <strong>This report is private.</strong>
+              <p>The public page preview is only a draft. Nothing is visible to anyone else until you review and publish it.</p>
+              <div>
+                <button className="button button--secondary button--small" type="button" onClick={() => { dismissPrivateNotice(); setView("public"); }}>
+                  View preview
+                </button>
+                <button className="button button--text button--small" type="button" onClick={dismissPrivateNotice}>
+                  Dismiss
+                </button>
+              </div>
+            </aside>
+          ) : null}
         </div>
 
         <div className="project-console-bar__actions" data-guide="workbench-actions">
@@ -932,7 +976,7 @@ export function ProjectWorkbench({
               onClick={requestPublishReview}
               disabled={saveState === "saving" || narrativePending}
             >
-              {narrativePending ? "AI narrative pending" : saveState === "saving" ? "Publishing…" : publicationStatus === "draft_changes" ? "Publish changes" : "Publish page"}
+              {narrativePending ? "AI narrative pending" : saveState === "saving" ? "Publishing…" : publicationStatus === "draft_changes" ? "Review & publish changes" : "Review & publish"}
             </button>
           ) : (
             <span className="publication-live"><i /> Published</span>
@@ -945,6 +989,21 @@ export function ProjectWorkbench({
           <a href="/signin?callbackUrl=/studio">Creator controls →</a>
         </div>
       )}
+
+      {access === "creator" && publicationStatus !== "published" ? (
+        <div className={`private-report-banner${publicationStatus === "draft_changes" ? " private-report-banner--changes" : ""}`} role="status">
+          <span className="private-report-banner__icon" aria-hidden="true">{publicationStatus === "draft_changes" ? "↻" : "▣"}</span>
+          <div>
+            <strong>{publicationStatus === "draft_changes" ? "Unpublished changes" : "Private report · not published"}</strong>
+            <p>
+              {publicationStatus === "draft_changes"
+                ? "Your current public page is still live. These changes stay private until you review and publish them."
+                : "This report is only visible to you. Nothing is added to Public Stories until you review and publish it."}
+            </p>
+          </div>
+          <span className="private-report-banner__status">{publicationStatus === "draft_changes" ? "Changes private" : "Not live"}</span>
+        </div>
+      ) : null}
 
       {access === "creator" && narrativePending ? (
         <div className="narrative-queue-banner" role="status" aria-live="polite">
@@ -964,6 +1023,15 @@ export function ProjectWorkbench({
 
       {view === "public" ? (
         <div id="public-panel" role="tabpanel" aria-labelledby="public-tab">
+          {access === "creator" && publicationStatus !== "published" ? (
+            <div className="public-preview-only-banner" role="status">
+              <span className="public-preview-only-banner__mark" aria-hidden="true">PREVIEW</span>
+              <div>
+                <strong>Public page preview · not live</strong>
+                <p>Only you can see this preview. It becomes public after you review the selected fields and publish the page.</p>
+              </div>
+            </div>
+          ) : null}
           {editing ? (
             <form className="project-editor" onSubmit={saveDraft}>
               <div className="project-editor__header">
@@ -1473,7 +1541,7 @@ export function ProjectWorkbench({
                   Save private selection
                 </button>
                 <button className="button button--primary" type="button" onClick={requestPublishReview} disabled={saveState === "saving"}>
-                  {saveState === "saving" ? "Publishing…" : isLive ? "Republish page" : "Publish universal page"}
+                  {saveState === "saving" ? "Publishing…" : isLive ? "Review & republish" : "Review & publish page"}
                 </button>
                 {isLive ? <button className="button button--text" type="button" onClick={() => void unpublish()} disabled={saveState === "saving"}>Unpublish</button> : null}
               </div>
