@@ -107,7 +107,6 @@ export default async function ImportedReportPage({ params }: PageProps) {
         initialEditorial={report.editorial}
         initialCategory={report.category}
         initialStoryBackgroundId={report.storyBackgroundId}
-        initialStoryDeckConfigJson={report.storyDeckConfigJson ?? null}
         initialArtifact={report.artifact}
         initialMedia={media}
         initialVerifiedRepoAt={projectVerification?.verifiedRepoAt ?? null}

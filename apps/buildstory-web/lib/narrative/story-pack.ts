@@ -4,6 +4,7 @@ import type {
   ReportStoryPackV2,
   ReportStoryPackV3,
   ScannerProjectSnapshot,
+  Signal,
   StoryPackConfidence,
   StoryPackFinding,
   StoryPackPhase,

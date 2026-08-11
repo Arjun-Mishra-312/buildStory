@@ -11,11 +11,11 @@ export const dynamic = "force-dynamic";
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { handle, slug } = await params;
   const story = await getPublishedStory(handle, slug).catch(() => null);
-  const title = story ? `${story.name} · Private AI-build report` : "Private AI-build report not found";
+  const title = story ? `${story.name} — Build Story` : "Build Story not found";
   const description = story?.tagline;
   const ogImage = `/api/og/story/${encodeURIComponent(handle)}/${encodeURIComponent(slug)}`;
   const pageUrl = `/u/${encodeURIComponent(handle)}/${encodeURIComponent(slug)}`;
-  const imageAlt = story ? `${story.name} · Buildstory report` : "Buildstory · private AI-build reports";
+  const imageAlt = story ? `${story.name} — Build Story` : "Buildstory — Every build has a story.";
   return {
     title,
     description,

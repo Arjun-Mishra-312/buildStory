@@ -25,10 +25,6 @@ import { ReportCustomizePopover, type ReportCustomizeItem } from "./studio/repor
 import { ReportSection } from "./studio/report-section";
 import { SessionSummaryDrawer } from "./studio/session-summary-drawer";
 import { StoryPackView } from "./studio/story-pack-view";
-import { ReportBlockList } from "./report/report-block";
-import { buildSignalBlocks, buildStoryMetricBlocks } from "@/lib/report/presentation";
-import { buildProjectStoryManifest, normalizeStoryDeckConfig, type StoryDeckConfigV1 } from "@/lib/story/project-story";
-import { ProjectStoryDeckEditor } from "./story/project-story-deck-editor";
 import { useReportLayoutPrefs } from "@/lib/studio/use-report-layout-prefs";
 import type { ReportSectionKey } from "@/lib/studio/report-layout-prefs";
 
@@ -62,7 +58,6 @@ type ProjectWorkbenchProps = {
   }>;
   initialCategory?: StoryCategory | null;
   initialStoryBackgroundId?: StoryBackgroundId;
-  initialStoryDeckConfigJson?: string | null;
   initialArtifact?: ArtifactLinksState;
   initialMedia?: ReportMediaRecord[];
   initialVerifiedRepoAt?: string | null;
@@ -215,7 +210,6 @@ export function ProjectWorkbench({
   initialEditorial,
   initialCategory,
   initialStoryBackgroundId = DEFAULT_STORY_BACKGROUND_ID,
-  initialStoryDeckConfigJson = null,
   initialArtifact,
   initialMedia = [],
   initialVerifiedRepoAt = null,
@@ -275,10 +269,6 @@ export function ProjectWorkbench({
   const [reflection, setReflection] = useState(defaultReflection);
   const [category, setCategory] = useState<StoryCategory | null>(resolvedCategory);
   const [storyBackgroundId, setStoryBackgroundId] = useState<StoryBackgroundId>(initialStoryBackgroundId);
-  const [storyDeckConfig, setStoryDeckConfig] = useState<StoryDeckConfigV1>(() => {
-    if (!initialStoryDeckConfigJson) return normalizeStoryDeckConfig(null);
-    try { return normalizeStoryDeckConfig(JSON.parse(initialStoryDeckConfigJson)); } catch { return normalizeStoryDeckConfig(null); }
-  });
   const publicStoryBackgroundId = "storyBackgroundId" in story && story.storyBackgroundId ? story.storyBackgroundId : initialStoryBackgroundId;
   const [artifactLinks, setArtifactLinks] = useState<ArtifactLinksState>(
     initialArtifact ?? { projectUrl: null, repoUrl: null, videoUrl: null },
@@ -375,11 +365,6 @@ export function ProjectWorkbench({
     ? previewStory
     : (story as PublicBuildStoryViewModel);
   const publicStoryPackPreview = "storyPack" in displayStory ? displayStory.storyPack : null;
-  const publicMetricBlocks = buildStoryMetricBlocks(displayStory);
-  const privateMetricBlocks = privateStory ? buildStoryMetricBlocks(privateStory, true) : [];
-  const draftStoryManifest = access === "creator"
-    ? buildProjectStoryManifest(displayStory, `/u/${owner.handle}/${story.slug}`)
-    : null;
   const displayArtifactLinks = access === "public" && "artifactLinks" in story ? story.artifactLinks : artifactLinks;
   const displayArtifactMedia = access === "public" && "artifactMedia" in story ? story.artifactMedia : media;
   const videoEmbed = resolveVideoEmbed(displayArtifactLinks.videoUrl);
@@ -509,23 +494,6 @@ export function ProjectWorkbench({
     if (!reportId) return;
     setSaveState("saving");
     setSaveState((await persistSelection()) ? "saved" : "error");
-  }
-
-  async function saveStoryDeck(config: StoryDeckConfigV1) {
-    if (!reportId) return;
-    setSaveState("saving");
-    try {
-      const response = await fetch(`/api/creator/reports/${reportId}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ storyDeckConfig: config }),
-      });
-      if (!response.ok) throw new Error("Project Story update failed.");
-      setStoryDeckConfig(config);
-      setSaveState("saved");
-    } catch {
-      setSaveState("error");
-    }
   }
 
   function requestPublishReview() {
@@ -1130,10 +1098,9 @@ export function ProjectWorkbench({
                   {displayArtifactLinks.videoUrl ? <a className="button button--text" href={displayArtifactLinks.videoUrl} target="_blank" rel="noopener noreferrer nofollow">Watch demo <span aria-hidden="true">↗</span></a> : null}
                   {displayArtifactLinks.repoUrl && verifiedRepoAt ? <span className="verified-chip" title={`Verified ${verifiedDateFormat.format(new Date(verifiedRepoAt))}`}><span aria-hidden="true">✓</span> Verified owner</span> : null}
                 </div>
-                  {access === "public" ? (
-                    <div className="build-story__hero-share">
-                      <Link className="button button--primary" href={`/u/${owner.handle}/${story.slug}/story`}>Open Project Story <span aria-hidden="true">↗</span></Link>
-                      <ShareButton
+                {access === "public" ? (
+                  <div className="build-story__hero-share">
+                    <ShareButton
                       path={`/u/${owner.handle}/${story.slug}`}
                       title={story.name}
                       downloadPath={`/api/share/story/${owner.handle}/${story.slug}`}
@@ -1192,9 +1159,21 @@ export function ProjectWorkbench({
               </section>
             ) : null}
 
-            <section className="report-metric-rail section-wrap" aria-label="Build summary">
-              <ReportBlockList blocks={publicMetricBlocks} />
-            </section>
+            <div className="story-stats section-wrap" aria-label="Build summary">
+              <div><strong>{displayStory.activeDays}</strong><span>active days</span></div>
+              <div><strong>{displayStory.sessionCount}</strong><span>AI sessions</span></div>
+              <div><strong>{displayStory.git.commits}</strong><span>commits</span></div>
+              <div><strong>{displayStory.git.additions.toLocaleString()}</strong><span>lines added</span></div>
+              <div><strong>{displayStory.models.length}</strong><span>models in the mix</span></div>
+              <div>
+                <strong>{displayStory.tokenUsage ? compactNumber.format(displayStory.tokenUsage.totalTokens) : "—"}</strong>
+                <span>tokens processed</span>
+              </div>
+              <div>
+                <strong>{displayStory.cost?.totalMicroUsd != null ? formatMicroUsd(displayStory.cost.totalMicroUsd) : "—"}</strong>
+                <span>est. API-equivalent spend</span>
+              </div>
+            </div>
 
             <div className="story-layout section-wrap">
               <div className="story-narrative">
@@ -1245,7 +1224,14 @@ export function ProjectWorkbench({
                     <div>
                       <span className="story-section__label">BY THE NUMBERS</span>
                       <h2>Computed straight from the build, never model-written.</h2>
-                      <ReportBlockList blocks={buildSignalBlocks(displayStory.signals)} />
+                      <div className="story-pack__moment-grid">
+                        {displayStory.signals.map((signal, index) => (
+                          <article className="story-pack__moment-card" key={signal.id}>
+                            <div className="story-pack__moment-index">{String(index + 1).padStart(2, "0")}</div>
+                            <div><h3>{signal.headline}</h3><div className="story-pack__moment-copy"><p>{signal.detail}</p></div></div>
+                          </article>
+                        ))}
+                      </div>
                     </div>
                   </section>
                 ) : <section className="story-section story-pack-empty" aria-live="polite">
@@ -1315,7 +1301,6 @@ export function ProjectWorkbench({
               <button className="button button--primary" type="button" onClick={() => setView("public")}>
                 Review public page <span aria-hidden="true">→</span>
               </button>
-              {draftStoryManifest ? <ProjectStoryDeckEditor manifest={draftStoryManifest} initialConfig={storyDeckConfig} onSave={(config) => void saveStoryDeck(config)} /> : null}
               <ReportCustomizePopover
                 items={reportLayoutItems}
                 prefs={reportLayout.prefs}
@@ -1351,18 +1336,6 @@ export function ProjectWorkbench({
               <div><dt>Revision</dt><dd>{privateStory.repository.currentRevision}</dd></div>
             </dl>
           </div>
-
-          <section className="private-report__at-a-glance" aria-label="Report at a glance">
-            <header>
-              <div>
-                <span className="section-index">AT A GLANCE</span>
-                <h2>The shape of this build, without the spreadsheet.</h2>
-                <p>Metrics, model mix, spend, and redaction evidence use a different visual treatment so the report reads like an investigation, not a wall of cards.</p>
-              </div>
-              <span className="private-badge"><span>●</span> PRIVATE VIEW</span>
-            </header>
-            <ReportBlockList blocks={privateMetricBlocks} privateView />
-          </section>
 
           <section className="source-health-strip" aria-label="Session source health">
             <span className="section-index">SOURCE HEALTH</span>
@@ -1651,7 +1624,14 @@ export function ProjectWorkbench({
                 {privateStory.signals.length ? (
                   <>
                     <p>This scan didn&apos;t opt into narrative evidence, so there is no AI-written narrative - but every fact below is computed straight from the build, needs no model, and is ready to share.</p>
-                    <ReportBlockList blocks={buildSignalBlocks(privateStory.signals)} privateView />
+                    <div className="story-pack__moment-grid">
+                      {privateStory.signals.map((signal, index) => (
+                        <article className="story-pack__moment-card" key={signal.id}>
+                          <div className="story-pack__moment-index">{String(index + 1).padStart(2, "0")}</div>
+                          <div><h3>{signal.headline}</h3><div className="story-pack__moment-copy"><p>{signal.detail}</p></div></div>
+                        </article>
+                      ))}
+                    </div>
                   </>
                 ) : <p>This scan didn&apos;t opt into narrative evidence, so no AI-written narrative was generated. Metrics above are unaffected.</p>}
               </section>

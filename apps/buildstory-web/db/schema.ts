@@ -230,7 +230,6 @@ export const reports = sqliteTable(
     editorialReflection: text("editorial_reflection").notNull(),
     category: text("category"),
     storyBackgroundId: text("story_background_id").notNull().default("repository-topography"),
-    storyDeckConfigJson: text("story_deck_config_json"),
     publicationStatus: text("publication_status").notNull(),
     publicationSlug: text("publication_slug").notNull(),
     publicationPath: text("publication_path"),
@@ -592,22 +591,6 @@ export const publicStoryFacets = sqliteTable(
     uniqueIndex("idx_buildstory_public_story_facets_report_kind_key").on(table.reportId, table.kind, table.facetKey),
     index("idx_buildstory_public_story_facets_kind_key").on(table.kind, table.facetKey),
   ],
-);
-
-/** Anonymous, bounded daily counters for the optional Project Story surface. */
-export const storyEvents = sqliteTable(
-  "buildstory_story_events",
-  {
-    reportId: text("report_id")
-      .notNull()
-      .references(() => reports.id, { onDelete: "cascade" }),
-    eventType: text("event_type").notNull(),
-    frameId: text("frame_id").notNull().default(""),
-    eventDay: text("event_day").notNull(),
-    count: integer("count").notNull().default(0),
-    updatedAt: text("updated_at").notNull(),
-  },
-  (table) => [index("idx_buildstory_story_events_report_day").on(table.reportId, table.eventDay)],
 );
 
 /**

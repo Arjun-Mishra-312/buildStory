@@ -388,8 +388,6 @@ export type GeneratedReport = {
   };
   category: StoryCategory | null;
   storyBackgroundId: StoryBackgroundId;
-  /** Versioned creator preferences for the optional Project Story deck. */
-  storyDeckConfigJson?: string | null;
   /** Creator-supplied links to the actual artifact, gated by the artifactLinks PublicFieldKey when published. */
   artifact: {
     projectUrl: string | null;

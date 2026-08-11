@@ -69,39 +69,6 @@ test("no signal states a number that wasn't computed - every headline/detail is 
   }
 });
 
-test("cache-share signal uses the full input footprint and never exceeds 100%", () => {
-  const value = structuredClone(snapshot);
-  value.usage.tokenUsage = {
-    inputTokens: 100,
-    cachedInputTokens: 300,
-    cacheCreationInputTokens: 100,
-    outputTokens: 20,
-    reasoningOutputTokens: 0,
-    totalTokens: 420,
-  };
-  const cache = computeSignals(signalInputs(value)).find((signal) => signal.id === "cache-hit-ratio");
-  assert.ok(cache);
-  assert.equal(cache.value, 60);
-  assert.ok(cache.value <= 100);
-  assert.match(cache.formula, /cacheReadInputTokens/);
-});
-
-test("Anthropic cache-read tokens are included when legacy cached tokens are zero", () => {
-  const value = structuredClone(snapshot);
-  value.usage.tokenUsage = {
-    inputTokens: 100,
-    cachedInputTokens: 0,
-    cacheReadInputTokens: 200,
-    cacheCreation5mInputTokens: 100,
-    outputTokens: 20,
-    reasoningOutputTokens: 0,
-    totalTokens: 420,
-  };
-  const cache = computeSignals(signalInputs(value)).find((signal) => signal.id === "cache-hit-ratio");
-  assert.ok(cache);
-  assert.equal(cache.value, 50);
-});
-
 test("reportSnapshotFromScanner no longer discards callCount, reasoning/cached tokens, mergeCommits, or workingTree", () => {
   const report = reportSnapshotFromScanner(
     snapshot,

@@ -10,7 +10,6 @@ import { estimateCostMicroUsd } from "@/lib/narrative/pricing";
 import { NARRATIVE_FIELD_LIMITS } from "@/lib/narrative/schema";
 import { sanitizePublicText } from "@/lib/publication/sanitization";
 import { computeChapterDelta, publicChapterDelta, type ChapterDelta } from "@/lib/story/chapter-delta";
-import { buildProjectStoryManifest, normalizeStoryDeckConfig } from "@/lib/story/project-story";
 import { notifyFollowersOfStoryUpdate } from "@/lib/social/store";
 import { getTrendingScoreForReport, registerProfile as registerSocialProfileRecord, registerReport as registerSocialReportRecord } from "@/lib/social/mock-store";
 import { MAX_MEDIA_PER_REPORT, PUBLIC_FIELD_KEYS } from "./contracts";
@@ -1561,7 +1560,6 @@ export function updateReport(
     artifact?: ArtifactLinksUpdate;
     category?: GeneratedReport["category"];
     storyBackgroundId?: GeneratedReport["storyBackgroundId"];
-    storyDeckConfig?: unknown;
   },
 ): GeneratedReport {
   const report = store.reports.get(reportId);
@@ -1627,9 +1625,6 @@ export function updateReport(
       throw new MockIngestionError("invalid_story_background", "Choose a valid story background.", 422);
     }
     report.storyBackgroundId = update.storyBackgroundId;
-  }
-  if (update.storyDeckConfig !== undefined) {
-    report.storyDeckConfigJson = update.storyDeckConfig === null ? null : JSON.stringify(normalizeStoryDeckConfig(update.storyDeckConfig));
   }
   if (report.publication.status === "published") {
     report.publication.status = "draft_changes";
@@ -1792,11 +1787,6 @@ export async function publishReport(creatorId: string, reportId: string): Promis
   const publicStoryWithDelta = {
     ...publicStory,
     chapterDelta: report.chapterDelta ? publicChapterDelta(report.chapterDelta, report.selectedPublicFields) : null,
-    storyManifest: buildProjectStoryManifest(
-      publicStory,
-      new URL(report.publication.publicUrl ?? canonicalUrl).pathname,
-      report.storyDeckConfigJson ? JSON.parse(report.storyDeckConfigJson) : undefined,
-    ),
   };
   store.publicStoryIndex.set(report.id, {
     story: publicStoryWithDelta,

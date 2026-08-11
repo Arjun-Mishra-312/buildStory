@@ -46,7 +46,6 @@ import { DEFAULT_STORY_BACKGROUND_ID, isStoryBackgroundId } from "@/lib/backgrou
 import { notifyFollowersOfStoryUpdate } from "@/lib/social/store";
 import { builderRoleLabel, isBuilderRole, type BuilderRole } from "@/lib/identity/builder-roles";
 import { GUIDE_VERSION, isGuideKey, isGuideState, type GuideKey, type GuideState, type GuidanceRecord } from "@/lib/guidance/contracts";
-import { buildProjectStoryManifest, normalizeStoryDeckConfig } from "@/lib/story/project-story";
 
 const DEFAULT_MONTHLY_LLM_CAP_MICRO_USD = 1_000_000; // $1.00/month/user, subsidized default
 const PRO_MONTHLY_LLM_CAP_MICRO_USD = 5_000_000; // $5.00/month/user - a first number, not a considered business decision; revisit before Pro is a paid tier.
@@ -109,7 +108,6 @@ type ReportRow = {
   editorial_reflection: string;
   category: string | null;
   story_background_id: string;
-  story_deck_config_json: string | null;
   publication_status: string;
   publication_slug: string;
   publication_path: string | null;
@@ -305,7 +303,6 @@ function reportFromRow(row: ReportRow, narrative: NarrativeRecord | null = null)
     },
     category: row.category as GeneratedReport["category"],
     storyBackgroundId: isStoryBackgroundId(row.story_background_id) ? row.story_background_id : DEFAULT_STORY_BACKGROUND_ID,
-    storyDeckConfigJson: row.story_deck_config_json ?? null,
     artifact: {
       projectUrl: row.artifact_project_url,
       repoUrl: row.artifact_repo_url,
@@ -2272,7 +2269,6 @@ export async function updateReport(
     artifact?: ArtifactLinksUpdate;
     category?: GeneratedReport["category"];
     storyBackgroundId?: GeneratedReport["storyBackgroundId"];
-    storyDeckConfig?: unknown;
   },
 ): Promise<GeneratedReport> {
   const report = await getReport(creatorId, reportId);
@@ -2331,17 +2327,12 @@ export async function updateReport(
   if (!isStoryBackgroundId(storyBackgroundId)) {
     throw new D1IngestionError("invalid_story_background", "Choose a valid story background.", 422);
   }
-  const storyDeckConfigJson = update.storyDeckConfig === undefined
-    ? report.storyDeckConfigJson ?? null
-    : update.storyDeckConfig === null
-      ? null
-      : JSON.stringify(normalizeStoryDeckConfig(update.storyDeckConfig));
   const now = new Date().toISOString();
   await (await database())
     .prepare(
       `UPDATE buildstory_reports
        SET selected_public_fields_json = ?, editorial_tagline = ?, editorial_description = ?,
-           editorial_reflection = ?, category = ?, story_background_id = ?, story_deck_config_json = ?,
+           editorial_reflection = ?, category = ?, story_background_id = ?,
            artifact_project_url = ?, artifact_repo_url = ?, artifact_video_url = ?,
            publication_status = CASE WHEN publication_status = 'published' THEN 'draft_changes' ELSE publication_status END,
            updated_at = ?
@@ -2354,7 +2345,6 @@ export async function updateReport(
       editorial.reflection,
       category,
       storyBackgroundId,
-      storyDeckConfigJson,
       artifact.projectUrl,
       artifact.repoUrl,
       artifact.videoUrl,
@@ -2606,11 +2596,6 @@ export async function publishReport(
   const publicStoryWithDelta = {
     ...publicStory,
     chapterDelta: chapterDeltaJson ? publicChapterDelta(JSON.parse(chapterDeltaJson) as ChapterDelta, report.selectedPublicFields) : null,
-    storyManifest: buildProjectStoryManifest(
-      publicStory,
-      `/u/${owner.handle}/${canonicalSlug}${becomesCanonical ? "" : `/${chapterIndex}`}`,
-      report.storyDeckConfigJson ? parseJson(report.storyDeckConfigJson, "story deck config") : undefined,
-    ),
   };
   statements.push(
     db

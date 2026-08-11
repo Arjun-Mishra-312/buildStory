@@ -1,16 +1,10 @@
 "use client";
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import type { ReportStoryPack } from "@/lib/ingestion/scanner-project-snapshot";
-import type { StoryPackFinding } from "@/lib/ingestion/scanner-project-snapshot";
+import type { ReportStoryPack, StoryPackFinding } from "@/lib/ingestion/scanner-project-snapshot";
 import { mergeDeepIntoPack } from "@/lib/narrative/dedupe";
 import type { ReportSectionKey } from "@/lib/studio/report-layout-prefs";
 import { ReportSection } from "./report-section";
-import { buildReportBlocks, type ReportBlock, type ReportBlockSection } from "@/lib/report/presentation";
-import { ReportBlockList } from "@/components/report/report-block";
-
-type RenderMoment = ReportStoryPack["moments"][number] & { confidence?: StoryPackFinding["confidence"] };
-type RenderTrait = { title: string; detail: string; sourceRefs: string[]; confidence?: StoryPackFinding["confidence"] };
 
 const sourceDateFormat = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", timeZone: "UTC" });
 
@@ -77,6 +71,17 @@ type StoryPackLayout = {
   order?: (key: ReportSectionKey, fallback: number) => number;
 };
 
+type RenderMoment = ReportStoryPack["moments"][number] & {
+  confidence?: StoryPackFinding["confidence"];
+};
+
+type RenderTrait = {
+  title: string;
+  detail: string;
+  sourceRefs: string[];
+  confidence?: StoryPackFinding["confidence"];
+};
+
 export function StoryPackView({
   pack,
   privateView,
@@ -99,17 +104,6 @@ export function StoryPackView({
   const sourceCoverage = [...new Map(pack.sources.map((source) => [source.provider, pack.sources.filter((item) => item.provider === source.provider).length])).entries()];
   const deep = pack.version === "3.0.0" ? pack.deepAnalysis : undefined;
   const merged = privateView ? mergeDeepIntoPack(pack, { hasLivePreviewDelta }) : null;
-  const reportBlocks = buildReportBlocks(pack, {
-    includeDeep: true,
-    includeSignals: true,
-    against: [pack.hero.headline, pack.hero.summary],
-  });
-  const blockGroups = new Map<ReportBlockSection, ReportBlock[]>();
-  for (const block of reportBlocks) {
-    const group = blockGroups.get(block.section) ?? [];
-    group.push(block);
-    blockGroups.set(block.section, group);
-  }
   const deepGroups = deep ? [
     ["SIGNATURE MOVES", deep.signatureMoves ?? []],
     ["WHERE IT GOT HARD", deep.whereItGotHard ?? []],
@@ -151,31 +145,6 @@ export function StoryPackView({
     ? reviewedEvidence.filter((excerpt) => excerpt.sessionRef === selected.sessionRef || excerpt.excerptId === selected.excerptRef)
     : [];
   const openEvidence = (ref: string) => setOpenRef(ref);
-
-  const renderBlockSection = (
-    key: ReportBlockSection,
-    label: string,
-    meta: string,
-    fallbackOrder: number,
-  ) => {
-    const blocks = blockGroups.get(key) ?? [];
-    if (!blocks.length || sectionIsHidden(key)) return null;
-    return (
-      <NarrativeSection
-        privateView={privateView}
-        id={key}
-        label={label}
-        meta={meta}
-        open={sectionIsOpen(key, key === "narrativeArc" || key === "narrativeMoments")}
-        onOpenChange={setSectionOpen(key)}
-        style={sectionStyle(key, fallbackOrder)}
-        legacyClassName={`report-block-section report-block-section--${key}`}
-        legacyAriaLabel={label}
-      >
-        <ReportBlockList blocks={blocks} sourceByRef={sourceByRef} onEvidence={openEvidence} privateView={privateView} />
-      </NarrativeSection>
-    );
-  };
 
   useEffect(() => {
     if (!openRef) return undefined;
@@ -223,14 +192,7 @@ export function StoryPackView({
         <p>{pack.hero.summary}</p>
       </section>
 
-      <div className="report-block-sections">
-        {renderBlockSection("narrativeArc", "BUILD ARC", privateView ? "Evidence-linked phases" : "How the build moved", 0)}
-        {renderBlockSection("narrativeMoments", "MOMENTS THAT CHANGED THE BUILD", `${pack.moments.length} evidence-backed moments`, 1)}
-        {renderBlockSection("narrativeInsights", "INSIGHTS", "Decisions, turning points, and patterns", 2)}
-        {renderBlockSection("narrativeSignals", "BY THE NUMBERS", "Computed straight from the build, never model-written", 3)}
-      </div>
-
-      <div className="story-pack__sections story-pack__legacy-sections">
+      <div className="story-pack__sections">
 
       {pack.buildArc.length && !sectionIsHidden("narrativeArc") ? (
         <NarrativeSection

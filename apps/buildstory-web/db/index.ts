@@ -48,7 +48,6 @@ const REQUIRED_TABLES = [
   "buildstory_content_report_audit",
   "buildstory_leaderboard_entries",
   "buildstory_leaderboard_runs",
-  "buildstory_story_events",
 ] as const;
 
 export async function assertDatabaseReady() {
