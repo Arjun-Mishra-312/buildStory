@@ -591,16 +591,19 @@ export function markNotificationsRead(userId: string, notificationIds?: string[]
 // Activity feed
 // ---------------------------------------------------------------------------
 
-function reactionCountsForReport(reportId: string): Record<ReactionKind, number> {
+/** Rolled up across every published chapter of the project - mirrors getReactionSummaryForReports so feed/receipt cards agree with the story page's own reaction widget. */
+function reactionCountsForProject(projectId: string): Record<ReactionKind, number> {
   const counts = Object.fromEntries(REACTION_KINDS.map((kind) => [kind, 0])) as Record<ReactionKind, number>;
+  const rollupReportIds = new Set(publishedReportIdsForProject(projectId));
   for (const [key, reaction] of store.reactions) {
-    if (key.startsWith(`${reportId}:`)) counts[reaction.kind] += 1;
+    const [reportId] = key.split(":");
+    if (reportId && rollupReportIds.has(reportId)) counts[reaction.kind] += 1;
   }
   return counts;
 }
 
 function feedEntryFromReport(report: StoredReport): FeedEntry {
-  const reactionCounts = reactionCountsForReport(report.id);
+  const reactionCounts = reactionCountsForProject(report.projectId);
   const reactionTotal = Object.values(reactionCounts).reduce((sum, count) => sum + count, 0);
   const commentCount = Array.from(store.comments.values()).filter(
     (comment) => comment.reportId === report.id && comment.status === "visible",
