@@ -196,6 +196,7 @@ export async function updateReport(
     artifact?: ArtifactLinksUpdate;
     category?: GeneratedReport["category"];
     storyBackgroundId?: GeneratedReport["storyBackgroundId"];
+    storyDeckConfig?: unknown;
   },
 ) {
   return (await backend()).updateReport(creatorId, reportId, update);

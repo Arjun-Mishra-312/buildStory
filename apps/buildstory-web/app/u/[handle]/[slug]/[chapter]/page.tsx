@@ -16,9 +16,9 @@ function parseChapter(raw: string): number | null {
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { handle, slug, chapter } = await params;
   const chapterIndex = parseChapter(chapter);
-  if (!chapterIndex) return { title: "Build Story not found" };
+  if (!chapterIndex) return { title: "Buildstory report not found" };
   const story = await getPublishedStoryChapter(handle, slug, chapterIndex).catch(() => null);
-  const title = story ? `${story.name} — Chapter ${chapterIndex}` : "Build Story not found";
+  const title = story ? `${story.name} · Chapter ${chapterIndex} report` : "Buildstory report not found";
   const description = story?.tagline;
   const ogImage = `/api/og/story/${encodeURIComponent(handle)}/${encodeURIComponent(slug)}`;
   return {

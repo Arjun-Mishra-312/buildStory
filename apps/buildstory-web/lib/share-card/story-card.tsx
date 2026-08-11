@@ -1,6 +1,7 @@
 import { SHARE_CARD_LIGHT_PALETTE, SHARE_CARD_PALETTE as DARK_P } from "./palette";
 import type { BackgroundTheme } from "@/lib/background-options";
 import type { ShareCardData } from "./format";
+import type { ProjectStoryFrame } from "@/lib/story/project-story";
 
 const SANS = "Geist, sans-serif";
 const MONO = "Geist Mono, monospace";
@@ -237,6 +238,45 @@ export function buildStoryShareCard(
             <div style={{ display: "flex", fontFamily: MONO, fontSize: 16, color: palette.faint }}>{canonicalUrl}</div>
             <div style={{ display: "flex", fontFamily: SANS, fontSize: 16, color: palette.faint }}>Every build has a story.</div>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Portrait frame renderer used by the web Project Story viewer's download action. */
+export function buildProjectStoryFrameCard(
+  frame: ProjectStoryFrame,
+  projectName: string,
+  handle: string,
+  canonicalUrl: string,
+  options: { backgroundDataUri?: string | null; theme?: BackgroundTheme } = {},
+) {
+  const palette = paletteForTheme(options.theme ?? "dark");
+  const dark = options.theme !== "light";
+  return (
+    <div style={{ display: "flex", position: "relative", flexDirection: "column", justifyContent: "space-between", width: "100%", height: "100%", padding: "72px 64px 58px", backgroundColor: palette.surface, color: palette.ink, fontFamily: SANS }}>
+      {options.backgroundDataUri ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={options.backgroundDataUri} alt="" style={{ position: "absolute", left: 0, top: 0, width: "100%", height: "100%", objectFit: "cover", opacity: dark ? 0.22 : 0.16 }} />
+        </>
+      ) : null}
+      <div style={{ display: "flex", position: "relative", flexDirection: "column", gap: 36 }}>
+        <Kicker handle={handle} palette={palette} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          <div style={{ display: "flex", fontFamily: MONO, fontSize: 18, color: palette.coral, letterSpacing: 2, textTransform: "uppercase" }}>{frame.eyebrow}</div>
+          <div style={{ display: "flex", fontFamily: SANS, fontWeight: 700, fontSize: 68, lineHeight: 1.02 }}>{frame.title}</div>
+          {frame.summary ? <div style={{ display: "flex", maxWidth: 820, fontFamily: SANS, fontSize: 28, lineHeight: 1.35, color: palette.muted }}>{frame.summary}</div> : null}
+          {frame.metric ? <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 18 }}><div style={{ display: "flex", fontFamily: MONO, fontSize: 64, color: palette.coral }}>{frame.metric.value}</div><div style={{ display: "flex", fontFamily: MONO, fontSize: 16, color: palette.faint, letterSpacing: 1, textTransform: "uppercase" }}>{frame.metric.label}</div></div> : null}
+          {frame.block ? <div style={{ display: "flex", flexDirection: "column", gap: 9, marginTop: 18, padding: "22px 24px", border: `1px solid ${palette.line}`, backgroundColor: palette.surface }}><div style={{ display: "flex", fontFamily: MONO, fontSize: 15, color: palette.faint, letterSpacing: 1, textTransform: "uppercase" }}>{frame.block.eyebrow}</div><div style={{ display: "flex", fontFamily: SANS, fontSize: 30, fontWeight: 700 }}>{frame.block.title}</div>{frame.block.summary ? <div style={{ display: "flex", fontFamily: SANS, fontSize: 20, lineHeight: 1.35, color: palette.muted }}>{frame.block.summary}</div> : null}</div> : null}
+        </div>
+      </div>
+      <div style={{ display: "flex", position: "relative", flexDirection: "column", gap: 14 }}>
+        <div style={{ display: "flex", height: 0, borderTop: `1px dashed ${palette.line}` }} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ display: "flex", fontFamily: MONO, fontSize: 15, color: palette.faint }}>{projectName} · {canonicalUrl}</div>
+          <div style={{ display: "flex", fontFamily: SANS, fontSize: 17, color: palette.faint }}>A Buildstory Project Story · Private by default · Publishing optional</div>
         </div>
       </div>
     </div>
