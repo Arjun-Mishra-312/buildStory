@@ -350,14 +350,20 @@ test("deep hosted generation composes validated analysis with a separate high-qu
   const sourceRef = defaultStoryPack(snapshot).sources[0]!.ref;
   const signalId = defaultStoryPack(snapshot).signals[0]?.id ?? "fallback-signal-id";
   const finding = { title: "Evidence synthesis", summary: "The reviewed evidence supports this finding.", sourceRefs: [sourceRef], confidence: "high" };
+  const signatureMoves = [
+    { ...finding, title: "Signature move one", summary: "The first distinctive pattern is supported by the reviewed evidence." },
+    { ...finding, title: "Signature move two", summary: "The second distinctive pattern is supported by the reviewed evidence." },
+  ];
   const deepAnalysis = {
     openingLine: finding,
-    signatureMoves: [finding],
+    signatureMoves,
     byTheNumbers: [{ ...finding, signalId }],
     whereItGotHard: [],
     chapterChanges: [],
   };
-  const stub = stubFetchOnce([openAiEnvelope(deepAnalysis), openAiEnvelope(base)]);
+  const synthesis = { ...base } as Record<string, unknown>;
+  delete synthesis.standoutTraits;
+  const stub = stubFetchOnce([openAiEnvelope(deepAnalysis), openAiEnvelope(synthesis)]);
   const previousKey = process.env.BUILDSTORY_OPENROUTER_API_KEY;
   const previousBaseUrl = process.env.BUILDSTORY_LLM_BASE_URL;
   process.env.BUILDSTORY_OPENROUTER_API_KEY = "test-key";
@@ -369,6 +375,7 @@ test("deep hosted generation composes validated analysis with a separate high-qu
     assert.equal(result.storyPack.version === "3.0.0" && result.storyPack.deepAnalysis?.openingLine.summary, finding.summary);
     assert.deepEqual(result.storyPack.version === "3.0.0" && result.storyPack.deepAnalysis?.signatureMoves, deepAnalysis.signatureMoves);
     assert.equal(result.storyPack.version === "3.0.0" && result.storyPack.deepAnalysis?.byTheNumbers[0]?.signalId, signalId);
+    assert.deepEqual(result.storyPack.standoutTraits.slice(0, 2), signatureMoves.map((move) => ({ title: move.title, detail: move.summary, sourceRefs: move.sourceRefs })));
     assert.equal(stub.callCount(), 2);
     const requests = stub.requestBodies().map((body) => JSON.parse(body) as {
       model?: string;
@@ -376,7 +383,7 @@ test("deep hosted generation composes validated analysis with a separate high-qu
       reasoning?: unknown;
       provider?: unknown;
       messages?: Array<{ content?: string }>;
-      response_format?: { json_schema?: { schema?: { properties?: Record<string, { maxItems?: number }> } } };
+      response_format?: { json_schema?: { schema?: { required?: string[]; properties?: Record<string, { maxItems?: number }> } } };
     });
     assert.deepEqual(requests.map((request) => request.max_tokens), [24_000, 40_000]);
     assert.ok(requests.every((request) => request.model === "deepseek/deepseek-v4-flash"));
@@ -384,8 +391,9 @@ test("deep hosted generation composes validated analysis with a separate high-qu
     assert.ok(requests.every((request) => JSON.stringify(request.provider) === JSON.stringify({ zdr: true, data_collection: "deny", require_parameters: true, allow_fallbacks: true })));
     const synthesisSchema = requests[1]!.response_format?.json_schema?.schema;
     assert.equal(synthesisSchema?.properties?.moments?.maxItems, 12);
+    assert.equal(synthesisSchema?.required?.includes("standoutTraits"), false, "pass 2 must not be required to write standoutTraits");
     assert.equal("deepAnalysis" in (synthesisSchema?.properties ?? {}), false, "the synthesis pass does not regenerate private analysis");
-    assert.match(requests[1]!.messages?.at(-1)?.content ?? "", /Do not repeat or rewrite deepAnalysis/);
+    assert.match(requests[1]!.messages?.at(-1)?.content ?? "", /Do not write standoutTraits or deepAnalysis/);
   } finally {
     stub.restore();
     process.env.BUILDSTORY_OPENROUTER_API_KEY = previousKey;

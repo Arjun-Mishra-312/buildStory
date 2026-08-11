@@ -330,6 +330,18 @@ function unknownSourceRefs(value: unknown, allowed: Set<string>): string[] {
   return [...new Set(found)].slice(0, 8);
 }
 
+function traitsFromSignatureMoves(value: unknown): Array<{ title: string; detail: string; sourceRefs: string[] }> {
+  const candidate = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const signatureMoves = Array.isArray(candidate.signatureMoves) ? candidate.signatureMoves : [];
+  return signatureMoves.slice(0, 4).flatMap((raw) => {
+    const finding = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
+    if (!finding || typeof finding.title !== "string" || typeof finding.summary !== "string" || !Array.isArray(finding.sourceRefs)) return [];
+    const sourceRefs = finding.sourceRefs.filter((ref): ref is string => typeof ref === "string").slice(0, 4);
+    if (!sourceRefs.length) return [];
+    return [{ title: finding.title, detail: finding.summary.slice(0, 300), sourceRefs }];
+  });
+}
+
 function validationDiagnostic(
   component: StoryPackComponent | "combined" | "analysis-map" | "deep-report",
   errors: string[],
@@ -568,7 +580,15 @@ export async function generateNarrative(
       const synthesisObject = synthesis.value && typeof synthesis.value === "object" && !Array.isArray(synthesis.value)
         ? synthesis.value as Record<string, unknown>
         : {};
-      const composedValue = { ...synthesisObject, deepAnalysis: analysis.value };
+      const analysisObject = analysis.value && typeof analysis.value === "object" && !Array.isArray(analysis.value)
+        ? analysis.value as Record<string, unknown>
+        : {};
+      const signatureMoves = Array.isArray(analysisObject.signatureMoves) ? analysisObject.signatureMoves : [];
+      const composedValue = {
+        ...synthesisObject,
+        deepAnalysis: analysis.value,
+        ...(signatureMoves.length >= 2 ? { standoutTraits: traitsFromSignatureMoves(analysis.value) } : {}),
+      };
       const composedValidation = validateStoryPackComponent(composedValue, "deep", allowedRefs, allowedSignalIds);
       if (!composedValidation.ok) {
         // Both model outputs were validated independently. Reaching this path

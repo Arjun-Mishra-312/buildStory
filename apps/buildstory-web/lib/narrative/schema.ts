@@ -3,7 +3,7 @@ import validateNarrativeProfileOutput from "./generated/narrative-profile-output
 import narrativeOutputSchemaJson from "./narrative-output.schema.json";
 import type { ReportStoryPackV2 } from "../ingestion/scanner-project-snapshot";
 
-export const NARRATIVE_PROMPT_VERSION = "narrative-v2" as const;
+export const NARRATIVE_PROMPT_VERSION = "narrative-v3" as const;
 
 export type { ReportStoryPackV2 };
 

@@ -177,6 +177,12 @@ function outputContractBlock(schema: SchemaLike, extraRules: string[]): string {
 const BUILD_ARC_CARDINALITY_RULE = "buildArc must contain exactly one discover, one decide, and one deliver phase entry.";
 const SOURCE_REF_PROVENANCE_RULE = "Every sourceRefs entry must be copied exactly, character for character, from a ref in SOURCE CATALOG. Never invent one.";
 const SIGNAL_ID_PROVENANCE_RULE = "Every byTheNumbers.signalId must be copied exactly, character for character, from an id in COMPUTED SIGNALS. Never invent a signalId or a statistic that isn't backed by one.";
+const NO_RESTATEMENT_RULES: string[] = [
+  "standoutTraits must not restate any signatureMoves entry.",
+  "moments must not restate any whereItGotHard entry - choose delivery or discovery moments instead.",
+  "hero.headline must not reuse the wording of openingLine.title.",
+  "turningPoint.quote must be a distinct inflection from anything in whereItGotHard.",
+];
 
 export function buildNarrativeMessages(snapshot: ScannerProjectSnapshot): Array<{ role: "system" | "user"; content: string }> {
   return [
@@ -214,7 +220,7 @@ export function buildDeepAnalysisMessages(snapshot: ScannerProjectSnapshot, sign
   return [
     {
       role: "system",
-      content: `${SYSTEM_PROMPT}\nPerform a thorough read of how this build actually went. Prefer an empty list or low confidence over an unsupported claim. Focus on: the one-line hook (openingLine), this builder's distinctive patterns (signatureMoves), framing the most notable COMPUTED SIGNALS into shareable findings (byTheNumbers), where the build genuinely got hard (whereItGotHard), and what changed since the previous chapter (chapterChanges). Every byTheNumbers entry must cite a real signalId - it frames a signal that was already computed, never a number you calculate or estimate yourself.`,
+      content: `${SYSTEM_PROMPT}\nPerform a thorough read of how this build actually went. Prefer an empty list or low confidence over an unsupported claim. Focus on: the one-line hook (openingLine), this builder's distinctive patterns (signatureMoves), framing the most notable COMPUTED SIGNALS into shareable findings (byTheNumbers), where the build genuinely got hard (whereItGotHard), and what changed since the previous chapter (chapterChanges). Each list answers a different question; do not restate the same event across signatureMoves, whereItGotHard, and byTheNumbers. Every byTheNumbers entry must cite a real signalId - it frames a signal that was already computed, never a number you calculate or estimate yourself.`,
     },
     {
       role: "user",
@@ -224,7 +230,7 @@ export function buildDeepAnalysisMessages(snapshot: ScannerProjectSnapshot, sign
 }
 
 export function buildDeepSynthesisMessages(snapshot: ScannerProjectSnapshot, analysisMap: unknown): Array<{ role: "system" | "user"; content: string }> {
-  const contract = outputContractBlock(STORY_PACK_DEEP_NARRATIVE_SCHEMA as unknown as SchemaLike, [BUILD_ARC_CARDINALITY_RULE, SOURCE_REF_PROVENANCE_RULE]);
+  const contract = outputContractBlock(STORY_PACK_DEEP_NARRATIVE_SCHEMA as unknown as SchemaLike, [BUILD_ARC_CARDINALITY_RULE, SOURCE_REF_PROVENANCE_RULE, ...NO_RESTATEMENT_RULES]);
   return [
     {
       role: "system",
@@ -243,7 +249,7 @@ export function buildDeepSynthesisMessages(snapshot: ScannerProjectSnapshot, ana
       role: "user",
       // The first deep-analysis stage already reviewed the excerpts. Do not
       // resend them merely to turn that analysis into the final report.
-      content: `FACTS:\n${factsBlock(snapshot)}\n\nSOURCE CATALOG:\n${sourceCatalogBlock(snapshot)}\n\n${contract}\n\nVALIDATED PRIVATE ANALYSIS MAP:\n${JSON.stringify(analysisMap)}\n\nWrite only hero, buildArc, moments, turningPoint, decisions, learnings, standoutTraits, and growthEdge as one JSON object matching the schema. Do not repeat or rewrite deepAnalysis; Buildstory will attach the validated private analysis map server-side. Use 6-12 moments only when the evidence supports them, but never fewer than the OUTPUT CONTRACT minimums.`,
+      content: `FACTS:\n${factsBlock(snapshot)}\n\nSOURCE CATALOG:\n${sourceCatalogBlock(snapshot)}\n\n${contract}\n\nVALIDATED PRIVATE ANALYSIS MAP:\n${JSON.stringify(analysisMap)}\n\nWrite only hero, buildArc, moments, turningPoint, decisions, learnings, and growthEdge as one JSON object matching the schema. Do not write standoutTraits or deepAnalysis; Buildstory derives standoutTraits from the validated signatureMoves and attaches the validated private analysis map server-side. Use 6-12 moments only when the evidence supports them, but never fewer than the OUTPUT CONTRACT minimums.`,
     },
   ];
 }

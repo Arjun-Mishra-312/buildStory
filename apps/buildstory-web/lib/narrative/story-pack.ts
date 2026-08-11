@@ -86,7 +86,7 @@ export const STORY_PACK_DEEP_ANALYSIS_SCHEMA = {
  */
 export const STORY_PACK_DEEP_NARRATIVE_SCHEMA = {
   ...STORY_PACK_OUTPUT_SCHEMA,
-  required: ["hero", "buildArc", "moments", "turningPoint", "decisions", "learnings", "standoutTraits", "growthEdge"],
+  required: ["hero", "buildArc", "moments", "turningPoint", "decisions", "learnings", "growthEdge"],
   properties: {
     ...STORY_PACK_OUTPUT_SCHEMA.properties,
     moments: { ...STORY_PACK_OUTPUT_SCHEMA.properties.moments, maxItems: 12 },
@@ -200,16 +200,20 @@ function validateStoryComponent(value: Record<string, unknown>, allowed: Set<str
     });
   }
   errors.push(...listError(value.moments, "moments", 3, maxMoments));
-  if (Array.isArray(value.moments)) value.moments.forEach((item, index) => {
-    const entry = record(item); const path = `moments[${index}]`;
-    if (!entry) { errors.push(`${path} must be an object.`); return; }
-    if (!["discover", "decide", "deliver"].includes(String(entry.phase))) errors.push(`${path}.phase is unsupported.`);
-    if (!["discovery", "decision", "breakthrough", "delivery"].includes(String(entry.kind))) errors.push(`${path}.kind is unsupported.`);
-    for (const [key, max] of [["title", 120], ["whatHappened", 400], ["whyItMattered", 400]] as const) {
-      const issue = stringError(entry[key], `${path}.${key}`, 1, max, warnings); if (issue) errors.push(issue);
-    }
-    errors.push(...refsError(entry.sourceRefs, `${path}.sourceRefs`, allowed));
-  });
+  if (Array.isArray(value.moments)) {
+    const breakthroughCount = value.moments.filter((item) => record(item)?.kind === "breakthrough").length;
+    if (breakthroughCount > 2) errors.push("moments must contain at most 2 breakthrough moments.");
+    value.moments.forEach((item, index) => {
+      const entry = record(item); const path = `moments[${index}]`;
+      if (!entry) { errors.push(`${path} must be an object.`); return; }
+      if (!["discover", "decide", "deliver"].includes(String(entry.phase))) errors.push(`${path}.phase is unsupported.`);
+      if (!["discovery", "decision", "breakthrough", "delivery"].includes(String(entry.kind))) errors.push(`${path}.kind is unsupported.`);
+      for (const [key, max] of [["title", 120], ["whatHappened", 400], ["whyItMattered", 400]] as const) {
+        const issue = stringError(entry[key], `${path}.${key}`, 1, max, warnings); if (issue) errors.push(issue);
+      }
+      errors.push(...refsError(entry.sourceRefs, `${path}.sourceRefs`, allowed));
+    });
+  }
   const turning = record(value.turningPoint);
   if (!turning) errors.push("turningPoint must be an object.");
   else {
@@ -219,7 +223,7 @@ function validateStoryComponent(value: Record<string, unknown>, allowed: Set<str
   return errors;
 }
 
-function validateInsightsComponent(value: Record<string, unknown>, allowed: Set<string>, warnings: string[], allowLegacyBypass = true): string[] {
+function validateInsightsComponent(value: Record<string, unknown>, allowed: Set<string>, warnings: string[], allowLegacyBypass = true, allowMissingStandoutTraits = false): string[] {
   if (allowLegacyBypass && !value.decisions && ("decisionPatterns" in value || "standoutTraits" in value || typeof value.growthEdge === "string")) return [];
   const errors: string[] = [];
   const decisions = value.decisions;
@@ -233,6 +237,7 @@ function validateInsightsComponent(value: Record<string, unknown>, allowed: Set<
     errors.push(...refsError(entry.sourceRefs, `${path}.sourceRefs`, allowed));
   });
   for (const name of ["learnings", "standoutTraits"] as const) {
+    if (name === "standoutTraits" && allowMissingStandoutTraits && value[name] === undefined) continue;
     const list = value[name];
     errors.push(...listError(list, name, 2, 4));
     if (Array.isArray(list)) list.forEach((item, index) => {
@@ -283,8 +288,8 @@ function validateSignalFinding(value: unknown, path: string, allowed: Set<string
   return errors;
 }
 
-function validateDeepComponent(value: Record<string, unknown>, allowed: Set<string>, allowedSignalIds: Set<string>, warnings: string[], includeBase = true): string[] {
-  const errors = includeBase ? [...validateStoryComponent(value, allowed, warnings, 12, false), ...validateInsightsComponent(value, allowed, warnings, false)] : [];
+function validateDeepComponent(value: Record<string, unknown>, allowed: Set<string>, allowedSignalIds: Set<string>, warnings: string[], includeBase = true, allowMissingStandoutTraits = false): string[] {
+  const errors = includeBase ? [...validateStoryComponent(value, allowed, warnings, 12, false), ...validateInsightsComponent(value, allowed, warnings, false, allowMissingStandoutTraits)] : [];
   const deep = record(value.deepAnalysis);
   if (!deep) return [...errors, "deepAnalysis must be an object."];
   errors.push(...validateFinding(deep.openingLine, "deepAnalysis.openingLine", allowed, warnings));
@@ -329,7 +334,7 @@ export function validateStoryPackComponent(value: unknown, component: StoryPackC
     : component === "insights"
       ? validateInsightsComponent(candidate, allowedRefs, warnings)
       : component === "deep-narrative"
-        ? [...validateStoryComponent(candidate, allowedRefs, warnings, 12, false), ...validateInsightsComponent(candidate, allowedRefs, warnings, false)]
+        ? [...validateStoryComponent(candidate, allowedRefs, warnings, 12, false), ...validateInsightsComponent(candidate, allowedRefs, warnings, false, true)]
         : validateDeepComponent(candidate, allowedRefs, allowedSignalIds, warnings);
   return { ok: errors.length === 0, errors: errors.slice(0, 20), warnings: [...new Set(warnings)].slice(0, 20) };
 }

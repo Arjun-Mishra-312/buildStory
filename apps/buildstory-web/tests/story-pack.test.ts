@@ -92,6 +92,15 @@ test("Deep narrative validation preserves up to twelve supported moments while S
   assert.equal(validateStoryPackComponent(narrative, "story", refs).ok, false);
 });
 
+test("Deep narrative validation caps breakthrough moments at two", () => {
+  const pack = defaultStoryPack(snapshot);
+  const refs = new Set(pack.sources.map((source) => source.ref));
+  const moments = pack.moments.map((moment) => ({ ...moment, kind: "breakthrough" as const }));
+  const result = validateStoryPackComponent({ ...pack, moments }, "deep-narrative", refs);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((error) => error.includes("at most 2 breakthrough moments")));
+});
+
 test("an over-length string is a non-fatal warning, not a validation error", () => {
   const pack = defaultStoryPack(snapshot);
   const refs = new Set(pack.sources.map((source) => source.ref));
