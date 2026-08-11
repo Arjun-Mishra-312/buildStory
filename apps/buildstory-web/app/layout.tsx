@@ -32,24 +32,24 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     metadataBase,
     title: {
-      default: "Buildstory — Show the story behind the software",
-      template: "%s · Buildstory",
+      default: "Buildstory - Your AI build, decoded.",
+      template: "%s - Buildstory",
     },
     description:
-      "A community for AI-assisted software builders to share the decisions, detours, and tools behind what they ship.",
+      "Private AI-build reports that reveal decisions, patterns, costs, progress, and evidence-backed turning points.",
     openGraph: {
       type: "website",
       siteName: "Buildstory",
-      title: "Every build has a story.",
+      title: "Your AI build, decoded.",
       description:
-        "Private-first build reports and public stories for people making software with AI.",
-      images: [{ url: socialImage, width: 1200, height: 630, alt: "Buildstory — Every build has a story.", type: "image/jpeg" }],
+        "Private AI-build reports, with optional publishing when you are ready to share.",
+      images: [{ url: socialImage, width: 1200, height: 630, alt: "Buildstory - Your AI build, decoded.", type: "image/jpeg" }],
     },
     twitter: {
       card: "summary_large_image",
-      title: "Every build has a story.",
+      title: "Your AI build, decoded.",
       description:
-        "Private-first build reports and public stories for people making software with AI.",
+        "Private AI-build reports, with optional publishing when you are ready to share.",
       images: [socialImage],
     },
   };

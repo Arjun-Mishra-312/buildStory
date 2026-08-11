@@ -81,6 +81,26 @@ test("ships site-specific social metadata", async () => {
   assert.match(html, /summary_large_image/);
 });
 
+test("landing page leads with private report generation and evidence-backed facts", async () => {
+  const response = await render("/about");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /Your AI build, decoded\./);
+  assert.match(html, /A private report for every AI-assisted build/);
+  assert.match(html, /href="\/signin\?callbackUrl=%2Fstudio%2Fconnect"[^>]*>Generate my report/);
+  assert.match(html, /href="\/u\/arjun-mishra\/vibe-social"[^>]*>View a real report/);
+  assert.match(html, /Private by default/);
+  assert.match(html, /Publishing is optional/);
+  assert.match(html, /27%/);
+  assert.match(html, /58 tools/);
+  assert.match(html, /38h 50m/);
+  assert.match(html, /54/);
+  assert.match(html, /8/);
+  assert.match(html, /Redacted locally/);
+  assert.doesNotMatch(html, /A community for the people building with AI/);
+  assert.doesNotMatch(html, /Contrast FM/);
+});
+
 test("public build-story pages never leak internal error or private-report detail", async () => {
   // With no D1 bound, this exercises the durable-store-unavailable fallback.
   // The invariant under test - no internal detail or private-report markup

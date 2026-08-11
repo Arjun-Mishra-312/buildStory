@@ -6,7 +6,7 @@ import { ensureUser } from "@/lib/ingestion/store";
 import { getActivityFeed } from "@/lib/social/store";
 import { redirect } from "next/navigation";
 
-export const metadata: Metadata = { title: { absolute: "Buildstory — Show the story behind the software" }, description: "A community for AI-assisted software builders to share the decisions, detours, and tools behind what they ship." };
+export const metadata: Metadata = { title: { absolute: "Buildstory - Your AI build, decoded." }, description: "Private AI-build reports that reveal decisions, patterns, costs, progress, and evidence-backed turning points." };
 
 export const dynamic = "force-dynamic";
 
