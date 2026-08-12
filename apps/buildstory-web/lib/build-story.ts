@@ -134,6 +134,7 @@ export function buildStoryFromSnapshot(snapshot: ProjectSnapshot) {
     redaction: snapshot.redaction,
     provenance: snapshot.provenance,
     ...(snapshot.sourceSelection ? { sourceSelection: snapshot.sourceSelection } : {}),
+    ...(snapshot.eventSpine ? { eventSpine: snapshot.eventSpine } : {}),
     profile: snapshot.builderProfile ?? null,
     narrative: snapshot.narrative
       ? {

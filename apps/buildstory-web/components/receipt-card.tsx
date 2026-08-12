@@ -44,7 +44,7 @@ export function ReceiptCard({ story, compact = false }: ReceiptCardProps) {
           <span className="receipt__kicker">AI Build Receipt</span>
           <strong>{story.name}</strong>
         </div>
-        <Tooltip label="This receipt matches the original AI session logs" side="bottom">
+        <Tooltip label="This receipt matches the original AI session logs" side="bottom" align="end">
           <span className="receipt__seal" aria-label="Snapshot verified" tabIndex={0}>
             ✓
           </span>

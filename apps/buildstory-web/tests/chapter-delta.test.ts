@@ -25,7 +25,11 @@ const baseProfile: BuilderProfile = {
 };
 
 function chapterOne(): ProjectSnapshot {
-  return { ...(structuredClone(orbitNotesSnapshot) as ProjectSnapshot), builderProfile: structuredClone(baseProfile) };
+  const snapshot = { ...(structuredClone(orbitNotesSnapshot) as ProjectSnapshot), builderProfile: structuredClone(baseProfile) };
+  // This helper models a baseline chapter with no generated narrative. Keep
+  // that premise explicit now that the public Orbit Notes showcase includes one.
+  delete snapshot.narrative;
+  return snapshot;
 }
 
 test("cumulative window: same start date, more of everything, produces a real delta", () => {

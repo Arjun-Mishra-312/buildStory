@@ -3,6 +3,7 @@ import type { AnalysisTier, NarrativeProvider, PROJECT_SNAPSHOT_SCHEMA_VERSION, 
 import type { StoryBackgroundId } from "@/lib/background-options";
 import type { ChapterDelta } from "@/lib/story/chapter-delta";
 import type { BuilderRole } from "@/lib/identity/builder-roles";
+import type { ReportIntelligence } from "@/lib/narrative/v4";
 
 export type UploadSessionStatus =
   | "awaiting_scanner"
@@ -204,6 +205,14 @@ export type NarrativeObservability = {
   costMicroUsd: number;
   invalidReferenceCount: number;
   fallbackCount: number;
+  pipelineVersion?: string;
+  pipelineMode?: "dark" | "on";
+  complexityScore?: number;
+  complexityBand?: "compact" | "standard" | "complex";
+  reasoningEffort?: "low" | "medium" | "high";
+  citationCoverage?: number;
+  verificationStatus?: "pass" | "warning" | "fail";
+  verificationIssueCount?: number;
 };
 
 export type NarrativeRecord = {
@@ -225,6 +234,7 @@ export type NarrativeRecord = {
     growthEdge?: string;
   } | null;
   storyPack?: ReportStoryPack | null;
+  reportIntelligence?: ReportIntelligence | null;
   analysisTierRequested: AnalysisTier;
   analysisTierDelivered: AnalysisTier | null;
   evidenceScrubbedAt: string | null;

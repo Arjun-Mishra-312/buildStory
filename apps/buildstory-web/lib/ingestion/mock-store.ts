@@ -1,4 +1,4 @@
-import { orbitNotesSnapshot } from "@/lib/mock-projects";
+import { orbitNotesSnapshot, vibeSocialSnapshot } from "@/lib/mock-projects";
 import { publicBuildStoryFromSnapshot, type PublicBuildStoryViewModel } from "@/lib/build-story";
 import { baseHandleFrom, baseSlugFrom, candidateHandles, candidateSlugs, isReservedHandle } from "@/lib/identity/handles";
 import { normalizeArtifactUrl, type ArtifactLinksUpdate } from "@/lib/ingestion/artifact-links";
@@ -7,7 +7,7 @@ import { mediaPublicUrl } from "@/lib/media/url";
 import { configuredCloudNarrativeModel, configuredCloudNarrativeProvider, generateNarrative, narrativeProviderConfigured, NarrativeProviderError } from "@/lib/narrative/provider";
 import { canUseCloudNarrative, effectivePlan } from "@/lib/narrative/entitlement";
 import { estimateCostMicroUsd } from "@/lib/narrative/pricing";
-import { NARRATIVE_FIELD_LIMITS } from "@/lib/narrative/schema";
+import { NARRATIVE_FIELD_LIMITS, NARRATIVE_PROMPT_VERSION } from "@/lib/narrative/schema";
 import { sanitizePublicText } from "@/lib/publication/sanitization";
 import { computeChapterDelta, publicChapterDelta, type ChapterDelta } from "@/lib/story/chapter-delta";
 import { notifyFollowersOfStoryUpdate } from "@/lib/social/store";
@@ -99,6 +99,7 @@ type StoredNarrative = {
   status: NarrativeStatus;
   sections: NarrativeRecord["sections"];
   storyPack: NarrativeRecord["storyPack"];
+  reportIntelligence?: NarrativeRecord["reportIntelligence"];
   analysisTierRequested: NarrativeRecord["analysisTierRequested"];
   analysisTierDelivered: NarrativeRecord["analysisTierDelivered"];
   evidenceScrubbedAt: string | null;
@@ -169,6 +170,47 @@ function createSeedStore(): MockStore {
   const creatorId = "dev:mina-park";
   const userId = "usr_mina_park_seed";
   const projectId = orbitNotesSnapshot.identity.id;
+  const seedNarrative: StoredNarrative & NarrativeRecord = {
+    id: "nar_orbit_notes_seed",
+    reportId,
+    ownerUserId: userId,
+    mode: "cloud",
+    provider: "openai",
+    model: "gpt-5.4",
+    status: "ready",
+    sections: {
+      headline: orbitNotesSnapshot.narrative.headline,
+      narrative: orbitNotesSnapshot.narrative.narrative,
+      turningPoint: orbitNotesSnapshot.narrative.turningPoint,
+      learnings: orbitNotesSnapshot.narrative.learnings,
+      decisionPatterns: orbitNotesSnapshot.narrative.decisionPatterns,
+      standoutTraits: orbitNotesSnapshot.narrative.standoutTraits,
+      growthEdge: orbitNotesSnapshot.narrative.growthEdge,
+    },
+    storyPack: orbitNotesSnapshot.narrative.storyPack,
+    reportIntelligence: orbitNotesSnapshot.narrative.reportIntelligence,
+    analysisTierRequested: "deep",
+    analysisTierDelivered: "deep",
+    evidenceScrubbedAt: orbitNotesSnapshot.provenance.scannedAt,
+    evidenceReceipt: {
+      excerptCount: 9,
+      sessionCount: 7,
+      byteSize: 6842,
+      selectionPolicyVersion: "narrative-selection-v1",
+      consentVersion: orbitNotesSnapshot.provenance.consentVersion,
+      scrubbedAt: orbitNotesSnapshot.provenance.scannedAt,
+    },
+    observability: {
+      providerCounts: { codex: 5, cursor: 1, "claude-code": 1 }, promptVersion: NARRATIVE_PROMPT_VERSION, schemaVersion: "1.7.0", generationLatencyMs: 18420,
+      inputTokens: 11840, outputTokens: 2940, reasoningTokens: 910, cachedTokens: 3640, costMicroUsd: 14820, invalidReferenceCount: 0, fallbackCount: 0,
+      pipelineVersion: "4.0.0", pipelineMode: "on", complexityScore: 72, complexityBand: "complex", reasoningEffort: "high", citationCoverage: 100, verificationStatus: "pass", verificationIssueCount: 0,
+    },
+    fallbacksUsed: [],
+    inputTokens: 11840,
+    outputTokens: 2940,
+    costMicroUsd: 14820,
+    attempts: 1,
+  };
   const user: StoredUser = {
     id: userId,
     authSubject: creatorId,
@@ -204,6 +246,27 @@ function createSeedStore(): MockStore {
     latestActiveDays: orbitNotesSnapshot.timeWindow.activeDays,
     verifiedRepoAt: null,
   };
+  // Orbit Notes is the visual report showcase. Model a compact first chapter so
+  // the seeded current report can demonstrate the comparison press without
+  // adding a second mutable fixture report to the store.
+  const previousOrbitChapter = structuredClone(orbitNotesSnapshot);
+  previousOrbitChapter.timeWindow.activeDays = 8;
+  previousOrbitChapter.sessions = previousOrbitChapter.sessions.slice(0, 4);
+  previousOrbitChapter.git.commits = 42;
+  previousOrbitChapter.git.additions = 9_860;
+  previousOrbitChapter.git.deletions = 3_104;
+  previousOrbitChapter.git.filesTouched = 91;
+  previousOrbitChapter.git.branches = 5;
+  previousOrbitChapter.milestones = previousOrbitChapter.milestones.slice(0, 2);
+  previousOrbitChapter.usage.tokenUsage.inputTokens = 438_000;
+  previousOrbitChapter.usage.tokenUsage.outputTokens = 88_000;
+  previousOrbitChapter.usage.tokenUsage.totalTokens = 526_000;
+  previousOrbitChapter.usage.cost.totalMicroUsd = 1_694_000;
+  previousOrbitChapter.usage.cost.pricedTokens = 526_000;
+  previousOrbitChapter.usage.models[0]!.requests = 112;
+  previousOrbitChapter.usage.models[1]!.requests = 28;
+  previousOrbitChapter.usage.tools = previousOrbitChapter.usage.tools.filter((tool) => tool.id !== "github-actions");
+  const seedChapterDelta = computeChapterDelta(previousOrbitChapter, orbitNotesSnapshot, 1, 2);
   const report: GeneratedReport = {
     id: reportId,
     creatorId,
@@ -222,6 +285,7 @@ function createSeedStore(): MockStore {
       "milestones",
       "modelMix",
       "costEstimate",
+      "toolUsage",
       "gitAggregates",
       "redactionSummary",
       "archetype",
@@ -234,7 +298,17 @@ function createSeedStore(): MockStore {
       "storyDecisions",
       "storyLearnings",
       "storyTraits",
+      "storyGrowthEdge",
+      "storySignals",
+      "signalHeadline",
+      "deepOpeningLine",
+      "deepSignatureMoves",
+      "deepByTheNumbers",
+      "deepWhereItGotHard",
+      "deepChapterChanges",
+      "decisionPatterns",
       "standoutTraits",
+      "growthEdge",
       "artifactLinks",
     ],
     editorial: {
@@ -255,10 +329,10 @@ function createSeedStore(): MockStore {
       slug: orbitNotesSnapshot.identity.slug,
       publishedAt: orbitNotesSnapshot.timeWindow.endedAt,
       publicUrl: `/p/${orbitNotesSnapshot.identity.slug}`,
-      chapterIndex: 1,
+      chapterIndex: 2,
     },
-    narrative: null,
-    chapterDelta: null,
+    narrative: seedNarrative,
+    chapterDelta: seedChapterDelta,
   };
   const session: StoredUploadSession = {
     id: sessionId,
@@ -290,19 +364,126 @@ function createSeedStore(): MockStore {
     queuedAt: orbitNotesSnapshot.provenance.scannedAt,
   };
   const publicStory = publicBuildStoryFromSnapshot(report.snapshot, report.selectedPublicFields, { tagline: report.editorial.tagline, description: report.editorial.description, reflection: report.editorial.reflection, category: report.category }, report.artifact, { storyBackgroundId: report.storyBackgroundId });
+  const vibeReportId = "rpt_vibe_social_showcase";
+  const vibeSessionId = "upl_vibe_social_showcase";
+  const vibeCreatorId = "dev:arjun-mishra";
+  const vibeUserId = "usr_arjun_mishra_seed";
+  const vibeNarrative: StoredNarrative & NarrativeRecord = {
+    id: "nar_vibe_social_showcase",
+    reportId: vibeReportId,
+    ownerUserId: vibeUserId,
+    mode: "cloud",
+    provider: "openai",
+    model: "gpt-5.4",
+    status: "ready",
+    sections: {
+      headline: vibeSocialSnapshot.narrative!.headline,
+      narrative: vibeSocialSnapshot.narrative!.narrative,
+      turningPoint: vibeSocialSnapshot.narrative!.turningPoint,
+      learnings: vibeSocialSnapshot.narrative!.learnings,
+      decisionPatterns: vibeSocialSnapshot.narrative!.decisionPatterns,
+      standoutTraits: vibeSocialSnapshot.narrative!.standoutTraits,
+      growthEdge: vibeSocialSnapshot.narrative!.growthEdge,
+    },
+    storyPack: vibeSocialSnapshot.narrative!.storyPack,
+    analysisTierRequested: "deep",
+    analysisTierDelivered: "deep",
+    evidenceScrubbedAt: vibeSocialSnapshot.provenance.scannedAt,
+    evidenceReceipt: { excerptCount: 240, sessionCount: 51, byteSize: 72877, selectionPolicyVersion: "narrative-selection-v1", consentVersion: vibeSocialSnapshot.provenance.consentVersion, scrubbedAt: vibeSocialSnapshot.provenance.scannedAt },
+    observability: null,
+    fallbacksUsed: [],
+    inputTokens: 118400,
+    outputTokens: 22140,
+    costMicroUsd: 91240,
+    attempts: 1,
+  };
+  const vibeUser: StoredUser = {
+    id: vibeUserId,
+    authSubject: vibeCreatorId,
+    email: "arjun@example.com",
+    handle: "arjun-mishra",
+    handleLower: "arjun-mishra",
+    displayName: "Arjun Mishra",
+    avatarUrl: null,
+    bio: "Independent builder",
+    builderRole: "independent-builder",
+    role: "member",
+    status: "active",
+    handleChangedAt: null,
+    onboardingCompletedAt: now,
+    plan: "pro",
+  };
+  const vibeProject: StoredProject = {
+    id: vibeSocialSnapshot.identity.id,
+    ownerUserId: vibeUserId,
+    slug: vibeSocialSnapshot.identity.slug,
+    name: vibeSocialSnapshot.identity.name,
+    repositoryFingerprint: vibeSocialSnapshot.provenance.snapshotHash,
+    fingerprintBasis: "local-path",
+    storyCount: 3,
+    latestSessionCount: vibeSocialSnapshot.sessions.length,
+    latestCommitCount: vibeSocialSnapshot.git.commits,
+    latestActiveDays: vibeSocialSnapshot.timeWindow.activeDays,
+    verifiedRepoAt: null,
+  };
+  const previousVibeChapter = structuredClone(vibeSocialSnapshot);
+  previousVibeChapter.timeWindow.activeDays = 6;
+  previousVibeChapter.sessions = previousVibeChapter.sessions.slice(0, 36);
+  previousVibeChapter.git.commits = 57;
+  previousVibeChapter.git.additions = 115_182;
+  previousVibeChapter.git.deletions = 20_091;
+  previousVibeChapter.usage.cost!.totalMicroUsd = 1_098_630_000;
+  const vibeChapterDelta = computeChapterDelta(previousVibeChapter, vibeSocialSnapshot, 2, 3);
+  const vibeReport: GeneratedReport = {
+    id: vibeReportId,
+    creatorId: vibeCreatorId,
+    projectId: vibeSocialSnapshot.identity.id,
+    uploadSessionId: vibeSessionId,
+    status: "ready",
+    createdAt: vibeSocialSnapshot.provenance.scannedAt,
+    readyAt: now,
+    sourceSnapshot: null,
+    snapshot: vibeSocialSnapshot,
+    selectedPublicFields: [...report.selectedPublicFields],
+    editorial: { tagline: vibeSocialSnapshot.identity.tagline, description: vibeSocialSnapshot.identity.description, reflection: "The release became credible when privacy review stopped being copy and became a shared product boundary." },
+    category: "web-apps",
+    storyBackgroundId: DEFAULT_STORY_BACKGROUND_ID,
+    artifact: { projectUrl: null, repoUrl: null, videoUrl: null },
+    publication: { status: "published", slug: "vibe-social", publishedAt: vibeSocialSnapshot.timeWindow.endedAt, publicUrl: "/u/arjun-mishra/vibe-social", chapterIndex: 3 },
+    narrative: vibeNarrative,
+    chapterDelta: vibeChapterDelta,
+  };
+  const vibeUploadSession: StoredUploadSession = {
+    ...session,
+    id: vibeSessionId,
+    creatorId: vibeCreatorId,
+    ownerUserId: vibeUserId,
+    projectLabel: vibeSocialSnapshot.identity.name,
+    reportId: vibeReportId,
+    connectionId: "conn_vibe_social_showcase",
+    uploadReceiptId: "rcpt_vibe_social_showcase",
+    snapshotDigest: vibeSocialSnapshot.provenance.snapshotHash,
+  };
+  const vibePublicStory = publicBuildStoryFromSnapshot(vibeReport.snapshot, vibeReport.selectedPublicFields, { tagline: vibeReport.editorial.tagline, description: vibeReport.editorial.description, reflection: vibeReport.editorial.reflection, category: vibeReport.category }, vibeReport.artifact, { storyBackgroundId: vibeReport.storyBackgroundId });
   return {
-    sessions: new Map([[sessionId, session]]),
-    reports: new Map([[reportId, report]]),
-    users: new Map([[userId, user]]),
-    projects: new Map([[projectId, project]]),
-    narratives: new Map(),
+    sessions: new Map([[sessionId, session], [vibeSessionId, vibeUploadSession]]),
+    reports: new Map([[reportId, report], [vibeReportId, vibeReport]]),
+    users: new Map([[userId, user], [vibeUserId, vibeUser]]),
+    projects: new Map([[projectId, project], [vibeSocialSnapshot.identity.id, vibeProject]]),
+    narratives: new Map([[reportId, seedNarrative], [vibeReportId, vibeNarrative]]),
     llmBudgets: new Map(),
     reportMedia: new Map(),
     publicStoryIndex: new Map([[reportId, {
-      story: { ...publicStory, chapterDelta: null },
+      story: { ...publicStory, chapterDelta: publicChapterDelta(seedChapterDelta, report.selectedPublicFields) },
       category: publicStory.category,
       searchText: [publicStory.name, publicStory.tagline, publicStory.description, publicStory.owner.name, publicStory.owner.handle, publicStory.category, ...publicStory.stack, ...publicStory.tools.map((tool) => tool.label), ...publicStory.models.flatMap((model) => [model.id, model.label])].join(" ").slice(0, 12_000),
       hasLiveDemo: Boolean(publicStory.artifactLinks.projectUrl),
+      updatedAt: now,
+    }], [vibeReportId, {
+      story: { ...vibePublicStory, chapterDelta: publicChapterDelta(vibeChapterDelta, vibeReport.selectedPublicFields) },
+      category: vibePublicStory.category,
+      searchText: [vibePublicStory.name, vibePublicStory.tagline, vibePublicStory.description, vibePublicStory.owner.name, vibePublicStory.owner.handle, vibePublicStory.category, ...vibePublicStory.stack, ...vibePublicStory.tools.map((tool) => tool.label), ...vibePublicStory.models.flatMap((model) => [model.id, model.label])].join(" ").slice(0, 12_000),
+      hasLiveDemo: false,
       updatedAt: now,
     }]]),
     guidance: new Map(),
@@ -314,6 +495,13 @@ function createSeedStore(): MockStore {
       provider: "dev",
       subject: "mina-park",
       email: user.email,
+      createdAt: now,
+    }], [identityKey("dev", "arjun-mishra"), {
+      id: "idn_arjun_mishra_seed",
+      userId: vibeUserId,
+      provider: "dev",
+      subject: "arjun-mishra",
+      email: vibeUser.email,
       createdAt: now,
     }]]),
   };
@@ -947,7 +1135,7 @@ async function runNarrativeJob(narrative: StoredNarrative, reportId: string): Pr
     narrative.analysisTierDelivered = result.storyPack.version === "3.0.0" ? "deep" : "standard";
     narrative.observability = {
       providerCounts: Object.fromEntries(report.sourceSnapshot?.sourceSelection.providers.map((item) => [item.provider, item.sessionsIncluded]) ?? []),
-      promptVersion: "narrative-v2",
+      promptVersion: NARRATIVE_PROMPT_VERSION,
       schemaVersion: report.sourceSnapshot?.schemaVersion ?? "1.5.0",
       generationLatencyMs: 0,
       inputTokens: result.inputTokens,
@@ -957,6 +1145,25 @@ async function runNarrativeJob(narrative: StoredNarrative, reportId: string): Pr
       costMicroUsd: result.actualCostMicroUsd ?? estimateCostMicroUsd(result.model, result.inputTokens, result.outputTokens),
       invalidReferenceCount: result.invalidReferenceCount,
       fallbackCount: result.fallbacksUsed.length,
+      pipelineVersion: result.reportMap.version,
+      pipelineMode: result.pipelineMode,
+      complexityScore: result.reportMap.policy.complexityScore,
+      complexityBand: result.reportMap.policy.complexityBand,
+      reasoningEffort: result.reportMap.policy.reasoningEffort,
+      citationCoverage: result.claimVerification.citationCoverage,
+      verificationStatus: result.claimVerification.status,
+      verificationIssueCount: result.claimVerification.issues.length,
+    };
+    narrative.reportIntelligence = {
+      reportMap: result.reportMap,
+      claimVerification: result.claimVerification,
+      qualityComparison: result.qualityComparison,
+      decisionAtlas: result.decisionAtlas,
+      searchIndex: result.searchIndex,
+      patterns: result.patterns,
+      outcomeLab: result.outcomeLab,
+      constellation: result.constellation,
+      pipelineMode: result.pipelineMode,
     };
     narrative.fallbacksUsed = result.fallbacksUsed;
     narrative.inputTokens = result.inputTokens;
@@ -972,6 +1179,7 @@ async function runNarrativeJob(narrative: StoredNarrative, reportId: string): Pr
           standoutTraits: narrative.sections.standoutTraits ?? [],
           growthEdge: narrative.sections.growthEdge ?? "",
           storyPack: narrative.storyPack ?? undefined,
+          reportIntelligence: narrative.reportIntelligence ?? undefined,
         }
       : undefined;
     narrative.status = "ready";
@@ -1024,6 +1232,7 @@ function narrativeRecordFor(reportId: string): NarrativeRecord | null {
     failureCode: null,
     sections: narrative.sections,
     storyPack: narrative.storyPack,
+    reportIntelligence: narrative.reportIntelligence ?? null,
     analysisTierRequested: narrative.analysisTierRequested,
     analysisTierDelivered: narrative.analysisTierDelivered,
     evidenceScrubbedAt: narrative.evidenceScrubbedAt,

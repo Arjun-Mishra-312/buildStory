@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import type { ReportStoryPack, StoryPackFinding } from "@/lib/ingestion/scanner-project-snapshot";
-import { mergeDeepIntoPack } from "@/lib/narrative/dedupe";
+import type { ReportStoryPack } from "@/lib/ingestion/scanner-project-snapshot";
 import type { ReportSectionKey } from "@/lib/studio/report-layout-prefs";
 import { ReportSection } from "./report-section";
+import type { ReportInsightsViewModel } from "@/lib/report/report-insights-view-model";
+import { ReportInsightStory } from "@/components/report/report-insight-story";
+import { BuildFactsRecap } from "@/components/report/build-facts-recap";
 
 const sourceDateFormat = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", timeZone: "UTC" });
 
@@ -71,31 +73,23 @@ type StoryPackLayout = {
   order?: (key: ReportSectionKey, fallback: number) => number;
 };
 
-type RenderMoment = ReportStoryPack["moments"][number] & {
-  confidence?: StoryPackFinding["confidence"];
-};
-
-type RenderTrait = {
-  title: string;
-  detail: string;
-  sourceRefs: string[];
-  confidence?: StoryPackFinding["confidence"];
-};
-
 export function StoryPackView({
   pack,
   privateView,
   reviewedEvidence = [],
   fallbacksUsed = [],
   layout,
-  hasLivePreviewDelta = false,
+  evidencePlacement = "inline",
+  insights,
 }: {
   pack: ReportStoryPack;
   privateView: boolean;
   reviewedEvidence?: Array<{ excerptId: string; sessionRef: string; occurredAt: string; role: string; text: string }>;
   fallbacksUsed?: string[];
   layout?: StoryPackLayout;
-  hasLivePreviewDelta?: boolean;
+  /** Shared Story / Evidence pages move computed facts and source coverage into the evidence rail. */
+  evidencePlacement?: "inline" | "rail";
+  insights?: ReportInsightsViewModel | null;
 }) {
   const [openRef, setOpenRef] = useState<string | null>(null);
   const [momentsShowAll, setMomentsShowAll] = useState(false);
@@ -103,34 +97,13 @@ export function StoryPackView({
   const sourceByRef = new Map(pack.sources.map((source) => [source.ref, source]));
   const sourceCoverage = [...new Map(pack.sources.map((source) => [source.provider, pack.sources.filter((item) => item.provider === source.provider).length])).entries()];
   const deep = pack.version === "3.0.0" ? pack.deepAnalysis : undefined;
-  const merged = privateView ? mergeDeepIntoPack(pack, { hasLivePreviewDelta }) : null;
   const deepGroups = deep ? [
     ["SIGNATURE MOVES", deep.signatureMoves ?? []],
     ["WHERE IT GOT HARD", deep.whereItGotHard ?? []],
     ["WHAT CHANGED", deep.chapterChanges ?? []],
   ] as const : [];
-  const signalById = new Map(pack.signals.map((signal) => [signal.id, signal]));
-  const framedSignalIds = new Set((deep?.byTheNumbers ?? []).map((item) => item.signalId));
-  const unframedSignals = pack.signals.filter((signal) => !framedSignalIds.has(signal.id));
-  const moments: RenderMoment[] = privateView && merged
-    ? [
-        ...pack.moments,
-        ...merged.extraBreakthroughs.map((finding) => ({
-          phase: "deliver" as const,
-          kind: "breakthrough" as const,
-          title: finding.title,
-          whatHappened: finding.summary,
-          whyItMattered: "A friction point surfaced in the Deep analysis.",
-          sourceRefs: finding.sourceRefs,
-          confidence: finding.confidence,
-        })),
-      ]
-    : pack.moments;
-  const standoutTraits: RenderTrait[] = privateView && merged?.standoutTraits.length
-    ? merged.standoutTraits
-    : pack.standoutTraits;
-  const hasChapterChanges = Boolean(privateView && merged?.chapterChanges.length);
-  const hasSignalsSection = pack.signals.length > 0 || hasChapterChanges;
+  const moments = pack.moments;
+  const standoutTraits = pack.standoutTraits;
   const sectionIsHidden = (key: ReportSectionKey) => privateView && Boolean(layout?.isHidden(key));
   const sectionIsOpen = (key: ReportSectionKey, defaultOpen: boolean) => privateView ? (layout?.isOpen(key) ?? defaultOpen) : true;
   const setSectionOpen = (key: ReportSectionKey) => (open: boolean) => {
@@ -157,44 +130,83 @@ export function StoryPackView({
 
   const insightCards = (
     <>
-      {pack.turningPoint.quote ? (
-        <section className="story-pack__insight-card story-pack__insight-card--turning"><span>TURNING POINT</span><blockquote>“{pack.turningPoint.quote}”</blockquote><div className="story-pack__sources">{pack.turningPoint.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div></section>
+      {!insights && pack.turningPoint.quote ? (
+        <section className="story-pack__insight-card story-pack__insight-card--turning"><div><span>TURNING POINT</span><blockquote>“{pack.turningPoint.quote}”</blockquote><div className="story-pack__sources">{pack.turningPoint.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div></div><div className="story-pack__illustration-plate" aria-hidden="true">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/assets/illustrations/story-moments/magnifying-glass-investigation.webp" alt="" loading="lazy" />
+        </div></section>
       ) : null}
-      {pack.decisions.length ? (
+      {!insights && pack.decisions.length ? (
         <section className="story-pack__insight-card"><span>DECISIONS</span>{pack.decisions.map((item, index) => <div className="story-pack__decision" key={`${item.title}-${index}`}><strong>{item.title}</strong><p>{item.rationale}</p><small>{item.outcome}</small></div>)}</section>
       ) : null}
       {pack.learnings.length ? (
         <section className="story-pack__insight-card"><span>LEARNINGS</span>{pack.learnings.map((item, index) => <div className="story-pack__bullet" key={`${item.title}-${index}`}><strong>{item.title}</strong><p>{item.detail}</p></div>)}</section>
       ) : null}
       {standoutTraits.length ? (
-        <section className="story-pack__insight-card"><span>STANDOUT TRAITS</span>{standoutTraits.map((item, index) => <div className="story-pack__bullet" key={`${item.title}-${index}`}><strong>{item.title}</strong><p>{item.detail}</p>{item.confidence ? <small>{item.confidence.toUpperCase()} CONFIDENCE</small> : null}{privateView ? <div className="story-pack__sources">{item.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView onOpen={openEvidence} /> : null; })}</div> : null}</div>)}</section>
+        <section className="story-pack__insight-card"><span>STANDOUT TRAITS</span>{standoutTraits.map((item, index) => <div className="story-pack__bullet" key={`${item.title}-${index}`}><strong>{item.title}</strong><p>{item.detail}</p>{privateView ? <div className="story-pack__sources">{item.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView onOpen={openEvidence} /> : null; })}</div> : null}</div>)}</section>
       ) : null}
       {pack.growthEdge.title ? (
         <section className="story-pack__insight-card story-pack__insight-card--growth"><span>GROWTH EDGE</span><h3>{pack.growthEdge.title}</h3><p>{pack.growthEdge.observation}</p></section>
       ) : null}
     </>
   );
+  const hasInsightCards = Boolean(
+    (!insights && (pack.turningPoint.quote || pack.decisions.length))
+      || pack.learnings.length
+      || standoutTraits.length
+      || pack.growthEdge.title,
+  );
 
   return (
     <div className={`story-pack ${privateView ? "story-pack--private" : "story-pack--public"}`}>
-      <div className={`story-pack__status ${fallbacksUsed?.length ? "story-pack__status--fallback" : ""}`} role="status">
+      {evidencePlacement === "inline" ? <div className={`story-pack__status ${fallbacksUsed?.length ? "story-pack__status--fallback" : ""}`} role="status">
         <span>{fallbacksUsed?.length ? "METRIC-DERIVED FALLBACK" : "MODEL-WRITTEN"}</span>
         <small>{fallbacksUsed?.length ? `${fallbacksUsed.length} component${fallbacksUsed.length === 1 ? "" : "s"} replaced after validation.` : "Every card is linked to validated source metadata."}</small>
-      </div>
-      <section className="story-pack__coverage" aria-label="Source coverage">
+      </div> : null}
+      {evidencePlacement === "inline" ? <section className="story-pack__coverage" aria-label="Source coverage">
         <span>SOURCE COVERAGE</span>
         <div>{sourceCoverage.length ? sourceCoverage.map(([provider, count]) => <span key={provider}>{providerName(provider)} · {count} source{count === 1 ? "" : "s"}</span>) : <span>No provider sessions matched this report.</span>}</div>
-      </section>
+      </section> : null}
       <section className="story-pack__hero">
         <span className="story-section__label">AI-WRITTEN BUILD STORY</span>
-        {privateView && merged?.openingLineKicker ? <span className="story-pack__hero-kicker">DEEP SIGNAL · {merged.openingLineKicker.title}</span> : null}
         <h2>{pack.hero.headline}</h2>
         <p>{pack.hero.summary}</p>
       </section>
 
       <div className="story-pack__sections">
 
-      {pack.buildArc.length && !sectionIsHidden("narrativeArc") ? (
+      {insights ? <ReportInsightStory
+        model={insights}
+        reviewedEvidence={reviewedEvidence}
+        controls={privateView ? {
+          journey: {
+            hidden: sectionIsHidden("narrativeArc") && sectionIsHidden("narrativeMoments"),
+            open: !sectionIsHidden("narrativeArc") ? sectionIsOpen("narrativeArc", true) : sectionIsOpen("narrativeMoments", true),
+            onOpenChange: !sectionIsHidden("narrativeArc") ? setSectionOpen("narrativeArc") : setSectionOpen("narrativeMoments"),
+          },
+          dossier: {
+            hidden: sectionIsHidden("narrativeInsights"),
+          },
+        } : undefined}
+      /> : null}
+
+      {pack.signals.length > 0 && !sectionIsHidden("narrativeSignals") ? (
+        <NarrativeSection
+          privateView={privateView}
+          id="narrativeSignals"
+          label="BY THE NUMBERS"
+          meta="Cool facts computed straight from the build"
+          open={sectionIsOpen("narrativeSignals", true)}
+          onOpenChange={setSectionOpen("narrativeSignals")}
+          style={sectionStyle("narrativeSignals", 2)}
+          legacyClassName="story-pack__facts-recap"
+          legacyAriaLabel="By the numbers"
+        >
+          <BuildFactsRecap signals={pack.signals} framing={deep?.byTheNumbers} />
+        </NarrativeSection>
+      ) : null}
+
+      {!insights && pack.buildArc.length && !sectionIsHidden("narrativeArc") ? (
         <NarrativeSection
           privateView={privateView}
           id="narrativeArc"
@@ -206,6 +218,10 @@ export function StoryPackView({
           legacyClassName="story-pack__arc"
           legacyAriaLabel="Build arc"
         >
+          <div className="story-pack__section-illustration" aria-hidden="true">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/assets/illustrations/story-moments/branching-decisions.webp" alt="" loading="lazy" />
+          </div>
           <div className="story-pack__arc-grid">
             {pack.buildArc.map((phase, index) => (
               <article key={phase.phase} className="story-pack__arc-card">
@@ -220,7 +236,7 @@ export function StoryPackView({
         </NarrativeSection>
       ) : null}
 
-      {moments.length && !sectionIsHidden("narrativeMoments") ? (
+      {!insights && moments.length && !sectionIsHidden("narrativeMoments") ? (
         <NarrativeSection
           privateView={privateView}
           id="narrativeMoments"
@@ -239,7 +255,6 @@ export function StoryPackView({
                   <small>{moment.kind.toUpperCase()} · {moment.phase.toUpperCase()}</small>
                   <h3>{moment.title}</h3>
                   <div className="story-pack__moment-copy"><p><strong>What happened</strong>{moment.whatHappened}</p><p><strong>Why it mattered</strong>{moment.whyItMattered}</p></div>
-                  {moment.confidence ? <small>{moment.confidence.toUpperCase()} CONFIDENCE</small> : null}
                   <div className="story-pack__sources">{moment.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div>
                 </div>
               </article>
@@ -253,107 +268,44 @@ export function StoryPackView({
         </NarrativeSection>
       ) : null}
 
-      {(pack.turningPoint.quote || pack.decisions.length || pack.learnings.length || standoutTraits.length || pack.growthEdge.title) && !sectionIsHidden("narrativeInsights") ? (
-        privateView ? (
-          <ReportSection
-            id="narrativeInsights"
-            label="INSIGHTS"
-            meta="Turning point, decisions, learnings, traits"
-            open={sectionIsOpen("narrativeInsights", false)}
-            onOpenChange={setSectionOpen("narrativeInsights")}
-            style={sectionStyle("narrativeInsights", 2)}
-          >
-            <div className="story-pack__insight-grid">{insightCards}</div>
-          </ReportSection>
-        ) : (
-          <div className="story-pack__insight-grid">{insightCards}</div>
-        )
+      {hasInsightCards && !sectionIsHidden("narrativeInsights") ? (
+        <div className="story-pack__insight-grid" style={sectionStyle("narrativeInsights", 2)}>{insightCards}</div>
       ) : null}
 
-      {hasSignalsSection && !sectionIsHidden("narrativeSignals") ? (
+      {deep && !sectionIsHidden("narrativeInsights") ? (
         <NarrativeSection
           privateView={privateView}
-          id="narrativeSignals"
-          label="BY THE NUMBERS"
-          meta={privateView && merged?.coverage
-            ? `Computed facts · ${merged.coverage.sessionsSeen} sessions · ${merged.coverage.excerptsUsed} reviewed excerpts · ${merged.coverage.evidenceBytes.toLocaleString()} bytes · ${sourceDateFormat.format(new Date(merged.coverage.windowStart))}–${sourceDateFormat.format(new Date(merged.coverage.windowEnd))}`
-            : "Computed straight from the build, never model-written"}
-          open={sectionIsOpen("narrativeSignals", false)}
-          onOpenChange={setSectionOpen("narrativeSignals")}
-          style={sectionStyle("narrativeSignals", 3)}
-          legacyClassName="story-pack__moments"
-          legacyAriaLabel="By the numbers"
-        >
-          {pack.signals.length ? (
-            <div className="story-pack__moment-grid">
-              {(deep?.byTheNumbers ?? []).map((finding, index) => {
-                const signal = signalById.get(finding.signalId);
-                if (!signal) return null;
-                return (
-                  <article className="story-pack__moment-card" key={`signal-${finding.signalId}-${index}`}>
-                    <div className="story-pack__moment-index">{String(index + 1).padStart(2, "0")}</div>
-                    <div>
-                      <h3>{signal.headline}</h3>
-                      <div className="story-pack__moment-copy"><p>{finding.title}</p><p>{finding.summary}</p></div>
-                      <div className="story-pack__sources">{finding.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div>
-                    </div>
-                  </article>
-                );
-              })}
-              {unframedSignals.map((signal, index) => (
-                <article className="story-pack__moment-card" key={`plain-signal-${signal.id}`}>
-                  <div className="story-pack__moment-index">{String((deep?.byTheNumbers.length ?? 0) + index + 1).padStart(2, "0")}</div>
-                  <div>
-                    <h3>{signal.headline}</h3>
-                    <div className="story-pack__moment-copy"><p>{signal.detail}</p></div>
-                    <div className="story-pack__sources">{signal.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div>
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : null}
-          {hasChapterChanges ? (
-            <section className="story-pack__insight-card story-pack__chapter-changes">
-              <span>WHAT CHANGED</span>
-              {merged?.chapterChanges.map((finding, index) => <div className="story-pack__bullet" key={`${finding.title}-${index}`}><strong>{finding.title}</strong><p>{finding.summary}</p><small>{finding.confidence.toUpperCase()} CONFIDENCE</small></div>)}
-            </section>
-          ) : null}
-        </NarrativeSection>
-      ) : null}
-
-      {!privateView && deep ? (
-        <NarrativeSection
-          privateView={false}
-          id="narrativeSignals"
-          label="DEEP ANALYSIS"
-          meta={`${deep.coverage.sessionsSeen} sessions · ${deep.coverage.excerptsUsed} reviewed excerpts · ${deep.coverage.evidenceBytes.toLocaleString()} bytes · ${sourceDateFormat.format(new Date(deep.coverage.windowStart))}–${sourceDateFormat.format(new Date(deep.coverage.windowEnd))}`}
-          open
-          onOpenChange={() => undefined}
-          legacyClassName="story-pack__arc"
+          id="narrativeInsights"
+          label="THE BUILD RECAP"
+          meta={`Signature moves, hard parts, and changes across ${deep.coverage.sessionsSeen} AI sessions`}
+          open={sectionIsOpen("narrativeInsights", true)}
+          onOpenChange={setSectionOpen("narrativeInsights")}
+          style={sectionStyle("narrativeInsights", 4)}
+          legacyClassName="story-pack__deep-recap"
           legacyAriaLabel="Deep analysis"
         >
           {deep.openingLine?.title ? (
-            <article className="story-pack__moment-card">
-              <div className="story-pack__moment-index">01</div>
+            <article className="deep-recap__opening">
+              <div className="deep-recap__index">01</div>
               <div>
-                <small>{deep.openingLine.confidence.toUpperCase()} CONFIDENCE</small>
+                <small className="deep-recap__confidence">{deep.openingLine.confidence.toUpperCase()} CONFIDENCE</small>
                 <h3>{deep.openingLine.title}</h3>
                 <p>{deep.openingLine.summary}</p>
-                <div className="story-pack__sources">{deep.openingLine.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={false} onOpen={openEvidence} /> : null; })}</div>
+                <div className="story-pack__sources">{deep.openingLine.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div>
               </div>
             </article>
           ) : null}
-          <div className="story-pack__insight-grid">
+          <div className="deep-recap__groups">
             {deepGroups.map(([label, findings]) => findings.length ? (
-              <section className="story-pack__insight-card" key={label}>
+              <section className="deep-recap__group" key={label}>
                 <span>{label}</span>
                 {findings.map((finding, index) => (
-                  <div className="story-pack__bullet" key={`${label}-${finding.title}-${index}`}>
+                  <article key={`${label}-${finding.title}-${index}`}>
                     <strong>{finding.title}</strong>
                     <p>{finding.summary}</p>
-                    <small>{finding.confidence.toUpperCase()} CONFIDENCE</small>
-                    <div className="story-pack__sources">{finding.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={false} onOpen={openEvidence} /> : null; })}</div>
-                  </div>
+                    <small className="deep-recap__confidence">{finding.confidence.toUpperCase()} CONFIDENCE</small>
+                    <div className="story-pack__sources">{finding.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div>
+                  </article>
                 ))}
               </section>
             ) : null)}

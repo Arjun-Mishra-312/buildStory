@@ -38,7 +38,7 @@ import type {
   UserRecord,
 } from "./contracts";
 import { reportSnapshotFromScanner } from "./report-adapter";
-import type { ScannerProjectSnapshot } from "./scanner-project-snapshot";
+import type { ReportStoryPack, ScannerProjectSnapshot } from "./scanner-project-snapshot";
 import { PROJECT_SNAPSHOT_SCHEMA_VERSION } from "./scanner-project-snapshot";
 import { MAX_SNAPSHOT_BYTES, validateProjectSnapshot } from "./validation";
 import { compareExploreRows, decodeExploreCursor, encodeExploreCursor, isAfterExploreCursor } from "./explore-cursor";
@@ -351,6 +351,7 @@ function narrativeFromRow(row: NarrativeRow): NarrativeRecord {
     sections?: NarrativeRecord["sections"];
     storyPack?: NarrativeRecord["storyPack"];
     observability?: Partial<NonNullable<NarrativeRecord["observability"]>>;
+    reportIntelligence?: NarrativeRecord["reportIntelligence"];
     analysisTierRequested?: NarrativeRecord["analysisTierRequested"];
     analysisTierDelivered?: NarrativeRecord["analysisTierDelivered"];
     evidenceScrubbedAt?: string | null;
@@ -382,6 +383,7 @@ function narrativeFromRow(row: NarrativeRow): NarrativeRecord {
     failureCode: row.last_error_code,
     sections: storedRecord && "sections" in storedRecord ? storedRecord.sections ?? null : stored as NarrativeRecord["sections"],
     storyPack: storedRecord?.storyPack ?? null,
+    reportIntelligence: storedRecord?.reportIntelligence ?? null,
     analysisTierRequested: row.analysis_tier_requested === "deep" ? "deep" : storedRecord?.analysisTierRequested ?? "standard",
     analysisTierDelivered: row.analysis_tier_delivered === "deep" ? "deep" : row.analysis_tier_delivered === "standard" ? "standard" : storedRecord?.analysisTierDelivered ?? null,
     evidenceScrubbedAt: row.evidence_scrubbed_at ?? storedRecord?.evidenceScrubbedAt ?? null,
@@ -1345,8 +1347,12 @@ async function createNarrativeJob(reportId: string, ownerUserId: string): Promis
 async function enqueueNarrative(narrativeId: string): Promise<void> {
   try {
     const { env } = await import("cloudflare:workers");
-    const queue = (env as unknown as { NARRATIVE_QUEUE?: Queue<{ narrativeId: string }> }).NARRATIVE_QUEUE;
-    if (queue) await queue.send({ narrativeId });
+    const bindings = env as unknown as { NARRATIVE_WORKFLOW?: Workflow<{ narrativeId: string }>; NARRATIVE_QUEUE?: Queue<{ narrativeId: string }> };
+    if (bindings.NARRATIVE_WORKFLOW) {
+      await bindings.NARRATIVE_WORKFLOW.create({ id: narrativeId, params: { narrativeId }, retention: { successRetention: "7 days", errorRetention: "14 days" } });
+      return;
+    }
+    if (bindings.NARRATIVE_QUEUE) await bindings.NARRATIVE_QUEUE.send({ narrativeId });
   } catch {
     // The scheduled sweep will enqueue durable pending rows if dispatch is
     // momentarily unavailable. No prompt or evidence is placed in the message.
@@ -1458,12 +1464,13 @@ export async function processNarrativeQueueJob(narrativeId: string) {
     const session = await sessionById(report.upload_session_id);
     const sessionMode = session?.narrative_mode === "local" || session?.narrative_mode === "byok" || session?.narrative_mode === "off" ? session.narrative_mode : "cloud";
     const analysisTierRequested = session?.analysis_tier === "deep" && sessionMode !== "local" && sessionMode !== "off" ? "deep" : "standard";
-    const previousRow = analysisTierRequested === "deep" ? await db.prepare(
+    const previousRows = await db.prepare(
       `SELECT snapshot_json FROM buildstory_reports
        WHERE project_id = ? AND id != ? AND status = 'ready'
-       ORDER BY COALESCE(chapter_index, 0) DESC, created_at DESC LIMIT 1`,
-    ).bind(report.project_id, report.id).first<{ snapshot_json: string }>() : null;
-    const previousSnapshot = previousRow ? parseJson<ProjectSnapshot>(previousRow.snapshot_json, "previous chapter snapshot") : null;
+       ORDER BY COALESCE(chapter_index, 0) DESC, created_at DESC LIMIT 8`,
+    ).bind(report.project_id, report.id).all<{ snapshot_json: string }>();
+    const historicalSnapshots = previousRows.results.map((row) => parseJson<ProjectSnapshot>(row.snapshot_json, "previous chapter snapshot"));
+    const previousSnapshot = analysisTierRequested === "deep" ? historicalSnapshots[0] ?? null : null;
     const previousChapter = previousSnapshot ? {
       timeWindow: previousSnapshot.timeWindow,
       sessions: previousSnapshot.sessions.length,
@@ -1472,7 +1479,8 @@ export async function processNarrativeQueueJob(narrativeId: string) {
       profile: previousSnapshot.builderProfile,
       retainedFinalReport: previousSnapshot.narrative?.storyPack ?? previousSnapshot.narrative ?? null,
     } : null;
-    const result = await generateNarrative(sourceSnapshot, session?.narrative_model, { analysisTier: analysisTierRequested, previousChapter });
+    const historicalPacks = historicalSnapshots.map((item) => item.narrative?.storyPack).filter((item): item is ReportStoryPack => Boolean(item));
+    const result = await generateNarrative(sourceSnapshot, session?.narrative_model, { analysisTier: analysisTierRequested, previousChapter, historicalPacks });
     const completedAtIso = new Date().toISOString();
     const sanitizedSections = {
       headline: sanitizePublicText(result.sections.headline, NARRATIVE_FIELD_LIMITS.headline).value,
@@ -1513,9 +1521,28 @@ export async function processNarrativeQueueJob(narrativeId: string) {
       costMicroUsd,
       invalidReferenceCount: result.invalidReferenceCount,
       fallbackCount: result.fallbacksUsed.length,
+      pipelineVersion: result.reportMap.version,
+      pipelineMode: result.pipelineMode,
+      complexityScore: result.reportMap.policy.complexityScore,
+      complexityBand: result.reportMap.policy.complexityBand,
+      reasoningEffort: result.reportMap.policy.reasoningEffort,
+      citationCoverage: result.claimVerification.citationCoverage,
+      verificationStatus: result.claimVerification.status,
+      verificationIssueCount: result.claimVerification.issues.length,
+    };
+    const reportIntelligence = {
+      reportMap: result.reportMap,
+      claimVerification: result.claimVerification,
+      qualityComparison: result.qualityComparison,
+      decisionAtlas: result.decisionAtlas,
+      searchIndex: result.searchIndex,
+      patterns: result.patterns,
+      outcomeLab: result.outcomeLab,
+      constellation: result.constellation,
+      pipelineMode: result.pipelineMode,
     };
     const reportSnapshot = parseJson<ProjectSnapshot>(report.snapshot_json, "report snapshot");
-    reportSnapshot.narrative = { ...sanitizedSections, storyPack: result.storyPack };
+    reportSnapshot.narrative = { ...sanitizedSections, storyPack: result.storyPack, reportIntelligence };
 
     await db.batch([
       db
@@ -1533,6 +1560,7 @@ export async function processNarrativeQueueJob(narrativeId: string) {
           JSON.stringify({
             sections: sanitizedSections,
             storyPack: result.storyPack,
+            reportIntelligence,
             analysisTierRequested,
             analysisTierDelivered,
             evidenceScrubbedAt,

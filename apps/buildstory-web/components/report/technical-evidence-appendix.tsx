@@ -1,0 +1,28 @@
+import type { BuildStoryViewModel } from "@/lib/build-story";
+import type { ReportIntelligence } from "@/lib/narrative/v4";
+import type { ReportSectionKey } from "@/lib/studio/report-layout-prefs";
+import { ReportSection } from "@/components/studio/report-section";
+
+type AppendixLayout = {
+  isHidden: (key: ReportSectionKey) => boolean;
+  isOpen: (key: ReportSectionKey) => boolean;
+  setOpen: (key: ReportSectionKey, open: boolean) => void;
+  order: (key: ReportSectionKey, fallback: number) => number;
+};
+
+export function TechnicalEvidenceAppendix({ story, intelligence, layout, onOpenSessions }: { story: BuildStoryViewModel; intelligence?: ReportIntelligence | null; layout: AppendixLayout; onOpenSessions: () => void }) {
+  const groups = ["sessions", "repository", "toolModel", "redaction", "provenance"] as const;
+  if (groups.every((key) => layout.isHidden(key))) return null;
+  return (
+    <section className="technical-appendix" aria-labelledby="technical-appendix-title">
+      <header><span>TECHNICAL EVIDENCE APPENDIX</span><h2 id="technical-appendix-title">Can I audit the report?</h2><p>Private source facts remain grouped by the existing report controls. Tables wrap within the page and switch to labeled rows on small screens.</p></header>
+      <div className="technical-appendix__groups">
+        {!layout.isHidden("sessions") ? <ReportSection id="sessions" label="SESSIONS" meta={`${story.sessions.length} captured`} open={layout.isOpen("sessions")} onOpenChange={(open) => layout.setOpen("sessions", open)} style={{ order: layout.order("sessions", 1) }}><div className="technical-table-wrap"><table><thead><tr><th>Session</th><th>Date</th><th>Minutes</th><th>Models</th><th>Tools</th><th>Outcome</th></tr></thead><tbody>{story.sessions.map((session) => <tr key={session.id}><th>Session {session.index}</th><td>{session.date}</td><td>{session.durationMinutes}</td><td>{session.modelIds.length}</td><td>{session.toolIds.length}</td><td>{session.outcome}</td></tr>)}</tbody></table></div><button className="button button--text" type="button" onClick={onOpenSessions}>Open full session details →</button></ReportSection> : null}
+        {!layout.isHidden("repository") ? <ReportSection id="repository" label="REPOSITORY" meta="Git aggregate" open={layout.isOpen("repository")} onOpenChange={(open) => layout.setOpen("repository", open)} style={{ order: layout.order("repository", 2) }}><dl className="technical-appendix__facts"><div><dt>Repository</dt><dd>{story.repository.remotePath ?? "Local repository"}</dd></div><div><dt>Primary stack</dt><dd>{story.repository.primaryLanguage} · {story.repository.framework ?? "No framework"}</dd></div><div><dt>Tracked files</dt><dd>{story.repository.fileCount ?? "Not collected"}</dd></div><div><dt>Commits</dt><dd>{story.git.commits}</dd></div><div><dt>Diff</dt><dd>+{story.git.additions.toLocaleString()} / −{story.git.deletions.toLocaleString()}</dd></div><div><dt>Branches</dt><dd>{story.git.branches}</dd></div></dl></ReportSection> : null}
+        {!layout.isHidden("toolModel") ? <ReportSection id="toolModel" label="MODEL & TOOL LEDGER" meta="Observed, not scored" open={layout.isOpen("toolModel")} onOpenChange={(open) => layout.setOpen("toolModel", open)} style={{ order: layout.order("toolModel", 3) }}><div className="technical-table-wrap"><table><thead><tr><th>Model</th><th>Calls</th><th>Tokens</th><th>Estimated share</th></tr></thead><tbody>{story.models.map((model) => <tr key={model.id}><th>{model.label}</th><td>{model.requests}</td><td>{model.tokenUsage?.totalTokens.toLocaleString() ?? "Not collected"}</td><td>{model.share === null ? "Unpriced" : `${model.share}%`}</td></tr>)}</tbody></table></div><div className="technical-appendix__chips">{story.tools.map((tool) => <span key={tool.id}>{tool.label} · {tool.sessions} sessions · {tool.callCount} calls</span>)}</div></ReportSection> : null}
+        {!layout.isHidden("redaction") ? <ReportSection id="redaction" label="REDACTION" meta={`${story.redaction.tokensRemoved.toLocaleString()} tokens withheld`} open={layout.isOpen("redaction")} onOpenChange={(open) => layout.setOpen("redaction", open)} style={{ order: layout.order("redaction", 4) }}><dl className="technical-appendix__facts"><div><dt>Files excluded</dt><dd>{story.redaction.redactedFiles}</dd></div><div><dt>Paths generalized</dt><dd>{story.redaction.generalizedPaths}</dd></div><div><dt>Secret-shaped values removed</dt><dd>{story.redaction.secretMatchesRemoved}</dd></div><div><dt>Policy</dt><dd>{story.redaction.policyVersion}</dd></div></dl>{story.redaction.notes.length ? <ul>{story.redaction.notes.map((note) => <li key={note}>{note}</li>)}</ul> : null}</ReportSection> : null}
+        {!layout.isHidden("provenance") ? <ReportSection id="provenance" label="PROVENANCE & QUALITY" meta={story.provenance.scannerVersion} open={layout.isOpen("provenance")} onOpenChange={(open) => layout.setOpen("provenance", open)} style={{ order: layout.order("provenance", 5) }}><dl className="technical-appendix__facts"><div><dt>Scanner</dt><dd>{story.provenance.scannerVersion}</dd></div><div><dt>Source / scope</dt><dd>{story.provenance.source} · {story.provenance.machineScope}</dd></div><div><dt>Snapshot hash</dt><dd>{story.provenance.snapshotHash}</dd></div><div><dt>Consent policy</dt><dd>{story.provenance.consentVersion}</dd></div>{intelligence ? <><div><dt>Citation coverage</dt><dd>{intelligence.claimVerification.citationCoverage}%</dd></div><div><dt>Verification</dt><dd>{intelligence.claimVerification.status} · {intelligence.claimVerification.issues.length} issues</dd></div></> : null}</dl></ReportSection> : null}
+      </div>
+    </section>
+  );
+}

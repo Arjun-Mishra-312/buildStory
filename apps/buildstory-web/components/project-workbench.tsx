@@ -13,20 +13,23 @@ import { initialsFrom } from "@/lib/identity/initials";
 import { resolveVideoEmbed } from "@/lib/media/video-embed";
 import type { ChapterDelta } from "@/lib/story/chapter-delta";
 import { ChapterDeltaSummary } from "./chapter-delta-summary";
-import { ProjectChangelog } from "./project-changelog";
 import { ChapterTimeline, type ChapterSummary } from "./chapter-timeline";
 import { CommentThread } from "./comment-thread";
-import { ReceiptCard } from "./receipt-card";
 import { ShareButton } from "./share-button";
 import { SocialActions } from "./social-actions";
 import { GuideTooltip } from "./guidance/studio-guide";
 import { PublishReviewDialog, type PublishReviewField } from "./studio/publish-review-dialog";
 import { ReportCustomizePopover, type ReportCustomizeItem } from "./studio/report-customize-popover";
 import { ReportSection } from "./studio/report-section";
-import { SessionSummaryDrawer } from "./studio/session-summary-drawer";
 import { StoryPackView } from "./studio/story-pack-view";
+import { EvidenceRail } from "./report/evidence-rail";
+import { StoryEvidenceLayout } from "./report/story-evidence-layout";
+import { ReportStatsStrip } from "./report/report-stats-strip";
+import { ChapterComparisonPress } from "./report/chapter-comparison-press";
 import { useReportLayoutPrefs } from "@/lib/studio/use-report-layout-prefs";
 import type { ReportSectionKey } from "@/lib/studio/report-layout-prefs";
+import { buildEvidenceViewModel, type ReportSurface } from "@/lib/report/evidence-view-model";
+import { buildReportInsightsViewModel } from "@/lib/report/report-insights-view-model";
 
 type ArtifactLinksState = { projectUrl: string | null; repoUrl: string | null; videoUrl: string | null };
 
@@ -66,7 +69,6 @@ type ProjectWorkbenchProps = {
   reviewedEvidence?: Array<{ excerptId: string; sessionRef: string; occurredAt: string; role: string; text: string }>;
 };
 
-const compactNumber = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 const usdFormat = new Intl.NumberFormat("en", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const verifiedDateFormat = new Intl.DateTimeFormat("en", { month: "numeric", day: "numeric", year: "numeric", timeZone: "UTC" });
 const formatMicroUsd = (microUsd: number) => usdFormat.format(microUsd / 1_000_000);
@@ -119,25 +121,26 @@ const fieldOptions: Array<{ id: PublicFieldKey; label: string; detail: string; g
 ];
 
 const REPORT_LAYOUT_ITEM_DEFS: ReportCustomizeItem[] = [
-  { key: "boundary", label: "Publication boundary", description: "Fields allowed onto the public page" },
-  { key: "sessions", label: "Session summary", description: "Captured sessions and their outcomes" },
-  { key: "repository", label: "Repository", description: "Git aggregate and repository details" },
-  { key: "toolModel", label: "Tool & model use", description: "Model distribution and observed tools" },
-  { key: "redaction", label: "Redaction", description: "Privacy counts and local redaction notes" },
-  { key: "provenance", label: "Provenance", description: "Scanner chain and snapshot hash" },
-  { key: "profile", label: "Builder profile", description: "Archetype, scores, and work patterns" },
-  { key: "narrativeArc", label: "Build arc", description: "Discover, decide, and deliver phases" },
-  { key: "narrativeMoments", label: "Build moments", description: "Evidence-backed moments" },
-  { key: "narrativeInsights", label: "Insights", description: "Turning point, decisions, learnings, and traits" },
-  { key: "narrativeSignals", label: "By the numbers", description: "Computed facts and Deep framing" },
+  { key: "profile", label: "Builder profile", description: "The person behind the build" },
+  { key: "narrativeArc", label: "Build journey", description: "How the work moved" },
+  { key: "narrativeMoments", label: "Turning points", description: "Moments worth remembering" },
+  { key: "narrativeInsights", label: "Decision dossier & deep recap", description: "What changed and where it got hard" },
+  { key: "narrativeSignals", label: "By the numbers", description: "Straight-from-the-build facts" },
 ];
 
-function providerName(provider: string): string {
-  if (provider === "claude-code") return "Claude Code";
-  if (provider === "gemini-antigravity") return "Gemini Antigravity";
-  if (provider === "cursor") return "Cursor";
-  if (provider === "git") return "Git";
-  return "Codex";
+function profileIllustration(archetype: string): string {
+  if (archetype === "Night Owl") return "/assets/illustrations/build-profiles/night-owl.webp";
+  if (archetype === "Architect") return "/assets/illustrations/build-profiles/deep-thinker.webp";
+  if (archetype === "Quality Guardian") return "/assets/illustrations/build-profiles/perfectionist.webp";
+  return "/assets/illustrations/build-profiles/shipping-machine.webp";
+}
+
+function deliveryHeadline(story: PublicBuildStoryViewModel): string {
+  const facts = [
+    story.sessionCount > 0 ? `${story.sessionCount} sessions` : null,
+    story.git.commits > 0 ? `${story.git.commits} commits` : null,
+  ].filter((fact): fact is string => Boolean(fact));
+  return facts.length ? `${facts.join(", ")}, and counting.` : "The next chapter is still being written.";
 }
 
 function narrativeFailureMessage(code: string | null | undefined, validationFailure?: NarrativeRecord["validationFailure"]): string {
@@ -307,8 +310,6 @@ export function ProjectWorkbench({
   const [publicationError, setPublicationError] = useState<string | null>(null);
   const [publishReviewOpen, setPublishReviewOpen] = useState(false);
   const [publishReviewAcknowledged, setPublishReviewAcknowledged] = useState(false);
-  const [sessionSummaryOpen, setSessionSummaryOpen] = useState(false);
-  const sessionSummaryTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [privateNoticeOpen, setPrivateNoticeOpen] = useState(false);
   // Publication boundary field groups - not part of REPORT_SECTION_KEYS (an
   // internal grouping within the "boundary" section, not separately
@@ -344,13 +345,6 @@ export function ProjectWorkbench({
     const pinnedIndex = reportLayout.prefs.pinned.indexOf(key);
     return pinnedIndex >= 0 ? pinnedIndex : 100 + fallback;
   };
-  const gridSectionOrder = Math.min(
-    layoutOrder("sessions", 1),
-    layoutOrder("repository", 2),
-    layoutOrder("toolModel", 3),
-    layoutOrder("redaction", 4),
-    layoutOrder("provenance", 5),
-  );
   const narrativeCardOrder = Math.min(
     layoutOrder("narrativeArc", 7),
     layoutOrder("narrativeMoments", 8),
@@ -365,6 +359,26 @@ export function ProjectWorkbench({
     ? previewStory
     : (story as PublicBuildStoryViewModel);
   const publicStoryPackPreview = "storyPack" in displayStory ? displayStory.storyPack : null;
+  const publicReportSurface: ReportSurface = access === "public" ? "public" : "preview";
+  const publicEvidence = buildEvidenceViewModel(displayStory, publicReportSurface, publicStoryPackPreview);
+  const privateEvidence = privateStory
+    ? buildEvidenceViewModel(privateStory, "private", privateStoryPack)
+    : null;
+  const publicInsights = buildReportInsightsViewModel({
+    story: displayStory,
+    surface: publicReportSurface,
+    pack: publicStoryPackPreview,
+    chapterDelta: displayStory.chapterDelta ?? null,
+  });
+  const privateInsights = privateStory
+    ? buildReportInsightsViewModel({
+        story: privateStory,
+        surface: "private",
+        pack: privateStoryPack,
+        intelligence: privateStory.narrative?.reportIntelligence ?? null,
+        chapterDelta: livePreviewDelta ?? story.chapterDelta ?? null,
+      })
+    : null;
   const displayArtifactLinks = access === "public" && "artifactLinks" in story ? story.artifactLinks : artifactLinks;
   const displayArtifactMedia = access === "public" && "artifactMedia" in story ? story.artifactMedia : media;
   const videoEmbed = resolveVideoEmbed(displayArtifactLinks.videoUrl);
@@ -1128,17 +1142,13 @@ export function ProjectWorkbench({
               </div>
             </header>
 
-            {access === "public" && currentChapterIndex ? (
-              <ChapterTimeline chapters={chapters} handle={owner.handle} slug={story.slug} currentChapterIndex={currentChapterIndex} />
-            ) : null}
-
-            {access === "public" && displayStory.chapterDelta ? (
+            {publicInsights.chapterComparison ? (
               <div className="section-wrap chapter-delta-wrap">
-                <ChapterDeltaSummary delta={displayStory.chapterDelta} />
+                <ChapterComparisonPress comparison={publicInsights.chapterComparison} />
               </div>
             ) : null}
 
-            {access === "public" ? <ProjectChangelog chapters={chapters} /> : null}
+            <ReportStatsStrip metrics={publicEvidence.metrics} className="section-wrap" />
 
             {hasArtifact && (screenshotMedia.length > 0 || videoEmbed) ? (
               <section className="artifact-panel section-wrap" aria-label="The artifact">
@@ -1159,23 +1169,10 @@ export function ProjectWorkbench({
               </section>
             ) : null}
 
-            <div className="story-stats section-wrap" aria-label="Build summary">
-              <div><strong>{displayStory.activeDays}</strong><span>active days</span></div>
-              <div><strong>{displayStory.sessionCount}</strong><span>AI sessions</span></div>
-              <div><strong>{displayStory.git.commits}</strong><span>commits</span></div>
-              <div><strong>{displayStory.git.additions.toLocaleString()}</strong><span>lines added</span></div>
-              <div><strong>{displayStory.models.length}</strong><span>models in the mix</span></div>
-              <div>
-                <strong>{displayStory.tokenUsage ? compactNumber.format(displayStory.tokenUsage.totalTokens) : "—"}</strong>
-                <span>tokens processed</span>
-              </div>
-              <div>
-                <strong>{displayStory.cost?.totalMicroUsd != null ? formatMicroUsd(displayStory.cost.totalMicroUsd) : "—"}</strong>
-                <span>est. API-equivalent spend</span>
-              </div>
-            </div>
-
-            <div className="story-layout section-wrap">
+            <StoryEvidenceLayout
+              surface={publicReportSurface}
+              className="section-wrap"
+              story={(
               <div className="story-narrative">
                 <section className="story-section story-section--opening">
                   <span className="story-section__number">01</span>
@@ -1192,10 +1189,13 @@ export function ProjectWorkbench({
                     <div>
                       <span className="story-section__label">BUILDER PROFILE</span>
                       {displayStory.profile.archetype ? (
-                        <>
-                          <h2>{displayStory.profile.archetype.name}</h2>
-                          <p>{displayStory.profile.archetype.rationale.join(" ")}</p>
-                        </>
+                        <div className="report-profile-feature">
+                          <div><h2>{displayStory.profile.archetype.name}</h2><p>{displayStory.profile.archetype.rationale.join(" ")}</p></div>
+                          <div className="report-illustration-plate" aria-hidden="true">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={profileIllustration(displayStory.profile.archetype.name)} alt="" loading="lazy" />
+                          </div>
+                        </div>
                       ) : null}
                       {displayStory.profile.scores ? (
                         <>
@@ -1218,20 +1218,13 @@ export function ProjectWorkbench({
                   </aside>
                 ) : null}
 
-                {publicStoryPackPreview ? <StoryPackView pack={publicStoryPackPreview} privateView={false} reviewedEvidence={reviewedEvidence} fallbacksUsed={"fallbacksUsed" in displayStory ? displayStory.fallbacksUsed : []} /> : displayStory.signals.length ? (
-                  <section className="story-section" aria-live="polite">
+                {publicStoryPackPreview ? <StoryPackView pack={publicStoryPackPreview} privateView={false} reviewedEvidence={reviewedEvidence} fallbacksUsed={"fallbacksUsed" in displayStory ? displayStory.fallbacksUsed : []} evidencePlacement="rail" insights={publicInsights} /> : displayStory.signals.length ? (
+                  <section className="story-section story-pack-empty" aria-live="polite">
                     <span className="story-section__number">02</span>
                     <div>
-                      <span className="story-section__label">BY THE NUMBERS</span>
-                      <h2>Computed straight from the build, never model-written.</h2>
-                      <div className="story-pack__moment-grid">
-                        {displayStory.signals.map((signal, index) => (
-                          <article className="story-pack__moment-card" key={signal.id}>
-                            <div className="story-pack__moment-index">{String(index + 1).padStart(2, "0")}</div>
-                            <div><h3>{signal.headline}</h3><div className="story-pack__moment-copy"><p>{signal.detail}</p></div></div>
-                          </article>
-                        ))}
-                      </div>
+                      <span className="story-section__label">FACTS-ONLY REPORT</span>
+                      <h2>The build is documented in computed facts.</h2>
+                      <p>This report has no AI-written narrative. The evidence rail preserves the available facts without turning them into a story that was never generated.</p>
                     </div>
                   </section>
                 ) : <section className="story-section story-pack-empty" aria-live="polite">
@@ -1247,30 +1240,27 @@ export function ProjectWorkbench({
                   <span className="story-section__number">03</span>
                   <div>
                     <span className="story-section__label">WHERE IT STANDS</span>
-                    <h2>{displayStory.sessionCount} sessions, {displayStory.git.commits} commits, and counting.</h2>
-                    {story.stack.length ? (
-                      <div className="story-tags">
-                        {story.stack.map((tag) => <span key={tag}>{tag}</span>)}
+                    <div className="report-delivery-feature">
+                      <div>
+                        <h2>{deliveryHeadline(displayStory)}</h2>
+                        {displayStory.stack.length ? <div className="story-tags">{displayStory.stack.map((tag) => <span key={tag}>{tag}</span>)}</div> : null}
                       </div>
-                    ) : null}
+                      <div className="report-illustration-plate" aria-hidden="true">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src="/assets/illustrations/story-moments/successful-deployment.webp" alt="" loading="lazy" />
+                      </div>
+                    </div>
                   </div>
                 </section>
               </div>
-
-              <div className="story-receipt-column">
-                <div className="story-receipt-column__label">
-                  <span>THE EVIDENCE</span>
-                  <p>Generated from a redacted ProjectSnapshot.</p>
-                </div>
-                <ReceiptCard story={displayStory} />
-                {access === "creator" ? (
-                  <button type="button" className="receipt-source-link" onClick={() => setView("private")}>
-                    View private source report <span aria-hidden="true">→</span>
-                  </button>
-                ) : null}
-              </div>
-            </div>
+              )}
+              evidence={<EvidenceRail model={publicEvidence} receiptStory={displayStory} onViewPrivate={access === "creator" ? () => setView("private") : undefined} receiptOnly />}
+            />
           </article>
+
+          {access === "public" && currentChapterIndex ? (
+            <ChapterTimeline chapters={chapters} handle={owner.handle} slug={story.slug} currentChapterIndex={currentChapterIndex} />
+          ) : null}
 
           {access === "public" ? (
             <div className="section-wrap community-section">
@@ -1291,15 +1281,15 @@ export function ProjectWorkbench({
           <header className="private-report__heading">
             <div>
               <div className="private-badge"><span>●</span> PRIVATE · ONLY YOU CAN SEE THIS</div>
-              <h1>Generated project report</h1>
+              <h1>Your build, in review.</h1>
               <p>
-                A source-of-truth review assembled from the local snapshot.
-                Nothing below is public until you choose and rewrite it.
+                A private recap of the work behind this build. The facts are complete;
+                the story is yours to shape before anything becomes public.
               </p>
             </div>
             <div className="private-report__heading-actions">
-              <button className="button button--primary" type="button" onClick={() => setView("public")}>
-                Review public page <span aria-hidden="true">→</span>
+              <button className="button button--primary" type="button" onClick={() => { setView("public"); startEditing(); }}>
+                Edit story <span aria-hidden="true">→</span>
               </button>
               <ReportCustomizePopover
                 items={reportLayoutItems}
@@ -1314,39 +1304,14 @@ export function ProjectWorkbench({
           <div className="report-health">
             <div>
               <span className="report-health__check">✓</span>
-              <span><strong>Snapshot ready</strong><small>Repository-scoped read only</small></span>
+              <span><strong>Build facts ready</strong><small>Captured locally · kept private</small></span>
             </div>
             <dl>
-              <div><dt>Coverage</dt><dd>{privateStory.activeDays} active days</dd></div>
-              <div>
-                <dt>Tokens</dt>
-                <dd>{privateStory.tokenUsage ? compactNumber.format(privateStory.tokenUsage.totalTokens) : "Not collected"}</dd>
-              </div>
-              <div>
-                <dt>Est. cost</dt>
-                <dd>
-                  {privateStory.cost?.totalMicroUsd != null
-                    ? formatMicroUsd(privateStory.cost.totalMicroUsd)
-                    : privateStory.cost && privateStory.cost.unpricedTokens > 0
-                      ? "No priced models"
-                      : "Not collected"}
-                </dd>
-              </div>
-              <div><dt>Redaction</dt><dd>Passed</dd></div>
-              <div><dt>Revision</dt><dd>{privateStory.repository.currentRevision}</dd></div>
+              <div><dt>Facts</dt><dd>Ready</dd></div>
+              <div><dt>Privacy</dt><dd>Redacted locally</dd></div>
+              <div><dt>Narrative</dt><dd>{resolvedNarrativeStatus === "narrative_ready" ? "Ready" : resolvedNarrativeStatus === "narrative_failed" ? "Needs a retry" : resolvedNarrativeStatus === "narrative_not_requested" ? "Not requested" : "In progress"}</dd></div>
             </dl>
           </div>
-
-          <section className="source-health-strip" aria-label="Session source health">
-            <span className="section-index">SOURCE HEALTH</span>
-            {(privateStory.sourceSelection?.providers ?? []).map((source) => (
-              <div key={source.provider} className={`source-health-strip__item source-health-strip__item--${source.diagnostic ?? "scanned"}`}>
-                <strong>{providerName(source.provider)}</strong>
-                <small>{source.sessionsMatched} matched · {source.sessionsIncluded} included · {source.filesDiscovered} files · {source.warnings ?? 0} warnings</small>
-                <em>{source.diagnostic === "scanned" ? "scanned" : (source.diagnostic ?? "scanned").replaceAll("-", " ")}</em>
-              </div>
-            ))}
-          </section>
 
           {livePreviewDelta ? (
             <section className="report-card report-card--delta-preview" aria-label="What changed since the last chapter">
@@ -1359,19 +1324,19 @@ export function ProjectWorkbench({
           <ReportSection
             id="boundary"
             index="00"
-            label="PUBLICATION BOUNDARY"
-            summary={`${selectedFields.length} of ${fieldOptions.length} fields will be public`}
+            label="WHAT READERS WILL SEE"
+            summary={`${selectedFields.length} public choices`}
             meta={`${selectedFields.length}/${fieldOptions.length} selected`}
             open={reportLayout.isOpen("boundary")}
             onOpenChange={(open) => reportLayout.setOpen("boundary", open)}
             className="publication-boundary-panel"
-            style={{ order: layoutOrder("boundary", 0) }}
+            style={{ order: -1000 }}
           >
             <header>
               <div>
-                <span className="section-index">PUBLICATION BOUNDARY <GuideTooltip label="publication boundary">The baseline identity items listed here are always public. Selected optional fields are copied into the public chapter; the source snapshot and reviewed excerpts remain private.</GuideTooltip></span>
-                <h2>Choose the fields allowed onto the public page.</h2>
-                <p>Always public: project name, owner display name/handle/role, category, status, tech stack, visual background, and an opaque public receipt ID. The source snapshot, raw session details, repository path, remotes, branch, and commit hashes stay private. {selectedFields.length} of {fieldOptions.length} optional fields selected below.</p>
+                <span className="section-index">PUBLIC VISIBILITY <GuideTooltip label="publication boundary">The baseline identity items listed here are always public. Selected optional fields are copied into the public chapter; the source snapshot and reviewed excerpts remain private.</GuideTooltip></span>
+                <h2>Choose what makes it into the public story.</h2>
+                <p>This controls public visibility only; it does not change your private recap or its facts. Project identity, owner, category, status, stack, visual background, and the opaque receipt ID are always public. The source snapshot, raw sessions, repository path, remotes, branch, and commit hashes stay private.</p>
               </div>
               <div className={`publication-state publication-state--${publicationStatus}`}>
                 <i /> {publicationStatus === "draft_changes" ? "unpublished changes" : publicationStatus.replaceAll("_", " ")}
@@ -1432,11 +1397,11 @@ export function ProjectWorkbench({
                   ? "Private report update failed."
                   : saveState === "saved"
                     ? "Private report selection saved."
-                    : "Changes are private until you publish."}
+                    : "Your public choices stay private until you publish."}
               </span>
               <div>
                 <button className="button button--secondary" type="button" onClick={saveFieldSelection} disabled={saveState === "saving"}>
-                  Save private selection
+                  Save public choices
                 </button>
                 <button className="button button--primary" type="button" onClick={requestPublishReview} disabled={saveState === "saving"}>
                   {saveState === "saving" ? "Publishing…" : isLive ? "Review & republish" : "Review & publish page"}
@@ -1447,156 +1412,33 @@ export function ProjectWorkbench({
           </ReportSection>
           ) : null}
 
-          <div className="private-report__grid" style={{ order: gridSectionOrder }}>
-            {!reportLayout.isHidden("sessions") ? (
-            <section className="report-card report-card--sessions" data-report-section="sessions" style={{ order: layoutOrder("sessions", 1) }}>
-              <header><span>01 / SESSION SUMMARY</span><strong>{story.sessionCount} captured sessions</strong></header>
-              <div className="session-summary-widget">
-                <strong>{story.sessionCount} build sessions captured</strong>
-                <p>Open the full session-by-session intent, outcome, and touched-area summary when you need it.</p>
-                <button
-                  ref={sessionSummaryTriggerRef}
-                  type="button"
-                  className="button button--secondary"
-                  aria-haspopup="dialog"
-                  aria-expanded={sessionSummaryOpen}
-                  aria-controls="session-summary-drawer"
-                  onClick={() => setSessionSummaryOpen(true)}
-                >
-                  View session details <span aria-hidden="true">→</span>
-                </button>
-              </div>
-            </section>
-            ) : null}
+          {privateEvidence ? <ReportStatsStrip metrics={privateEvidence.metrics} className="private-report__stats" /> : null}
 
-            {!reportLayout.isHidden("sessions") ? (
-              <SessionSummaryDrawer
-                sessions={privateStory.sessions}
-                open={sessionSummaryOpen}
-                onClose={() => setSessionSummaryOpen(false)}
-                triggerRef={sessionSummaryTriggerRef}
+          <StoryEvidenceLayout
+            surface="private"
+            evidence={privateEvidence ? (
+              <EvidenceRail
+                model={privateEvidence}
+                receiptStory={privateStory}
+                receiptOnly
               />
             ) : null}
-
-            {!reportLayout.isHidden("repository") ? (
-              <section className="report-card" data-report-section="repository" style={{ order: layoutOrder("repository", 2) }}>
-                <header><span>02 / REPOSITORY</span><strong>Git aggregate</strong></header>
-                <ReportSection
-                  id="repository"
-                  variant="inline"
-                  label="REPOSITORY DETAILS"
-                  summary={privateStory.repository.remotePath ?? "Repository metadata"}
-                  open={reportLayout.isOpen("repository")}
-                  onOpenChange={(open) => reportLayout.setOpen("repository", open)}
-                >
-                  <dl className="report-data-list">
-                    <div><dt>Repository</dt><dd>{privateStory.repository.remotePath}</dd></div>
-                    <div><dt>Primary stack</dt><dd>{privateStory.repository.primaryLanguage} · {privateStory.repository.framework}</dd></div>
-                    <div><dt>Tracked files</dt><dd>{privateStory.repository.fileCount ?? "Not collected"}</dd></div>
-                    <div><dt>Commits</dt><dd>{story.git.commits}</dd></div>
-                    <div><dt>Diff</dt><dd><ins>+{story.git.additions.toLocaleString()}</ins> <del>−{story.git.deletions.toLocaleString()}</del></dd></div>
-                    <div><dt>Branches</dt><dd>{story.git.branches}</dd></div>
-                  </dl>
-                </ReportSection>
-              </section>
-            ) : null}
-
-            {!reportLayout.isHidden("toolModel") ? (
-            <section className="report-card" data-report-section="toolModel" style={{ order: layoutOrder("toolModel", 3) }}>
-              <header>
-                <span>03 / TOOL & MODEL USE</span>
-                <strong>Observed, not scored</strong>
-                {privateStory.cost?.totalMicroUsd != null ? (
-                  <small className="report-card__cost-total">{formatMicroUsd(privateStory.cost.totalMicroUsd)} estimated</small>
-                ) : null}
-              </header>
-              <div className="report-models">
-                {story.models.map((model) => (
-                  <div key={model.id}>
-                    <span><strong>{model.label}</strong><small>{model.requests} model calls{model.tokenUsage ? ` · ${compactNumber.format(model.tokenUsage.totalTokens)} tokens` : ""}</small></span>
-                    <span>
-                      {model.share === null ? "unpriced" : `${model.share}%`}
-                      {model.costMicroUsd != null ? <em className="report-models__cost">{formatMicroUsd(model.costMicroUsd)}</em> : null}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              {privateStory.cost && privateStory.cost.unpricedTokens > 0 ? (
-                <small className="report-models__unpriced">
-                  {compactNumber.format(privateStory.cost.unpricedTokens)} tokens from a model outside the pricing table aren&apos;t priced.
-                </small>
-              ) : null}
-              {privateStory.tools.length ? (
-                <ReportSection
-                  id="toolModel"
-                  variant="inline"
-                  label="TOOL USAGE"
-                  summary={`${privateStory.tools.length} tools observed`}
-                  open={reportLayout.isOpen("toolModel")}
-                  onOpenChange={(open) => reportLayout.setOpen("toolModel", open)}
-                >
-                  <div className="report-tools">
-                    {privateStory.tools.map((tool) => <span key={tool.id}>{tool.label} · {tool.sessions}</span>)}
-                  </div>
-                </ReportSection>
-              ) : null}
-            </section>
-            ) : null}
-
-            {!reportLayout.isHidden("redaction") ? (
-            <section className="report-card report-card--redaction" data-report-section="redaction" style={{ order: layoutOrder("redaction", 4) }}>
-              <header><span>04 / REDACTION</span><strong>Local pass complete</strong></header>
-              <div className="redaction-score"><strong>{privateStory.redaction.tokensRemoved.toLocaleString()}</strong><span>tokens withheld before upload</span></div>
-              <dl className="report-data-list">
-                <div><dt>Files excluded</dt><dd>{privateStory.redaction.redactedFiles}</dd></div>
-                <div><dt>Paths generalized</dt><dd>{privateStory.redaction.generalizedPaths}</dd></div>
-                <div><dt>Secret-shaped values removed</dt><dd>{privateStory.redaction.secretMatchesRemoved}</dd></div>
-              </dl>
-              {privateStory.redaction.notes.length ? (
-                <ReportSection
-                  id="redaction"
-                  variant="inline"
-                  label="NOTES"
-                  summary={`${privateStory.redaction.notes.length} redaction notes`}
-                  open={reportLayout.isOpen("redaction")}
-                  onOpenChange={(open) => reportLayout.setOpen("redaction", open)}
-                >
-                  <ul>{privateStory.redaction.notes.map((note) => <li key={note}>{note}</li>)}</ul>
-                </ReportSection>
-              ) : null}
-            </section>
-            ) : null}
-
-            {!reportLayout.isHidden("provenance") ? (
-            <ReportSection
-              id="provenance"
-              index="05"
-              label="PROVENANCE"
-              meta="Scan chain"
-              summary={privateStory.provenance.snapshotHash}
-              open={reportLayout.isOpen("provenance")}
-              onOpenChange={(open) => reportLayout.setOpen("provenance", open)}
-              className="report-card--provenance"
-              style={{ order: layoutOrder("provenance", 5) }}
-            >
-              <dl className="report-data-list">
-                <div><dt>Scanner</dt><dd>{privateStory.provenance.scannerVersion}</dd></div>
-                <div><dt>Source</dt><dd>{privateStory.provenance.source}</dd></div>
-                <div><dt>Scope</dt><dd>{privateStory.provenance.machineScope}</dd></div>
-                <div><dt>Snapshot hash</dt><dd>{privateStory.provenance.snapshotHash}</dd></div>
-                <div><dt>Consent policy</dt><dd>{privateStory.provenance.consentVersion}</dd></div>
-              </dl>
-            </ReportSection>
-            ) : null}
-          </div>
+            story={(
+              <>
 
           {privateStory.profile && !reportLayout.isHidden("profile") ? (
             <section className="report-card report-card--profile" data-report-section="profile" style={{ order: layoutOrder("profile", 6) }}>
                 <header><span>06 / BUILDER PROFILE</span><strong>{privateStory.profile.archetype.name}</strong></header>
-                <div className="profile-score-grid">
-                  {Object.entries(privateStory.profile.scores).map(([key, score]) => (
-                    <div key={key}><strong>{score.value}</strong><span>{key === "productInstinct" ? "product instinct*" : key}</span></div>
-                  ))}
+                <div className="report-profile-feature">
+                  <div className="profile-score-grid">
+                    {Object.entries(privateStory.profile.scores).map(([key, score]) => (
+                      <div key={key}><strong>{score.value}</strong><span>{key === "productInstinct" ? "product instinct*" : key}</span></div>
+                    ))}
+                  </div>
+                  <div className="report-illustration-plate" aria-hidden="true">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={profileIllustration(privateStory.profile.archetype.name)} alt="" loading="lazy" />
+                  </div>
                 </div>
                 <ReportSection
                   id="profile"
@@ -1610,7 +1452,6 @@ export function ProjectWorkbench({
                   <dl className="report-data-list">
                     <div><dt>Peak hours</dt><dd>{privateStory.profile.workPatterns.peakHours.map((hour) => `${String(hour).padStart(2, "0")}:00`).join(", ") || "None"} {privateStory.profile.workPatterns.timezoneLabel}</dd></div>
                     <div><dt>Preferred days</dt><dd>{privateStory.profile.workPatterns.preferredDays.join(", ") || "None"}</dd></div>
-                    <div><dt>Session shape</dt><dd>{privateStory.profile.workPatterns.medianSessionMinutes} min median · {privateStory.profile.workPatterns.longestSessionMinutes} min longest</dd></div>
                     <div><dt>Primary model</dt><dd>{privateStory.profile.workPatterns.primaryModel ?? "Not collected"}</dd></div>
                   </dl>
                   <small>* Product instinct is a weak proxy, not a measured personality trait.</small>
@@ -1621,19 +1462,7 @@ export function ProjectWorkbench({
           {resolvedNarrativeStatus === "narrative_not_requested" ? (
               <section className="report-card report-card--narrative report-card--narrative-empty" style={{ order: narrativeCardOrder }}>
                 <header><span>07 / BY THE NUMBERS</span><strong>{privateStory.signals.length ? "Computed facts, no narrative" : "Not requested"}</strong></header>
-                {privateStory.signals.length ? (
-                  <>
-                    <p>This scan didn&apos;t opt into narrative evidence, so there is no AI-written narrative - but every fact below is computed straight from the build, needs no model, and is ready to share.</p>
-                    <div className="story-pack__moment-grid">
-                      {privateStory.signals.map((signal, index) => (
-                        <article className="story-pack__moment-card" key={signal.id}>
-                          <div className="story-pack__moment-index">{String(index + 1).padStart(2, "0")}</div>
-                          <div><h3>{signal.headline}</h3><div className="story-pack__moment-copy"><p>{signal.detail}</p></div></div>
-                        </article>
-                      ))}
-                    </div>
-                  </>
-                ) : <p>This scan didn&apos;t opt into narrative evidence, so no AI-written narrative was generated. Metrics above are unaffected.</p>}
+                <p>{privateStory.signals.length ? "This scan didn't opt into narrative evidence. Its computed facts remain available in the evidence rail, without being presented as model-written interpretation." : "This scan didn't opt into narrative evidence, so no AI-written narrative was generated. Metrics are unaffected."}</p>
               </section>
             ) : resolvedNarrativeStatus === "narrative_no_evidence" ? (
               <section className="report-card report-card--narrative report-card--narrative-empty" style={{ order: narrativeCardOrder }}>
@@ -1644,7 +1473,7 @@ export function ProjectWorkbench({
               <section className="report-card report-card--narrative" style={{ order: narrativeCardOrder }}>
                 <header><span>07 / AI-WRITTEN NARRATIVE</span><strong>{narrative?.mode === "cloud" ? "Buildstory Cloud" : "Generated on your machine"}</strong></header>
                 {resolvedNarrativeStatus === "narrative_ready" && narrative?.sections ? (
-                  privateStoryPack ? <StoryPackView pack={privateStoryPack} privateView reviewedEvidence={reviewedEvidence} fallbacksUsed={narrative.fallbacksUsed} layout={{ ...reportLayout, order: layoutOrder }} hasLivePreviewDelta={Boolean(livePreviewDelta)} /> : <section className="story-section story-pack-empty" aria-live="polite">
+                  privateStoryPack ? <StoryPackView pack={privateStoryPack} privateView reviewedEvidence={reviewedEvidence} fallbacksUsed={narrative.fallbacksUsed} layout={{ ...reportLayout, order: layoutOrder }} evidencePlacement="rail" insights={privateInsights ?? undefined} /> : <section className="story-section story-pack-empty" aria-live="polite">
                     <span className="story-section__label">STRUCTURED STORY PACK</span>
                     <h3>Structured cards are not available for this report.</h3>
                     <p>This report was generated with an older narrative payload. Regenerate it with the current scanner to populate evidence-linked moments, decisions, learnings, traits, and growth cards.</p>
@@ -1661,6 +1490,9 @@ export function ProjectWorkbench({
                 )}
               </section>
             )}
+              </>
+            )}
+          />
           <footer className="report-hidden-rail" style={{ order: 1000 }}>
             <span>
               {hiddenReportLayoutItems.length

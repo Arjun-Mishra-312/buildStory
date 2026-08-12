@@ -50,6 +50,12 @@ test("isSectionOpen falls back to DEFAULT_OPEN when there is no stored deviation
   assert.equal(isSectionOpen(prefs, "boundary"), DEFAULT_OPEN.boundary);
 });
 
+test("recap payoff sections are visible by default in private reports", () => {
+  const prefs = defaultReportLayoutPrefs();
+  assert.equal(isSectionOpen(prefs, "narrativeSignals"), true);
+  assert.equal(isSectionOpen(prefs, "narrativeInsights"), true);
+});
+
 test("hiding a section clears its pin, and pinning a section clears hidden", () => {
   const hidden = withSectionHidden(defaultReportLayoutPrefs(), "provenance", true);
   const pinnedThenHidden = withSectionHidden(withSectionPinned(hidden, "provenance", true), "provenance", true);

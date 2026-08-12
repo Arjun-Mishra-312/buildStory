@@ -49,8 +49,9 @@ export const DEFAULT_OPEN: Record<ReportSectionKey, boolean> = {
   profile: true,
   narrativeArc: true,
   narrativeMoments: true,
-  narrativeInsights: false,
-  narrativeSignals: false,
+  /** Recap-first sections are open by default; they are the report's payoff rather than optional audit detail. */
+  narrativeInsights: true,
+  narrativeSignals: true,
 };
 
 export function defaultReportLayoutPrefs(): ReportLayoutPrefs {

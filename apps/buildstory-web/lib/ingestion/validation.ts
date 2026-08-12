@@ -253,6 +253,9 @@ const expectedWarningMessages: Record<QualityWarningCode, readonly string[]> = {
   GIT_STATUS_UNAVAILABLE: [
     "Working-tree status could not be read; status aggregates are zero.",
   ],
+  GIT_AI_ATTRIBUTION_UNAVAILABLE: [
+    "Git AI attribution was requested but content-free stats were unavailable.",
+  ],
   NO_MATCHING_SESSIONS: [
     "No Codex sessions were scoped to the selected repository.",
     "No Claude Code sessions were scoped to the selected repository.",
@@ -498,6 +501,30 @@ function storyPackViolations(snapshot: ScannerProjectSnapshot): string[] {
   return errors.slice(0, 20);
 }
 
+function eventSpineViolations(snapshot: ScannerProjectSnapshot): string[] {
+  const spine = snapshot.eventSpine;
+  if (!spine) return [];
+  const errors: string[] = [];
+  const evidenceRefs = new Set(snapshot.evidence.map((item) => item.evidenceId));
+  const sessionRefs = new Set(snapshot.sessions.map((item) => item.sessionRef));
+  const ids = new Set<string>();
+  let previous = "";
+  spine.events.forEach((event, index) => {
+    if (ids.has(event.eventId)) errors.push(`$.eventSpine.events[${index}].eventId is duplicated.`);
+    ids.add(event.eventId);
+    if (event.occurredAt < previous) errors.push(`$.eventSpine.events[${index}] is out of chronological order.`);
+    previous = event.occurredAt;
+    if (event.sessionRef && !sessionRefs.has(event.sessionRef)) errors.push(`$.eventSpine.events[${index}].sessionRef is unknown.`);
+    event.sourceRefs.forEach((ref) => {
+      if (!evidenceRefs.has(ref)) errors.push(`$.eventSpine.events[${index}].sourceRefs references unknown evidence ${ref}.`);
+    });
+  });
+  if (spine.coverage.sessions !== snapshot.sessions.length) errors.push("$.eventSpine.coverage.sessions does not match the snapshot.");
+  if (spine.coverage.milestones !== snapshot.milestones.length) errors.push("$.eventSpine.coverage.milestones does not match the snapshot.");
+  if (spine.coverage.events !== spine.events.length) errors.push("$.eventSpine.coverage.events does not match the event array.");
+  return errors.slice(0, 20);
+}
+
 export function validateProjectSnapshot(
   value: unknown,
 ): SnapshotValidationResult {
@@ -537,6 +564,7 @@ export function validateProjectSnapshot(
   const privacyErrors = [
     ...privacyBoundaryViolations(snapshot),
     ...deterministicNarrativeViolations(snapshot),
+    ...eventSpineViolations(snapshot),
     ...storyPackViolations(snapshot),
   ].slice(0, 20);
   if (privacyErrors.length > 0) return { ok: false, errors: privacyErrors };

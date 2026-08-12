@@ -4,12 +4,14 @@ import handler from "vinext/server/app-router-entry";
 import { getD1 } from "../db";
 import { recomputeLeaderboard } from "../lib/leaderboard/d1-store";
 import { processNarrativeQueueJob } from "../lib/ingestion/d1-store";
+import type { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
   MEDIA?: R2Bucket;
   NARRATIVE_QUEUE: Queue<{ narrativeId: string }>;
+  NARRATIVE_WORKFLOW?: Workflow<{ narrativeId: string }>;
   BUILDSTORY_ALLOWED_HOSTS?: string;
   // Optional: no `images` binding is declared in wrangler.deploy.jsonc today
   // (next/image is unused across the app - only plain <img> tags), so this is
@@ -21,6 +23,47 @@ interface Env {
       };
     };
   };
+}
+
+// The compiled Worker is also imported directly by Node in the server-render
+// smoke tests. Node cannot resolve the Cloudflare-only URL scheme, so keep the
+// runtime import lazy while still using the real base class inside Workers.
+// Dynamic cloudflare: imports are already the compatibility convention used by
+// the D1 and R2 adapters in this app.
+const WorkflowEntrypointBase: typeof WorkflowEntrypoint =
+  typeof WebSocketPair === "undefined"
+    ? class {
+        protected env!: Env;
+        protected ctx!: ExecutionContext;
+      } as unknown as typeof WorkflowEntrypoint
+    : (await import("cloudflare:workers")).WorkflowEntrypoint;
+
+export class NarrativeReportWorkflow extends WorkflowEntrypointBase<Env, { narrativeId: string }> {
+  async run(event: Readonly<WorkflowEvent<{ narrativeId: string }>>, step: WorkflowStep) {
+    const narrativeId = event.payload.narrativeId;
+    if (!/^nar_[a-z0-9_-]+$/i.test(narrativeId)) throw new Error("Invalid narrative workflow payload.");
+    return step.do("generate, verify, persist, and scrub report", {
+      retries: { limit: 3, delay: "60 seconds", backoff: "exponential" },
+      timeout: "10 minutes",
+      sensitive: "output",
+    }, async () => {
+      await processNarrativeQueueJob(narrativeId);
+      return { narrativeId, completed: true };
+    });
+  }
+}
+
+async function dispatchNarrative(env: Env, narrativeId: string) {
+  if (env.NARRATIVE_WORKFLOW) {
+    try {
+      await env.NARRATIVE_WORKFLOW.create({ id: narrativeId, params: { narrativeId }, retention: { successRetention: "7 days", errorRetention: "14 days" } });
+      return;
+    } catch {
+      // A duplicate instance or temporary Workflow failure is safe: the D1
+      // lease makes Queue fallback idempotent and the scheduled sweep retries.
+    }
+  }
+  await env.NARRATIVE_QUEUE.send({ narrativeId });
 }
 
 function isLoopbackHostname(hostname: string) {
@@ -187,7 +230,7 @@ const worker = {
            AND evidence_expires_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now') LIMIT 50`,
       ).all<{ id: string }>();
       for (const row of expired.results) await processNarrativeQueueJob(row.id).catch(() => undefined);
-      for (const row of pending.results) await _env.NARRATIVE_QUEUE.send({ narrativeId: row.narrative_id });
+      for (const row of pending.results) await dispatchNarrative(_env, row.narrative_id);
     })().catch(() => undefined));
   },
   async queue(batch: MessageBatch<{ narrativeId: string }>): Promise<void> {

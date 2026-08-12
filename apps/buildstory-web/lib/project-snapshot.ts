@@ -3,7 +3,8 @@
  * and strict JSON Schema live under lib/ingestion/scanner-project-snapshot.ts
  * and lib/ingestion/project-snapshot.schema.json.
  */
-import type { ReportStoryPack, SourceSelection } from "./ingestion/scanner-project-snapshot";
+import type { EventSpine, ReportStoryPack, SourceSelection } from "./ingestion/scanner-project-snapshot";
+import type { ReportIntelligence } from "./narrative/v4";
 export type SnapshotVisibility = "private" | "unlisted" | "public";
 
 export type ProjectIdentity = {
@@ -136,6 +137,10 @@ export type GitAggregates = {
   contributors: number;
   firstCommitSha: string;
   lastCommitSha: string;
+  aiAttribution?: {
+    source: "git-ai"; optIn: true; humanAdditions: number; aiAdditions: number; aiAccepted: number;
+    toolModels: Array<{ tool: string; model: string; aiAdditions: number; aiAccepted: number }>;
+  };
   workingTree: {
     isDirty: boolean;
     stagedEntries: number;
@@ -165,6 +170,8 @@ export type ReportNarrative = {
   storyPack?: ReportStoryPack;
   /** Safe component paths only; never contains prompts, excerpts, or source text. */
   fallbacksUsed?: string[];
+  /** Private V4 map and verification results; public projection omits this field. */
+  reportIntelligence?: ReportIntelligence;
 };
 
 export type RedactionSummary = {
@@ -202,6 +209,8 @@ export type ProjectSnapshot = {
   provenance: ScanProvenance;
   /** Provider coverage is private creator metadata from the scanner transport. */
   sourceSelection?: SourceSelection;
+  /** Private, privacy-safe chronology. It is never projected by the public builder. */
+  eventSpine?: EventSpine;
   builderProfile?: BuilderProfile;
   narrative?: ReportNarrative;
   /**

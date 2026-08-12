@@ -96,6 +96,15 @@ function openAiEnvelope(sections: Record<string, unknown>) {
   };
 }
 
+function responsesEnvelope(sections: Record<string, unknown>) {
+  return {
+    id: "resp_test_v4",
+    model: "gpt-5.6-luna",
+    output_text: JSON.stringify(sections),
+    usage: { input_tokens: 500, output_tokens: 150, output_tokens_details: { reasoning_tokens: 25 }, input_tokens_details: { cached_tokens: 40 } },
+  };
+}
+
 function combinedStoryOutput(): Omit<ReportStoryPackV2, "version" | "sources" | "signals"> {
   const pack = defaultStoryPack(scannerFixture as unknown as ScannerProjectSnapshot);
   return {
@@ -498,6 +507,42 @@ test("OpenRouter requests enforce ZDR routing and deny provider data collection"
     process.env.BUILDSTORY_LLM_API_KEY = previous.llmKey;
     process.env.BUILDSTORY_CLOUD_PROVIDER = previous.cloudProvider;
     process.env.BUILDSTORY_LLM_BASE_URL = previous.baseUrl;
+  }
+});
+
+test("OpenAI BYOK uses the Responses API with structured output and no retention", async () => {
+  const stub = stubFetchOnce(responsesEnvelope(combinedStoryOutput()));
+  const previous = {
+    openRouterKey: process.env.BUILDSTORY_OPENROUTER_API_KEY,
+    llmKey: process.env.BUILDSTORY_LLM_API_KEY,
+    cloudProvider: process.env.BUILDSTORY_CLOUD_PROVIDER,
+    baseUrl: process.env.BUILDSTORY_LLM_BASE_URL,
+    v4Mode: process.env.BUILDSTORY_REPORT_V4_MODE,
+  };
+  delete process.env.BUILDSTORY_OPENROUTER_API_KEY;
+  process.env.BUILDSTORY_LLM_API_KEY = "test-openai-key";
+  process.env.BUILDSTORY_CLOUD_PROVIDER = "openai";
+  process.env.BUILDSTORY_LLM_BASE_URL = "https://api.openai.com/v1";
+  process.env.BUILDSTORY_REPORT_V4_MODE = "on";
+  try {
+    const result = await generateNarrative({ ...structuredClone(scannerFixture), narrativeEvidence } as unknown as ScannerProjectSnapshot, null, { analysisTier: "standard" });
+    const body = JSON.parse(stub.requestBodies()[0]!) as Record<string, unknown>;
+    assert.ok("input" in body);
+    assert.ok("text" in body);
+    assert.equal(body.store, false);
+    assert.equal("messages" in body, false);
+    assert.equal("response_format" in body, false);
+    assert.equal(result.pipelineMode, "on");
+    assert.equal(result.requestIds[0], "resp_test_v4");
+    assert.equal(result.reasoningTokens, 25);
+    assert.equal(result.cachedTokens, 40);
+  } finally {
+    stub.restore();
+    if (previous.openRouterKey === undefined) delete process.env.BUILDSTORY_OPENROUTER_API_KEY; else process.env.BUILDSTORY_OPENROUTER_API_KEY = previous.openRouterKey;
+    if (previous.llmKey === undefined) delete process.env.BUILDSTORY_LLM_API_KEY; else process.env.BUILDSTORY_LLM_API_KEY = previous.llmKey;
+    if (previous.cloudProvider === undefined) delete process.env.BUILDSTORY_CLOUD_PROVIDER; else process.env.BUILDSTORY_CLOUD_PROVIDER = previous.cloudProvider;
+    if (previous.baseUrl === undefined) delete process.env.BUILDSTORY_LLM_BASE_URL; else process.env.BUILDSTORY_LLM_BASE_URL = previous.baseUrl;
+    if (previous.v4Mode === undefined) delete process.env.BUILDSTORY_REPORT_V4_MODE; else process.env.BUILDSTORY_REPORT_V4_MODE = previous.v4Mode;
   }
 });
 

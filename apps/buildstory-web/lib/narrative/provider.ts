@@ -11,6 +11,24 @@ import { isOllamaAutoModel, isOllamaBaseUrl, resolveOllamaModel } from "./ollama
 import type { AnalysisTier, NarrativeProvider, ReportStoryPack, ScannerProjectSnapshot } from "../ingestion/scanner-project-snapshot";
 import { defaultStoryPack, normalizeDeepStoryPack, normalizeStoryPack, sectionsFromStoryPack, validateDeepAnalysisComponent, validateStoryPackComponent, type StoryPackComponent } from "./story-pack";
 import { sanitizePublicText } from "../publication/sanitization";
+import {
+  compareReportQuality,
+  createDecisionAtlas,
+  createAskBuildIndex,
+  createBuildConstellation,
+  createLongitudinalPatterns,
+  createOutcomeLab,
+  createReportMapV4,
+  reportMapPromptContext,
+  selectAdaptiveExcerpts,
+  verifyStoryPackClaims,
+  type AdaptiveReportPolicy,
+  type ClaimVerificationReport,
+  type ReportMapV4,
+  type ReportQualityComparison,
+  type DecisionAtlas,
+  type ReportIntelligence,
+} from "./v4";
 
 export type NarrativeFailureUsage = {
   inputTokens: number;
@@ -58,6 +76,15 @@ export type NarrativeGenerationResult = {
   fallbacksUsed: string[];
   invalidReferenceCount: number;
   generationLatencyMs: number;
+  reportMap: ReportMapV4;
+  claimVerification: ClaimVerificationReport;
+  qualityComparison: ReportQualityComparison;
+  decisionAtlas: DecisionAtlas;
+  searchIndex: ReportIntelligence["searchIndex"];
+  patterns: ReportIntelligence["patterns"];
+  outcomeLab: ReportIntelligence["outcomeLab"];
+  constellation: ReportIntelligence["constellation"];
+  pipelineMode: "dark" | "on";
 };
 
 /**
@@ -225,29 +252,41 @@ async function requestCompletion(
   isOllama: boolean,
   analysisTier: AnalysisTier,
   maxTokens?: number,
+  policy?: AdaptiveReportPolicy,
 ): Promise<Completion> {
   const openRouter = !isOllama && new URL(baseUrl).hostname.toLocaleLowerCase("en-US") === "openrouter.ai";
+  const hostedOpenAi = !isOllama && new URL(baseUrl).hostname.toLocaleLowerCase("en-US") === "api.openai.com";
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 180_000);
   let response: Response;
   try {
-    response = await fetch(`${baseUrl}/chat/completions`, {
+    const schemaFormat = responseFormat && typeof responseFormat === "object" && !Array.isArray(responseFormat)
+      ? (responseFormat as { json_schema?: unknown }).json_schema
+      : undefined;
+    response = await fetch(`${baseUrl}/${hostedOpenAi ? "responses" : "chat/completions"}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${apiKey}`,
         ...(openRouter ? { "HTTP-Referer": process.env.BUILDSTORY_PUBLIC_ORIGIN ?? "https://buildstory.dev", "X-OpenRouter-Title": "Buildstory" } : {}),
       },
-      body: JSON.stringify({
+      body: JSON.stringify(hostedOpenAi ? {
+        model,
+        input: messages,
+        text: schemaFormat ? { format: { type: "json_schema", ...(schemaFormat as object) } } : undefined,
+        reasoning: { effort: policy?.reasoningEffort ?? (analysisTier === "deep" ? "high" : "medium") },
+        store: false,
+        max_output_tokens: maxTokens ?? policy?.maxOutputTokens ?? (analysisTier === "deep" ? 40_000 : 4_000),
+      } : {
         model,
         messages,
         response_format: isOllama ? { type: "json_object" } : responseFormat,
         ...(isOllama ? { think: false } : {}),
         ...(openRouter ? {
           provider: { zdr: true, data_collection: "deny", require_parameters: true, allow_fallbacks: true },
-          ...(analysisTier === "deep" ? { reasoning: { effort: "high", exclude: true } } : {}),
+          ...(analysisTier === "deep" ? { reasoning: { effort: policy?.reasoningEffort ?? "high", exclude: true } } : {}),
         } : !isOllama ? { store: false } : {}),
-        max_tokens: maxTokens ?? (isOllama ? 3_000 : analysisTier === "deep" ? 40_000 : 4_000),
+        max_tokens: maxTokens ?? policy?.maxOutputTokens ?? (isOllama ? 3_000 : analysisTier === "deep" ? 40_000 : 4_000),
       }),
       signal: controller.signal,
     });
@@ -277,17 +316,25 @@ async function requestCompletion(
     usage?: {
       prompt_tokens?: number;
       completion_tokens?: number;
+      input_tokens?: number;
+      output_tokens?: number;
       cost?: number;
       completion_tokens_details?: { reasoning_tokens?: number };
       prompt_tokens_details?: { cached_tokens?: number };
+      output_tokens_details?: { reasoning_tokens?: number };
+      input_tokens_details?: { cached_tokens?: number };
     };
+    output_text?: string;
+    output?: Array<{ type?: string; content?: Array<{ type?: string; text?: string }> }>;
   };
-  const content = payload.choices?.[0]?.message?.content;
+  const content = payload.choices?.[0]?.message?.content
+    ?? payload.output_text
+    ?? payload.output?.flatMap((item) => item.content ?? []).find((item) => item.type === "output_text")?.text;
   const responseUsage: NarrativeFailureUsage = {
-    inputTokens: payload.usage?.prompt_tokens ?? 0,
-    outputTokens: payload.usage?.completion_tokens ?? 0,
-    reasoningTokens: payload.usage?.completion_tokens_details?.reasoning_tokens ?? 0,
-    cachedTokens: payload.usage?.prompt_tokens_details?.cached_tokens ?? 0,
+    inputTokens: payload.usage?.prompt_tokens ?? payload.usage?.input_tokens ?? 0,
+    outputTokens: payload.usage?.completion_tokens ?? payload.usage?.output_tokens ?? 0,
+    reasoningTokens: payload.usage?.completion_tokens_details?.reasoning_tokens ?? payload.usage?.output_tokens_details?.reasoning_tokens ?? 0,
+    cachedTokens: payload.usage?.prompt_tokens_details?.cached_tokens ?? payload.usage?.input_tokens_details?.cached_tokens ?? 0,
     costMicroUsd: typeof payload.usage?.cost === "number" && Number.isFinite(payload.usage.cost) ? Math.max(0, Math.round(payload.usage.cost * 1_000_000)) : null,
     requestIds: payload.id ? [payload.id] : [],
   };
@@ -390,13 +437,14 @@ async function requestWithRepair(
   allowedSignalIds: Set<string>,
   component: StoryPackComponent | "combined" | "analysis-map" | "deep-report",
   maxTokens?: number,
+  policy?: AdaptiveReportPolicy,
 ): Promise<Completion & { warnings: string[] }> {
   let currentMessages = messages;
   let totals = emptyFailureUsage();
   for (let attempt = 0; attempt < 2; attempt += 1) {
     let result: Completion;
     try {
-      result = await requestCompletion(baseUrl, apiKey, model, currentMessages, responseFormat, isOllama, analysisTier, maxTokens);
+      result = await requestCompletion(baseUrl, apiKey, model, currentMessages, responseFormat, isOllama, analysisTier, maxTokens, policy);
     } catch (error) {
       if (!(error instanceof NarrativeProviderError)) throw error;
       if (error.code !== "llm_invalid_json" && error.code !== "llm_empty_response") throw providerErrorWithUsage(error, totals);
@@ -485,7 +533,7 @@ const CORE_DEEP_FALLBACK_PATHS = ["hero.headline", "hero.summary", "turningPoint
 export async function generateNarrative(
   snapshot: ScannerProjectSnapshot,
   requestedModel?: string | null,
-  options: { analysisTier?: AnalysisTier; previousChapter?: unknown } = {},
+  options: { analysisTier?: AnalysisTier; previousChapter?: unknown; historicalPacks?: ReportStoryPack[] } = {},
 ): Promise<NarrativeGenerationResult> {
   const generationStartedAt = Date.now();
   const configuredProvider = process.env.BUILDSTORY_CLOUD_PROVIDER
@@ -541,6 +589,15 @@ export async function generateNarrative(
 
   const provider = isOllama ? "ollama" : openRouter ? "openrouter" : "openai";
   const analysisTier: AnalysisTier = isOllama ? "standard" : options.analysisTier ?? "standard";
+  const pipelineMode = process.env.BUILDSTORY_REPORT_V4_MODE === "on" ? "on" : "dark";
+  const reportMap = createReportMapV4(snapshot, analysisTier);
+  const selectedExcerpts = selectAdaptiveExcerpts(snapshot.narrativeEvidence?.excerpts ?? [], reportMap.policy);
+  const generationSnapshot: ScannerProjectSnapshot = pipelineMode === "on" && snapshot.narrativeEvidence
+    ? { ...snapshot, narrativeEvidence: { ...snapshot.narrativeEvidence, excerpts: selectedExcerpts } }
+    : snapshot;
+  const withReportMap = (messages: ChatMessage[]): ChatMessage[] => pipelineMode === "on"
+    ? [...messages, { role: "user", content: reportMapPromptContext(reportMap) }]
+    : messages;
   let inputTokens = 0;
   let outputTokens = 0;
   let reasoningTokens = 0;
@@ -548,7 +605,7 @@ export async function generateNarrative(
   let actualCostMicroUsd: number | null = null;
   const requestIds: string[] = [];
 
-  const defaultPack = defaultStoryPack(snapshot);
+  const defaultPack = defaultStoryPack(generationSnapshot);
   const allowedRefs = new Set(defaultPack.sources.map((source) => source.ref));
   const allowedSignalIds = new Set(defaultPack.signals.map((signal) => signal.id));
   const addUsage = (result: Completion) => {
@@ -566,14 +623,18 @@ export async function generateNarrative(
   try {
     if (analysisTier === "deep") {
       const analysis = await requestWithRepair(
-        baseUrl, apiKey, model, buildDeepAnalysisMessages(snapshot, defaultPack.signals, options.previousChapter),
-        NARRATIVE_DEEP_ANALYSIS_RESPONSE_FORMAT, isOllama, analysisTier, allowedRefs, allowedSignalIds, "analysis-map", 24_000,
+        baseUrl, apiKey, model, withReportMap(buildDeepAnalysisMessages(generationSnapshot, defaultPack.signals, options.previousChapter)),
+        NARRATIVE_DEEP_ANALYSIS_RESPONSE_FORMAT, isOllama, analysisTier, allowedRefs, allowedSignalIds, "analysis-map",
+        pipelineMode === "on" ? Math.min(24_000, reportMap.policy.maxOutputTokens) : 24_000,
+        pipelineMode === "on" ? reportMap.policy : undefined,
       );
       addUsage(analysis);
       requestWarnings.push(...analysis.warnings);
       const synthesis = await requestWithRepair(
-        baseUrl, apiKey, model, buildDeepSynthesisMessages(snapshot, analysis.value),
-        NARRATIVE_DEEP_SYNTHESIS_RESPONSE_FORMAT, isOllama, analysisTier, allowedRefs, allowedSignalIds, "deep-narrative", 40_000,
+        baseUrl, apiKey, model, withReportMap(buildDeepSynthesisMessages(generationSnapshot, analysis.value)),
+        NARRATIVE_DEEP_SYNTHESIS_RESPONSE_FORMAT, isOllama, analysisTier, allowedRefs, allowedSignalIds, "deep-narrative",
+        pipelineMode === "on" ? reportMap.policy.maxOutputTokens : 40_000,
+        pipelineMode === "on" ? reportMap.policy : undefined,
       );
       addUsage(synthesis);
       requestWarnings.push(...synthesis.warnings);
@@ -608,9 +669,9 @@ export async function generateNarrative(
       // though the strict Deep validator above already requires the
       // structured shape to have passed. Validation still runs on the raw
       // composed value, not this compatibility-mapped one.
-      const compatibleComposedValue = legacyCompatiblePayload(composedValue, composedValue, snapshot);
+      const compatibleComposedValue = legacyCompatiblePayload(composedValue, composedValue, generationSnapshot);
       storyValue = composedValue;
-      normalized = normalizeDeepStoryPack(compatibleComposedValue, snapshot);
+      normalized = normalizeDeepStoryPack(compatibleComposedValue, generationSnapshot);
       const coreFallback = normalized.fallbacksUsed.find((path) => CORE_DEEP_FALLBACK_PATHS.includes(path));
       if (coreFallback) {
         // Both passes validated as schema-legal, but normalization still had
@@ -632,13 +693,15 @@ export async function generateNarrative(
       }
     } else {
       const result = await requestWithRepair(
-        baseUrl, apiKey, model, buildCombinedMessages(snapshot, defaultPack.signals), NARRATIVE_COMBINED_RESPONSE_FORMAT,
-        isOllama, analysisTier, allowedRefs, allowedSignalIds, "combined", isOllama ? 3_000 : 4_000,
+        baseUrl, apiKey, model, withReportMap(buildCombinedMessages(generationSnapshot, defaultPack.signals)), NARRATIVE_COMBINED_RESPONSE_FORMAT,
+        isOllama, analysisTier, allowedRefs, allowedSignalIds, "combined",
+        isOllama ? 3_000 : pipelineMode === "on" ? reportMap.policy.maxOutputTokens : 4_000,
+        pipelineMode === "on" ? reportMap.policy : undefined,
       );
       addUsage(result);
       requestWarnings.push(...result.warnings);
       storyValue = result.value;
-      normalized = normalizeStoryPack(legacyCompatiblePayload(result.value, result.value, snapshot), snapshot);
+      normalized = normalizeStoryPack(legacyCompatiblePayload(result.value, result.value, generationSnapshot), generationSnapshot);
     }
   } catch (error) {
     if (error instanceof NarrativeProviderError) {
@@ -670,6 +733,24 @@ export async function generateNarrative(
       .filter(Boolean);
   }
 
+  const claimVerification = verifyStoryPackClaims(normalized.storyPack, generationSnapshot);
+  if (claimVerification.status === "fail") {
+    throw new NarrativeProviderError(
+      "llm_claim_verification_failed",
+      "Narrative claims did not resolve to retained evidence.",
+      true,
+      null,
+      { inputTokens, outputTokens, reasoningTokens, cachedTokens, costMicroUsd: actualCostMicroUsd, requestIds },
+      { stage: "composition", issues: claimVerification.issues.filter((issue) => issue.severity === "error").map((issue) => `${issue.path}:${issue.code}`).slice(0, 8) },
+    );
+  }
+  const qualityComparison = compareReportQuality(generationSnapshot, normalized.storyPack, normalized.fallbacksUsed);
+  const decisionAtlas = createDecisionAtlas(normalized.storyPack, generationSnapshot);
+  const searchIndex = createAskBuildIndex(normalized.storyPack, generationSnapshot);
+  const patterns = createLongitudinalPatterns(normalized.storyPack, generationSnapshot, options.historicalPacks ?? []);
+  const outcomeLab = createOutcomeLab(generationSnapshot);
+  const constellation = createBuildConstellation(generationSnapshot);
+
   return {
     sections,
     storyPack: normalized.storyPack,
@@ -689,5 +770,14 @@ export async function generateNarrative(
     fallbacksUsed: [...new Set([...normalized.fallbacksUsed, ...requestWarnings.map(diagnosticPath)])].sort(),
     invalidReferenceCount: unknownSourceRefs(storyValue, allowedRefs).length,
     generationLatencyMs: Date.now() - generationStartedAt,
+    reportMap,
+    claimVerification,
+    qualityComparison,
+    decisionAtlas,
+    searchIndex,
+    patterns,
+    outcomeLab,
+    constellation,
+    pipelineMode,
   };
 }

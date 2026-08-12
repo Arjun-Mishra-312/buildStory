@@ -15,6 +15,7 @@ export const OLDEST_PROJECT_SNAPSHOT_SCHEMA_VERSION = "1.2.0" as const;
 export const CONNECT_PROTOCOL_VERSION = "1.0" as const;
 export const NARRATIVE_EVIDENCE_CONSENT_VERSION = "1.0" as const;
 export const NARRATIVE_EVIDENCE_BUNDLE_VERSION = "1.0.0" as const;
+export const EVENT_SPINE_VERSION = "1.0.0" as const;
 
 export type IsoDateTime = string;
 export type Sha256Digest = `sha256:${string}`;
@@ -55,11 +56,35 @@ export interface ScannerProjectSnapshot {
   redaction: RedactionSummary;
   provenance: Provenance;
   quality: QualitySummary;
+  eventSpine?: EventSpine;
   /** Opt-in only; absent from every default scan. See NarrativeEvidenceBundle. */
   narrativeEvidence?: NarrativeEvidenceBundle;
   /** Generated locally by the scanner; cloud narratives never enter the upload. */
   generatedNarrative?: GeneratedNarrative;
 }
+
+export type BuildEventKind = "session-start" | "planning" | "model-shift" | "exploration" | "mutation" | "verification" | "delegation" | "session-outcome" | "repository-milestone";
+export type BuildEventPhase = "discover" | "decide" | "deliver";
+export type BuildEvent = {
+  eventId: `evt_${string}`;
+  occurredAt: IsoDateTime;
+  kind: BuildEventKind;
+  phase: BuildEventPhase;
+  label: string;
+  sessionRef?: string;
+  provider?: ProviderId | "git";
+  magnitude: number;
+  measurement: "turns" | "distinct-tools" | "models" | "invocations" | "status" | "milestone";
+  temporalPrecision: "exact" | "estimated";
+  sourceRefs: string[];
+  privacy: "metadata-only";
+};
+export type EventSpine = {
+  version: typeof EVENT_SPINE_VERSION;
+  generatedAt: IsoDateTime;
+  events: BuildEvent[];
+  coverage: { sessions: number; milestones: number; events: number };
+};
 
 export type StoryPackPhase = "discover" | "decide" | "deliver";
 export type StoryPackMomentKind = "discovery" | "decision" | "breakthrough" | "delivery";
@@ -382,6 +407,14 @@ export interface GitAggregateMetrics {
   fileTouches: number;
   insertions: number;
   deletions: number;
+  aiAttribution?: {
+    source: "git-ai";
+    optIn: true;
+    humanAdditions: number;
+    aiAdditions: number;
+    aiAccepted: number;
+    toolModels: Array<{ tool: string; model: string; aiAdditions: number; aiAccepted: number }>;
+  };
   workingTree: {
     isDirty: boolean;
     stagedEntries: number;
@@ -484,6 +517,7 @@ export type QualityWarningCode =
   | "SESSION_ACTIVE_AT_SCAN_END"
   | "GIT_HISTORY_UNAVAILABLE"
   | "GIT_STATUS_UNAVAILABLE"
+  | "GIT_AI_ATTRIBUTION_UNAVAILABLE"
   | "NO_MATCHING_SESSIONS";
 
 export interface QualityWarning {

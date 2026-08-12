@@ -117,6 +117,9 @@ export function productionRuntimeIssues(): RuntimeIssue[] {
   if (process.env.BUILDSTORY_ENABLE_HOSTED_OPENAI !== "false") {
     add("hosted_openai_must_be_disabled", "BUILDSTORY_ENABLE_HOSTED_OPENAI");
   }
+  if (process.env.BUILDSTORY_REPORT_V4_MODE && !["dark", "on"].includes(process.env.BUILDSTORY_REPORT_V4_MODE)) {
+    add("invalid_value", "BUILDSTORY_REPORT_V4_MODE");
+  }
   if (
     process.env.BUILDSTORY_LOG_LEVEL &&
     !["error", "warn", "info"].includes(process.env.BUILDSTORY_LOG_LEVEL)

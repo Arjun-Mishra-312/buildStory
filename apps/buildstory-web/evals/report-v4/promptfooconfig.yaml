@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: Buildstory Report V4 production-derived, content-free quality gate
+prompts:
+  - "{{case}}"
+providers:
+  - id: file://provider.mjs
+    label: Frozen V4 candidate receipts
+defaultTest:
+  assert:
+    - type: is-json
+    - type: javascript
+      value: file://assertions.mjs:privacySafe
+    - type: javascript
+      value: file://assertions.mjs:citationsResolve
+    - type: javascript
+      value: file://assertions.mjs:deterministicStructures
+tests:
+  - description: Thin single-session evidence falls back safely
+    vars: { case: thin-evidence }
+  - description: Large mixed-provider history preserves diversity
+    vars: { case: large-mixed-history }
+  - description: Failed sessions retain unresolved state without transcript content
+    vars: { case: failed-session }
+  - description: Repeated chapter produces longitudinal patterns
+    vars: { case: repeated-chapter }

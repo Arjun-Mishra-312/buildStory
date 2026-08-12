@@ -32,18 +32,17 @@
   //   wrangler d1 create buildstory-d1
   //     -> database_id 055b1689-e3e4-4b75-8077-331c54266920
   //
-  // Live schema re-verified 2026-08-07 (the earlier "5 tables through 0001"
-  // note here was stale): 16 buildstory_* tables are present, matching
-  // migrations 0000-0004 exactly - 3 from 0000, 2 from 0001, 3 from 0002,
-  // 6 from 0003, 2 from 0004. Migration 0005 has NOT been applied
-  // (buildstory_reports.publication_path is absent), nor has 0006
-  // (buildstory_content_report_audit is absent).
+  // Live schema and migration ledger re-verified 2026-08-12. The
+  // buildstory_migrations ledger contains 0000 through 0026, including the
+  // story-deck migrations 0025_project_story and 0026_story_events. Those
+  // migrations remain checked in even though the current UI no longer reads
+  // those optional story-deck fields. The current release is presentation
+  // only and adds no D1 migration.
   //
-  // These were all applied by hand with `wrangler d1 execute --file=...`
-  // before scripts/migrate-d1.ts existed, so there is no
-  // buildstory_migrations ledger yet. The first migrate-d1.ts run must pass
-  // `--baseline 0004_damp_ezekiel` to seed the ledger correctly; naming an
-  // earlier tag makes it re-apply 0002+ and fail on "table already exists".
+  // The original hand-applied-schema/bootstrap note is historical. Do not
+  // pass --baseline against the current production database: the ledger is
+  // already populated. scripts/migrate-d1.ts is forward-only and applies
+  // only a checked-in tag that is absent from the remote ledger.
   //
   // The MEDIA bucket was provisioned 2026-08-07:
   //   wrangler r2 bucket create buildstory-media
@@ -92,6 +91,7 @@
     "BUILDSTORY_LLM_BASE_URL": "https://openrouter.ai/api/v1",
     "BUILDSTORY_LLM_MODEL": "deepseek/deepseek-v4-flash",
     "BUILDSTORY_ENABLE_HOSTED_OPENAI": "false",
+    "BUILDSTORY_REPORT_V4_MODE": "dark",
     "BUILDSTORY_LAUNCH_PRO_FOR_ALL": "true",
     // One-week launch promotion, ends itself automatically - see effectivePlan()
     // in lib/narrative/entitlement.ts. Set 2026-08-10, expires 2026-08-17.
@@ -117,6 +117,14 @@
       "dead_letter_queue": "buildstory-narratives-dlq"
     }]
   },
+  "workflows": [
+    {
+      "name": "buildstory-narrative-v4",
+      "binding": "NARRATIVE_WORKFLOW",
+      "class_name": "NarrativeReportWorkflow",
+      "limits": { "steps": 8 }
+    }
+  ],
 
   // Single source of truth for the deployed hostname. prepare-deploy-config.ts
   // copies this verbatim and cross-checks it against vars.BUILDSTORY_PUBLIC_ORIGIN,

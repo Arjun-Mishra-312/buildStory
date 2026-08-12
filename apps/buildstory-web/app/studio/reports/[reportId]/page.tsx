@@ -6,7 +6,7 @@ import { requireCreator } from "@/lib/auth/runtime";
 import { buildStoryFromSnapshot, publicBuildStoryFromSnapshot } from "@/lib/build-story";
 import { deriveNarrativeDisplayStatus } from "@/lib/ingestion/narrative-status";
 import { getProjectDetail, getProjectForVerification, getReport, listReportMedia, shouldUseDurableStore } from "@/lib/ingestion/store";
-import { computeChapterDelta } from "@/lib/story/chapter-delta";
+import { computeChapterDelta, publicChapterDelta } from "@/lib/story/chapter-delta";
 import { getProfile } from "@/lib/social/store";
 import { builderRoleLabel } from "@/lib/identity/builder-roles";
 
@@ -54,7 +54,7 @@ export default async function ImportedReportPage({ params }: PageProps) {
     );
   }
 
-  const story = buildStoryFromSnapshot(report.snapshot);
+  const story = { ...buildStoryFromSnapshot(report.snapshot), chapterDelta: report.chapterDelta };
   const narrativeStatus = deriveNarrativeDisplayStatus(report.sourceSnapshot, report.narrative);
   const media = await listReportMedia(report.id).catch(() => []);
   const profile = await getProfile(creator.creatorId).catch(() => null);
@@ -63,13 +63,13 @@ export default async function ImportedReportPage({ params }: PageProps) {
   // The real publication boundary, computed server-side from the currently-saved
   // selection so the creator's "Public" tab shows exactly what a reader would see,
   // not the full private report with the checkboxes ignored.
-  const previewStory = publicBuildStoryFromSnapshot(
+  const previewStory = { ...publicBuildStoryFromSnapshot(
     report.snapshot,
     report.selectedPublicFields,
     { tagline: report.editorial.tagline, description: report.editorial.description, reflection: report.editorial.reflection, category: report.category },
     { ...report.artifact, media },
     { storyBackgroundId: report.storyBackgroundId },
-  );
+  ), chapterDelta: report.chapterDelta ? publicChapterDelta(report.chapterDelta, report.selectedPublicFields) : null };
   // Full (ungated) live preview of "what changed" against the project's most recent
   // published chapter - lets the creator see the delta before they've published
   // anything, unlike the frozen chapter_delta_json which only exists after publish.

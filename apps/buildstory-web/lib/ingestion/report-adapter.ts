@@ -170,6 +170,7 @@ export function reportSnapshotFromScanner(
       contributors: snapshot.git.contributors,
       firstCommitSha: snapshot.repository.headCommit?.slice(0, 12) ?? "not-collected",
       lastCommitSha: snapshot.repository.headCommit?.slice(0, 12) ?? "not-collected",
+      ...(snapshot.git.aiAttribution ? { aiAttribution: structuredClone(snapshot.git.aiAttribution) } : {}),
       workingTree: { ...snapshot.git.workingTree },
     },
     milestones: snapshot.milestones.map((milestone, index) => ({
@@ -207,6 +208,7 @@ export function reportSnapshotFromScanner(
       consentVersion: snapshot.sourceSelection.consent.statementVersion,
     },
     sourceSelection: snapshot.sourceSelection,
+    ...(snapshot.eventSpine ? { eventSpine: snapshot.eventSpine } : {}),
     builderProfile: computeBuilderProfile({
       sessions: snapshot.sessions,
       usage: snapshot.usage,

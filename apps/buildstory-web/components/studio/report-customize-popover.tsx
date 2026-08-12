@@ -75,20 +75,20 @@ export function ReportCustomizePopover({ items, prefs, onToggleHidden, onToggleP
         onClick={() => setOpen((value) => !value)}
       >
         <SlidersHorizontal size={16} strokeWidth={1.8} aria-hidden="true" />
-        Customize
+        Arrange recap
       </button>
       {open ? (
         <div className="report-customize__popover" id={panelId} ref={popoverRef} role="dialog" aria-modal="false" aria-labelledby={titleId}>
           <header>
             <div>
-              <span className="section-index">PRIVATE REPORT</span>
-              <h2 id={titleId}>Choose your view</h2>
+              <span className="section-index">PRIVATE RECAP</span>
+              <h2 id={titleId}>Arrange your recap</h2>
             </div>
             <button type="button" className="button button--text report-customize__close" aria-label="Close report customization" onClick={() => { setOpen(false); triggerRef.current?.focus(); }}>
               <X size={17} strokeWidth={1.8} aria-hidden="true" />
             </button>
           </header>
-          <p>Hide sections you do not need today, or pin the ones you return to most.</p>
+          <p>Keep the moments that matter close. This changes your private view only; public choices live in What readers will see.</p>
           <ul>
             {items.map((item) => {
               const hidden = prefs.hidden.includes(item.key);
