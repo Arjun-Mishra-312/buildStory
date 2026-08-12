@@ -1560,7 +1560,7 @@ html[data-theme="dark"] .closing-cta {
   top: 68px;
   z-index: 30;
   display: grid;
-  grid-template-columns: max-content max-content minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
   align-items: center;
   min-height: 66px;
   padding: 10px clamp(24px, 4vw, 64px);
@@ -8125,9 +8125,29 @@ html[data-theme="light"] .onboarding-art--dark { display: none !important; }
   .public-preview-only-banner { align-items: flex-start; margin-inline: 20px; }
 }
 
+@media (min-width: 761px) and (max-width: 1320px) {
+  .project-console-bar__actions {
+    flex-wrap: wrap;
+  }
+
+  .project-console-bar__more {
+    display: inline-flex;
+  }
+
+  .project-console-bar__utilities {
+    display: none;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .project-console-bar__utilities.is-open {
+    display: flex;
+  }
+}
+
 @media (min-width: 761px) and (max-width: 1180px) {
   .project-console-bar {
-    grid-template-columns: max-content minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
   }
 
   .project-console-bar__primary {
