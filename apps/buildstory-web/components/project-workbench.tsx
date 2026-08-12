@@ -763,14 +763,25 @@ export function ProjectWorkbench({
     <main className="project-workbench">
       {access === "creator" ? (
       <div className="project-console-bar">
-        <div className="project-console-bar__primary">
-          <div className="project-console-bar__identity">
-            <span className="avatar">{initialsFrom(owner.name)}</span>
-            <span>
-              <strong>{story.name}</strong>
-              <small>Owner workbench</small>
-            </span>
-          </div>
+        <div className="project-console-bar__leading">
+          {isLive ? <div className={`project-console-bar__utilities project-console-bar__utilities--left${moreOpen ? " is-open" : ""}`}>
+            <button
+              className="button button--dark button--small"
+              type="button"
+              onClick={() => void copyLink()}
+              title="Copy the public story URL"
+            >
+              {copied ? "Public link copied" : "Copy public link"} <span aria-hidden="true">↗</span>
+            </button>
+            <button
+              className="button button--secondary button--small"
+              type="button"
+              onClick={() => void copyBadgeMarkdown()}
+              title="Copy a README badge for this story"
+            >
+              {badgeCopied ? "Badge markdown copied" : "Copy README badge"}
+            </button>
+          </div> : null}
         </div>
 
         <div className="view-switcher-shell">
@@ -824,24 +835,6 @@ export function ProjectWorkbench({
           ) : null}
           {projectId ? <Link className="button button--secondary button--small project-console-bar__scan" href={`/studio/projects/${projectId}/update`}>{isLive || hasLiveChapter ? "Scan for updates" : "Scan project updates"}</Link> : null}
           {isLive ? <button className="button button--text button--small project-console-bar__more" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((value) => !value)}>More</button> : null}
-          {isLive ? <div className={`project-console-bar__utilities${moreOpen ? " is-open" : ""}`}>
-            <button
-              className="button button--dark button--small"
-              type="button"
-              onClick={() => void copyLink()}
-              title="Copy the public story URL"
-            >
-              {copied ? "Public link copied" : "Copy public link"} <span aria-hidden="true">↗</span>
-            </button>
-            <button
-              className="button button--secondary button--small"
-              type="button"
-              onClick={() => void copyBadgeMarkdown()}
-              title="Copy a README badge for this story"
-            >
-              {badgeCopied ? "Badge markdown copied" : "Copy README badge"}
-            </button>
-          </div> : null}
           {publicationStatus !== "published" ? (
             <button
               className="button button--primary button--small"
