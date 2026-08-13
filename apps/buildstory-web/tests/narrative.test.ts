@@ -278,6 +278,19 @@ test("Buildstory Cloud rejects an evidence policy above the disclosed server cap
   if (!result.ok) assert.ok(result.errors.some((message) => message.includes("$.narrativeEvidence")));
 });
 
+test("Buildstory Cloud rejects a Deep evidence policy above the 400-excerpt server cap", () => {
+  const oversized = {
+    ...structuredClone(scannerFixture),
+    narrativeEvidence: {
+      ...structuredClone(narrativeEvidence),
+      policy: { ...narrativeEvidence.policy, excerptSelection: "deep-evidence-v2", maxExcerpts: 401, maxCharsPerExcerpt: 1_500, maxTotalChars: 700 * 1024 },
+    },
+  };
+  const result = validateProjectSnapshot(oversized);
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.ok(result.errors.some((message) => message.includes("$.narrativeEvidence")));
+});
+
 test("an evidence-bearing scan generates a narrative and sanitizes the model's output before storage", async () => {
   const combined = combinedStoryOutput();
   combined.hero = { headline: "Shipped the job queue", summary: "Built a lease-based job queue instead of a hosted broker." };

@@ -306,7 +306,7 @@ The creator selects a narrative mode for a scanner connection.
 - Reviewed, redacted excerpts and disclosed deterministic facts are sent to Buildstory for report generation.
 - Cloud generation uses a ZDR-eligible OpenRouter route with data-collection denial requirements.
 - Standard evidence is capped at 80 excerpts, 800 characters per excerpt, and 60,000 characters total.
-- Deep evidence is capped at 240 excerpts, 1,500 characters per excerpt, and 700 KiB total, subject to the upload limit.
+- Deep evidence is capped at 400 excerpts, 1,500 characters per excerpt, and 700 KiB total, subject to the upload limit.
 - Evidence is temporary and is scrubbed after successful or terminal generation; the private report and content-free receipt remain.
 
 ### Off mode

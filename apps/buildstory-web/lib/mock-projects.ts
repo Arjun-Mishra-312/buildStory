@@ -163,7 +163,7 @@ const orbitReportIntelligence: ReportIntelligence = {
   pipelineMode: "on",
   reportMap: {
     version: "4.0.0",
-    policy: { complexityScore: 72, complexityBand: "complex", reasoningEffort: "high", maxOutputTokens: 40000, maxExcerpts: 240, maxEvidenceCharacters: 716800 },
+    policy: { complexityScore: 72, complexityBand: "complex", reasoningEffort: "high", maxOutputTokens: 40000, maxExcerpts: 400, maxEvidenceCharacters: 716800 },
     sessionMaps: [
       ["ses_01", "codex", "2026-07-08T17:42:00.000Z", "2026-07-08T19:58:00.000Z", ["discover"], ["orbit-src-git"], 18, 15, 29, 4, 1],
       ["ses_02", "cursor", "2026-07-10T18:10:00.000Z", "2026-07-10T20:04:00.000Z", ["discover", "decide"], ["orbit-src-cursor"], 16, 13, 24, 3, 2],
