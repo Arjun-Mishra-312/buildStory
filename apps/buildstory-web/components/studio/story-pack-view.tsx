@@ -216,7 +216,7 @@ export function StoryPackView({
       </section> : null}
       {privateView ? (
       <section className="story-pack__hero">
-        <span className="story-section__label">HERE'S HOW THIS ONE WENT</span>
+        <span className="story-section__label">HERE&apos;S HOW THIS ONE WENT</span>
         <h2>{pack.hero.headline}</h2>
         <p>{pack.hero.summary}</p>
       </section>

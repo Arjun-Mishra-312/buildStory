@@ -447,14 +447,15 @@ export function ProjectWorkbench({
       if (window.localStorage.getItem(recapSeenStorageKey(story.id)) === "seen") return;
       window.localStorage.setItem(recapSeenStorageKey(story.id), "seen");
       window.localStorage.setItem(`buildstory:private-report-notice:${story.id}`, "dismissed");
-      setPrivateNoticeOpen(false);
-      setRecapFromGesture(false);
-      setRecapOpen(true);
     } catch {
+      // Recap still opens for this visit when storage is unavailable.
+    }
+    const timer = window.setTimeout(() => {
+      setPrivateNoticeOpen(false);
       setRecapFromGesture(false);
       setRecapOpen(true);
-      setPrivateNoticeOpen(false);
-    }
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [access, resolvedNarrativeStatus, story.id, view]);
 
   useEffect(() => {
@@ -478,12 +479,14 @@ export function ProjectWorkbench({
     try {
       if (window.localStorage.getItem(publicRecapSeenStorageKey(owner.handle, story.slug)) === "seen") return;
       window.localStorage.setItem(publicRecapSeenStorageKey(owner.handle, story.slug), "seen");
-      setRecapFromGesture(false);
-      setRecapOpen(true);
     } catch {
+      // Recap still opens for this visit when storage is unavailable.
+    }
+    const timer = window.setTimeout(() => {
       setRecapFromGesture(false);
       setRecapOpen(true);
-    }
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [owner.handle, publicRecapEnabled, recapScript.slides.length, story.slug]);
 
   function dismissPrivateNotice() {

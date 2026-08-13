@@ -24,22 +24,34 @@ function prefersReducedMotion() {
   return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
+function countedStartValue(raw: string | undefined): string {
+  if (!raw) return "";
+  const parts = parseRecapNumber(raw);
+  if (!parts || parts.compound) return raw;
+  return formatRecapCount(parts, 0);
+}
+
 function useCountedValue(raw: string | undefined, paused: boolean) {
-  const [display, setDisplay] = useState(raw ?? "");
   const pausedRef = useRef(paused);
-  pausedRef.current = paused;
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
+
+  const [display, setDisplay] = useState(() => countedStartValue(raw));
+  const [seenRaw, setSeenRaw] = useState(raw);
+  if (raw !== seenRaw) {
+    setSeenRaw(raw);
+    setDisplay(countedStartValue(raw));
+  }
 
   useEffect(() => {
-    if (!raw) {
-      setDisplay("");
-      return undefined;
-    }
+    if (!raw) return undefined;
     const parts = parseRecapNumber(raw);
-    if (prefersReducedMotion() || !parts || parts.compound) {
-      setDisplay(raw);
-      return undefined;
+    if (!parts || parts.compound) return undefined;
+    if (prefersReducedMotion()) {
+      const frame = window.requestAnimationFrame(() => setDisplay(raw));
+      return () => window.cancelAnimationFrame(frame);
     }
-    setDisplay(formatRecapCount(parts, 0));
     let frame = 0;
     let elapsed = 0;
     let last = performance.now();

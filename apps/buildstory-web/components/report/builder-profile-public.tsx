@@ -134,13 +134,12 @@ export function BuilderProfilePublic({
   const catalog = catalogEntry(archetypeName);
   const fan = useMemo(() => fanArchetypes(archetypeName, seed), [archetypeName, seed]);
   const [phase, setPhase] = useState<Phase>(() => (interactive ? "resting" : "revealed"));
+  const visiblePhase: Phase = interactive ? phase : "revealed";
 
   useEffect(() => {
-    if (!interactive) {
-      setPhase("revealed");
-      return;
-    }
-    if (prefersReducedMotion()) setPhase("revealed");
+    if (!interactive || !prefersReducedMotion()) return;
+    const timer = window.setTimeout(() => setPhase("revealed"), 0);
+    return () => window.clearTimeout(timer);
   }, [interactive]);
 
   useEffect(() => {
@@ -177,20 +176,20 @@ export function BuilderProfilePublic({
   if (patterns?.preferredDays?.length) facts.push({ label: "Preferred days", value: patterns.preferredDays.join(", ") });
   if (primary) facts.push({ label: "Primary model", value: primary });
 
-  const faceUp = phase === "flipping" || phase === "revealed";
-  const busy = phase === "drawing" || phase === "flipping";
+  const faceUp = visiblePhase === "flipping" || visiblePhase === "revealed";
+  const busy = visiblePhase === "drawing" || visiblePhase === "flipping";
 
   if (!archetypeName && !facts.length && !topModels.length && !topTools.length) return null;
 
   return (
     <div
       className="builder-profile-public"
-      data-phase={archetypeName ? phase : "revealed"}
+      data-phase={archetypeName ? visiblePhase : "revealed"}
       data-interactive={interactive ? "true" : "false"}
       aria-busy={busy}
     >
       {archetypeName ? (
-        <div className="builder-profile-public__fan" aria-hidden={phase === "revealed"} aria-label="Builder profile cards">
+        <div className="builder-profile-public__fan" aria-hidden={visiblePhase === "revealed"} aria-label="Builder profile cards">
           {fan.map((name, index) => (
             <TarotCard
               key={`${name}-${index}`}
@@ -198,13 +197,13 @@ export function BuilderProfilePublic({
               index={index}
               drawn={index === 2}
               faceUp={index === 2 && faceUp}
-              live={index === 2 && phase === "revealed"}
+              live={index === 2 && visiblePhase === "revealed"}
             />
           ))}
         </div>
       ) : null}
 
-      {interactive && archetypeName && phase === "resting" ? (
+      {interactive && archetypeName && visiblePhase === "resting" ? (
         <div className="builder-profile-public__cta">
           <button className="button button--primary" type="button" onClick={() => setPhase("drawing")}>
             Reveal builder profile
@@ -218,7 +217,7 @@ export function BuilderProfilePublic({
         </p>
       ) : null}
 
-      <dl className="builder-profile-public__facts" hidden={Boolean(archetypeName) && phase !== "revealed"}>
+      <dl className="builder-profile-public__facts" hidden={Boolean(archetypeName) && visiblePhase !== "revealed"}>
         {facts.map((fact) => (
           <div className="builder-profile-public__stat" key={fact.label}>
             <dt>{fact.label}</dt>
@@ -251,7 +250,7 @@ export function BuilderProfilePublic({
       </dl>
 
       {archetypeName ? (
-        <div className="builder-profile-public__persona" hidden={phase !== "revealed"}>
+        <div className="builder-profile-public__persona" hidden={visiblePhase !== "revealed"}>
           <p className="builder-profile-public__kicker">{catalog.kicker}</p>
           <p className="builder-profile-public__lore">{catalog.signifies}</p>
           {evidence ? <p className="builder-profile-public__evidence">{evidence}</p> : null}
