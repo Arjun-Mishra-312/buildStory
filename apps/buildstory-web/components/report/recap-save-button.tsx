@@ -15,13 +15,22 @@ export function RecapSaveButton({
   onSaved?: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
 
   async function save() {
     setBusy(true);
+    setError(false);
     try {
       const response = await fetch(href, { headers: { accept: "image/png" } });
-      if (!response.ok) return;
+      if (!response.ok) {
+        setError(true);
+        return;
+      }
       const blob = await response.blob();
+      if (!blob.type.startsWith("image/")) {
+        setError(true);
+        return;
+      }
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       const filename = response.headers.get("content-disposition")?.match(/filename="([^"]+)"/)?.[1] ?? "buildstory-recap.png";
@@ -30,8 +39,10 @@ export function RecapSaveButton({
       document.body.appendChild(link);
       link.click();
       link.remove();
-      URL.revokeObjectURL(url);
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
       onSaved?.();
+    } catch {
+      setError(true);
     } finally {
       setBusy(false);
     }
@@ -44,7 +55,7 @@ export function RecapSaveButton({
         type="button"
         onClick={() => void save()}
         disabled={busy}
-        aria-label={busy ? "Saving image" : label}
+        aria-label={busy ? "Saving image" : error ? "Could not save image" : label}
         aria-busy={busy}
       >
         <Download size={16} strokeWidth={2.2} />
@@ -54,7 +65,7 @@ export function RecapSaveButton({
 
   return (
     <button className="button button--text recap-save" type="button" onClick={() => void save()} disabled={busy}>
-      {busy ? "Saving…" : label}
+      {busy ? "Saving…" : error ? "Couldn’t save" : label}
     </button>
   );
 }

@@ -281,8 +281,8 @@ export function BuildRecap({
             </button>
             {saveBasePath ? (
               <RecapSaveButton
-                href={`${saveBasePath}/${encodeURIComponent(slide.id)}`}
-                label={slide.kind === "receipt" ? "Save receipt" : "Save image"}
+                href={`${saveBasePath}/${encodeURIComponent(displayed.id)}`}
+                label={displayed.kind === "receipt" ? "Save receipt" : "Save image"}
                 variant="icon"
               />
             ) : null}

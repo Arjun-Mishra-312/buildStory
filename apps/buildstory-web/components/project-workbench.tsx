@@ -22,7 +22,6 @@ import { PublishReviewDialog, type PublishReviewField } from "./studio/publish-r
 import { ReportCustomizePopover, type ReportCustomizeItem } from "./studio/report-customize-popover";
 import { ReportSection } from "./studio/report-section";
 import { StoryPackView } from "./studio/story-pack-view";
-import { EvidenceRail } from "./report/evidence-rail";
 import { ReportStatsStrip } from "./report/report-stats-strip";
 import { ChapterComparisonPress } from "./report/chapter-comparison-press";
 import { BuildBrief } from "./report/build-brief";
@@ -33,7 +32,6 @@ import { BuildRecap } from "./report/build-recap";
 import { WowFactPosters } from "./report/wow-fact-posters";
 import { ModelMixStrip } from "./report/model-mix-strip";
 import { BuilderProfilePublic } from "./report/builder-profile-public";
-import { PrivateInsightLab } from "./report/private-insight-lab";
 import { buildPublicBrief, buildPublicHeroCopy } from "@/lib/report/public-brief";
 import type { PublicArchetypeCounts } from "@/lib/report/archetype-catalog";
 import { buildRecapScript, recapSeenStorageKey, publicRecapSeenStorageKey } from "@/lib/report/recap";
@@ -1562,32 +1560,16 @@ export function ProjectWorkbench({
                 ) : resolvedNarrativeStatus === "narrative_failed" ? (
                   <p>{narrativeFailureMessage(narrative?.failureCode, narrative?.validationFailure)}</p>
                 ) : (
-                  <div className="recap-assembling" aria-label="Assembling your recap" aria-busy="true">
-                    <p>Reading {privateStory.sessionCount} session{privateStory.sessionCount === 1 ? "" : "s"}…</p>
-                    <ReceiptCard story={privateStory} animate compact />
+                  <div className="story-pack-skeleton" aria-label="Generating story pack" aria-busy="true">
+                    <div className="story-pack-skeleton__hero" />
+                    <div className="story-pack-skeleton__arc"><i /><i /><i /></div>
+                    <div className="story-pack-skeleton__cards"><i /><i /><i /><i /></div>
+                    <p>Generating your build narrative from the reviewed evidence bundle…</p>
                   </div>
                 )}
               </section>
             )}
           </div>
-          <details className="private-report__more">
-            <summary>More about this build</summary>
-            {privateInsights ? (
-              <PrivateInsightLab
-                model={privateInsights}
-                intelligence={privateStory.narrative?.reportIntelligence ?? null}
-                showSessions
-                showOutcomes
-              />
-            ) : null}
-            {privateEvidence ? (
-              <EvidenceRail
-                model={privateEvidence}
-                receiptStory={privateStory}
-                receiptOnly
-              />
-            ) : null}
-          </details>
           <footer className="report-hidden-rail" style={{ order: 1000 }}>
             <span>
               {hiddenReportLayoutItems.length

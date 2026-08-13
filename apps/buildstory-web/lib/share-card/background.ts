@@ -1,8 +1,8 @@
-/** Reads one of the bundled raster backgrounds through the Worker's static-
- * asset binding and embeds it for Satori. Fetching the public URL from inside
- * the same Worker re-enters the application and stalls until the subrequest
- * times out, so this must never use global fetch(). */
-export async function loadShareBackgroundDataUri(request: Request, assetPath: string): Promise<string | null> {
+/** Reads one of the bundled raster assets through the Worker's static-asset
+ * binding and embeds it for Satori. Fetching the public URL from inside the
+ * same Worker re-enters the application and stalls until the subrequest times
+ * out, so this must never use global fetch(). */
+export async function loadShareAssetDataUri(request: Request, assetPath: string): Promise<string | null> {
   try {
     const { env } = await import("cloudflare:workers");
     if (!env.ASSETS) return null;
@@ -21,4 +21,9 @@ export async function loadShareBackgroundDataUri(request: Request, assetPath: st
   } catch {
     return null;
   }
+}
+
+/** @deprecated Use loadShareAssetDataUri for both backgrounds and illustrations. */
+export function loadShareBackgroundDataUri(request: Request, assetPath: string): Promise<string | null> {
+  return loadShareAssetDataUri(request, assetPath);
 }

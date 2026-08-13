@@ -11,12 +11,14 @@ export function BuildJourney({
   onSelectRefs,
   layout = "folios",
   chrome = true,
+  showMast = !chrome,
 }: {
   phases: BuildJourneyPhase[];
   activeRefs: string[];
   onSelectRefs: (refs: string[]) => void;
   layout?: "folios" | "spine";
   chrome?: boolean;
+  showMast?: boolean;
 }) {
   if (!phases.length) return null;
   const active = new Set(activeRefs);
@@ -34,7 +36,7 @@ export function BuildJourney({
       className={`build-journey${spine ? " build-journey--spine" : ""}`}
       table={chrome ? <table><thead><tr><th>Phase</th><th>Story</th><th>Moments</th></tr></thead><tbody>{phases.map((phase) => <tr key={phase.phase}><th>{phaseLabels[phase.phase]}</th><td>{phase.headline}</td><td>{phase.moments.length}</td></tr>)}</tbody></table> : undefined}
     >
-      {!chrome ? <header className="build-journey__mast"><span>BUILD JOURNEY</span><strong>Discover · Decide · Deliver</strong></header> : null}
+      {!chrome && showMast ? <header className="build-journey__mast"><span>BUILD JOURNEY</span><strong>Discover · Decide · Deliver</strong></header> : null}
       <div className="build-journey__layout">
         <div className="build-journey__phases">
           {phases.map((phase) => {

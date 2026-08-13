@@ -38,7 +38,7 @@ export function ReportInsightStory({
     return current.length === next.length && current.every((ref) => next.includes(ref)) ? [] : next;
   });
   const publicLayout = model.surface !== "private";
-  const journey = <BuildJourney phases={model.journey} activeRefs={activeRefs} onSelectRefs={selectRefs} layout="folios" chrome={!publicLayout} />;
+  const journey = <BuildJourney phases={model.journey} activeRefs={activeRefs} onSelectRefs={selectRefs} layout="folios" chrome={false} showMast={publicLayout} />;
   const dossier = <DecisionDossier items={model.dossier} turningPoint={model.turningPoint} turningBeat={publicLayout ? model.turningBeat : null} layout={publicLayout ? "posters" : "pager"} activeRefs={activeRefs} onSelectRefs={selectRefs} showSourceCodes={!publicLayout} />;
 
   return (
@@ -47,7 +47,7 @@ export function ReportInsightStory({
         controls ? !controls.journey.hidden ? journey : null : journey
       ) : (
         <>
-          {controls ? !controls.journey.hidden ? <ReportSection id="narrativeArc" label="BUILD JOURNEY" meta="Arc, moments, milestones" open={controls.journey.open} onOpenChange={controls.journey.onOpenChange}>{journey}</ReportSection> : null : journey}
+          {controls ? !controls.journey.hidden ? <ReportSection id="narrativeArc" label="BUILD JOURNEY" meta="Arc, moments, milestones" variant="inline" open={controls.journey.open} onOpenChange={controls.journey.onOpenChange}>{journey}</ReportSection> : null : journey}
           {controls ? !controls.dossier.hidden ? dossier : null : dossier}
         </>
       )}

@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { publicBuildStoryFromSnapshot } from "../lib/build-story";
+import { buildStoryFromSnapshot, publicBuildStoryFromSnapshot } from "../lib/build-story";
 import { reportSnapshotFromScanner } from "../lib/ingestion/report-adapter";
 import type { PublicFieldKey } from "../lib/ingestion/contracts";
 import { formatShareCardData } from "../lib/share-card/format";
+import { buildRecapShareCard, buildSignalShareCard } from "../lib/share-card/recap-card";
+import { buildReceiptShareCard } from "../lib/share-card/receipt-card";
+import { formatSignalValue } from "../lib/report/poster-art";
+import { renderToStaticMarkup } from "react-dom/server";
 import type { ScannerProjectSnapshot } from "../lib/ingestion/scanner-project-snapshot";
 import scannerFixture from "./fixtures/scanner-project-snapshot.json";
 
@@ -76,4 +80,35 @@ test("formatShareCardData's headline fact is independent of storySignals - selec
   const signalsOnly = formatShareCardData(publicBuildStoryFromSnapshot(privateSnapshot, ["tagline", "storySignals"]));
   assert.equal(signalsOnly.headlineFact, null, "storySignals alone must not leak the headline fact without signalHeadline");
   void headlineOnly;
+});
+
+test("save-card renderers keep the displayed receipt and fact poster content mapped one-to-one", () => {
+  const story = buildStoryFromSnapshot(privateSnapshot);
+  const receiptMarkup = renderToStaticMarkup(buildReceiptShareCard(story));
+  assert.match(receiptMarkup, new RegExp(story.receiptId));
+  assert.match(receiptMarkup, /Active build time/);
+  assert.match(receiptMarkup, /Model mix/);
+  assert.doesNotMatch(receiptMarkup, /The work, itemized\./, "a receipt save must not use the generic recap headline card");
+
+  const signal = story.signals[0];
+  assert.ok(signal);
+  const posterMarkup = renderToStaticMarkup(buildSignalShareCard(signal, story.owner.handle));
+  assert.match(posterMarkup, new RegExp(formatSignalValue(signal).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(posterMarkup, new RegExp(signal.headline.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
+test("public recap export applies the same visitor close copy shown in the browser", () => {
+  const slide = {
+    id: "close",
+    kind: "close" as const,
+    kicker: "Only you can see this",
+    headline: "Your private recap is ready.",
+    body: "Come back anytime.",
+    visual: "/assets/illustrations/story-moments/rocket-launch.webp",
+    sourceRefs: [],
+  };
+  const markup = renderToStaticMarkup(buildRecapShareCard(slide, "Test project", "test", { audience: "visitor" }));
+  assert.match(markup, /Your turn/);
+  assert.match(markup, /Every build has a story\./);
+  assert.doesNotMatch(markup, /Your private recap is ready\./);
 });

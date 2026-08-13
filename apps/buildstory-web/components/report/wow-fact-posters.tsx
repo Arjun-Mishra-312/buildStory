@@ -31,7 +31,7 @@ export function WowFactPosters({
   return (
     <section className={`wow-posters${assembling ? " wow-posters--assembling" : ""}${className ? ` ${className}` : ""}`} aria-label="Facts from this build">
       {featured.map((signal, index) => (
-        <WowFactPoster key={signal.id} signal={signal} index={index} saveHref={saveBasePath ? `${saveBasePath}/signature-${encodeURIComponent(signal.id)}` : undefined} />
+        <WowFactPoster key={signal.id} signal={signal} index={index} saveHref={saveBasePath ? `${saveBasePath}/poster-${encodeURIComponent(signal.id)}` : undefined} />
       ))}
     </section>
   );
