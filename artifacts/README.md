@@ -1,18 +1,18 @@
 # Local package artifacts
 
-`buildstory-scan-1.1.1.tgz` is the current packed archive built from
+`buildstory-scan-1.1.2.tgz` is the current packed archive built from
 `packages/buildstory-scanner`. It is the same tarball `npm publish` uploads, so
 installing it locally exercises the real published layout.
 
 ```powershell
-npm install --global ./artifacts/buildstory-scan-1.1.1.tgz
+npm install --global ./artifacts/buildstory-scan-1.1.2.tgz
 buildstory-scan --version
 ```
 
 SHA-256 for the committed archive:
 
 ```text
-9476c4c4e5bde673d4b07332f16aef9fbab48284ab3c393a6df4272959dac924
+b5ecc406bcccf81520672e26b55fa97d73175fb147e936961f0c49e23f6901a2
 ```
 
 Rebuild it with `npm run package:scanner`; update this checksum whenever package
@@ -22,6 +22,8 @@ manifest, so a version bump without a repack fails the check rather than
 silently validating an older archive. It checks the embedded schema version
 and that this README names the current archive; keeping the checksum itself
 current is still a manual step every repack.
+
+`1.1.2` raises Deep cloud/BYOK evidence from 240 to 400 excerpts (1,500 characters each, 700 KiB total unchanged). `PROJECT_SNAPSHOT_SCHEMA_VERSION` stays `1.7.0`; Local remains hardware-adaptive at 40/64/80 excerpts. Publish only after the hosted app is already accepting 400.
 
 `1.1.1` is a version-sync release that adds progress reporting for local
 narrative generation while keeping the `1.1.0` snapshot and story-pack
