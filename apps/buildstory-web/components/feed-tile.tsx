@@ -6,6 +6,7 @@ import { initialsFrom } from "@/lib/identity/initials";
 import { categoryLabel, formatBuildTime, statusClass } from "@/lib/story/display-labels";
 import { DEFAULT_STORY_BACKGROUND_ID } from "@/lib/background-options";
 import { StoryVisual } from "@/components/story-visual";
+import { ModelMark, ModelName } from "@/components/model-mark";
 
 const REACTION_ICONS = {
   fire: Flame,
@@ -69,6 +70,7 @@ function ModelDonut({ breakdown }: { breakdown: ModelShareSlice[] }) {
         {arcs.map(({ slice, color }) => (
           <li key={slice.label}>
             <span className="feed-tile__model-legend-dot" style={{ background: color }} />
+            <ModelMark label={slice.label} className="feed-tile__model-legend-mark" />
             <span className="feed-tile__model-legend-label">{truncateModelLabel(slice.label)}</span>
             <span className="feed-tile__model-legend-share">{slice.share}%</span>
           </li>
@@ -118,7 +120,7 @@ export function FeedTile({ entry }: { entry: FeedEntry }) {
               <span><small>Sessions</small><strong>{stats.sessionCount}</strong></span>
               <span><small>Commits</small><strong>{stats.commits}</strong></span>
               <span><small>Build time</small><strong>{formatBuildTime(stats.buildHours)}</strong></span>
-              <span><small>Model</small><strong>{stats.primaryModel?.label ?? "Not shared"}</strong></span>
+              <span><small>Model</small><strong>{stats.primaryModel ? <ModelName label={stats.primaryModel.label} /> : "Not shared"}</strong></span>
             </div>
           ) : null}
           <div className="feed-tile__byline story-byline">

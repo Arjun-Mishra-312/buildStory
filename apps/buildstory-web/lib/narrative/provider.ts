@@ -464,7 +464,7 @@ async function requestWithRepair(
     const invalid = unknownSourceRefs(result.value, allowedRefs);
     let validation: ReturnType<typeof validateStoryPackComponent>;
     if (component === "combined") {
-      const storyValidation = validateStoryPackComponent(result.value, "story", allowedRefs);
+      const storyValidation = validateStoryPackComponent(result.value, "story", allowedRefs, allowedSignalIds);
       const insightValidation = validateStoryPackComponent(result.value, "insights", allowedRefs);
       validation = {
         ok: storyValidation.ok && insightValidation.ok,
@@ -474,7 +474,7 @@ async function requestWithRepair(
     } else if (component === "analysis-map") {
       validation = validateDeepAnalysisComponent(result.value, allowedRefs, allowedSignalIds);
     } else if (component === "deep-report") {
-      const storyValidation = validateStoryPackComponent(result.value, "story", allowedRefs);
+      const storyValidation = validateStoryPackComponent(result.value, "story", allowedRefs, allowedSignalIds);
       const insightValidation = validateStoryPackComponent(result.value, "insights", allowedRefs);
       const deepValidation = validateStoryPackComponent(result.value, "deep", allowedRefs, allowedSignalIds);
       validation = {
@@ -589,7 +589,8 @@ export async function generateNarrative(
 
   const provider = isOllama ? "ollama" : openRouter ? "openrouter" : "openai";
   const analysisTier: AnalysisTier = isOllama ? "standard" : options.analysisTier ?? "standard";
-  const pipelineMode = process.env.BUILDSTORY_REPORT_V4_MODE === "on" ? "on" : "dark";
+  const v4EnvOn = process.env.BUILDSTORY_REPORT_V4_MODE === "on";
+  const pipelineMode = v4EnvOn || analysisTier === "deep" ? "on" : "dark";
   const reportMap = createReportMapV4(snapshot, analysisTier);
   const selectedExcerpts = selectAdaptiveExcerpts(snapshot.narrativeEvidence?.excerpts ?? [], reportMap.policy);
   const generationSnapshot: ScannerProjectSnapshot = pipelineMode === "on" && snapshot.narrativeEvidence
@@ -598,6 +599,7 @@ export async function generateNarrative(
   const withReportMap = (messages: ChatMessage[]): ChatMessage[] => pipelineMode === "on"
     ? [...messages, { role: "user", content: reportMapPromptContext(reportMap) }]
     : messages;
+  const adaptiveBudget = v4EnvOn;
   let inputTokens = 0;
   let outputTokens = 0;
   let reasoningTokens = 0;
@@ -625,16 +627,16 @@ export async function generateNarrative(
       const analysis = await requestWithRepair(
         baseUrl, apiKey, model, withReportMap(buildDeepAnalysisMessages(generationSnapshot, defaultPack.signals, options.previousChapter)),
         NARRATIVE_DEEP_ANALYSIS_RESPONSE_FORMAT, isOllama, analysisTier, allowedRefs, allowedSignalIds, "analysis-map",
-        pipelineMode === "on" ? Math.min(24_000, reportMap.policy.maxOutputTokens) : 24_000,
-        pipelineMode === "on" ? reportMap.policy : undefined,
+        adaptiveBudget ? Math.min(24_000, reportMap.policy.maxOutputTokens) : 24_000,
+        adaptiveBudget ? reportMap.policy : undefined,
       );
       addUsage(analysis);
       requestWarnings.push(...analysis.warnings);
       const synthesis = await requestWithRepair(
         baseUrl, apiKey, model, withReportMap(buildDeepSynthesisMessages(generationSnapshot, analysis.value)),
         NARRATIVE_DEEP_SYNTHESIS_RESPONSE_FORMAT, isOllama, analysisTier, allowedRefs, allowedSignalIds, "deep-narrative",
-        pipelineMode === "on" ? reportMap.policy.maxOutputTokens : 40_000,
-        pipelineMode === "on" ? reportMap.policy : undefined,
+        adaptiveBudget ? reportMap.policy.maxOutputTokens : 40_000,
+        adaptiveBudget ? reportMap.policy : undefined,
       );
       addUsage(synthesis);
       requestWarnings.push(...synthesis.warnings);

@@ -61,6 +61,10 @@ const orbitProfile: BuilderProfile = {
     longestSessionMinutes: 253,
     primaryModel: "gpt-5.4-codex",
     timezoneLabel: "America/Vancouver",
+    nightShare: 62,
+    morningShare: 8,
+    weekendShare: 14,
+    distinctToolCount: 11,
   },
 };
 
@@ -136,6 +140,21 @@ const orbitStoryPack: ReportStoryPackV3 = {
     chapterChanges: [
       { title: "From graph playground to dependable notebook", summary: "The chapter closed with fewer controls, stronger offline guarantees, and a signed build in users' hands.", sourceRefs: ["orbit-src-claude", "orbit-src-git"], confidence: "high" },
     ],
+    surpriseFacts: [
+      { title: "Your median session ran over three hours", summary: "Seven focused blocks carried the hard decisions instead of scattering them across short check-ins.", signalId: "orbit-session-depth", sourceRefs: ["orbit-src-codex", "orbit-src-cursor"], confidence: "high" },
+      { title: "You changed 284 lines per commit", summary: "The rewrite stayed dense: 24,711 additions and deletions across 87 commits.", signalId: "orbit-output-per-commit", sourceRefs: ["orbit-src-git"], confidence: "medium" },
+      { title: "One model handled 73% of the calls", summary: "GPT-5.4 Codex led implementation while Claude still showed up for search and product feedback.", signalId: "orbit-model-concentration", sourceRefs: ["orbit-src-codex", "orbit-src-claude"], confidence: "medium" },
+    ],
+    recap: {
+      slides: [
+        { kind: "title", kicker: "Your build", headline: "Orbit Notes", body: "Here's how this one went.", sourceRefs: [] },
+        { kind: "scale", kicker: "The shape of it", headline: "You ran 7 AI sessions on this one.", body: "Built across 18 days · 87 commits.", signalId: "orbit-session-depth", sourceRefs: ["orbit-src-codex"] },
+        { kind: "signature", kicker: "Night work", headline: "Your median session ran 191 minutes.", body: "The hard decisions happened inside long, focused blocks — not scattered check-ins.", signalId: "orbit-session-depth", sourceRefs: ["orbit-src-codex", "orbit-src-cursor"] },
+        { kind: "turning", kicker: "The night it clicked", headline: "Offline persistence worked until reconnect duplicated notes.", body: "You turned the failure into a replayable fixture, then shipped with fewer controls.", sourceRefs: ["orbit-src-codex", "orbit-src-claude"] },
+        { kind: "receipt", kicker: "The receipt", headline: "The work, itemized.", body: "7 sessions · 87 commits · a signed v0.1 in 38 people's hands.", sourceRefs: ["orbit-src-git"] },
+        { kind: "close", kicker: "Only you can see this", headline: "Your private recap is ready.", body: "Come back anytime. Nothing is public unless you share a version.", sourceRefs: [] },
+      ],
+    },
     coverage: { sessionsSeen: 7, excerptsUsed: 9, evidenceBytes: 6842, windowStart: "2026-07-08T17:42:00.000Z", windowEnd: "2026-07-25T22:18:00.000Z" },
   },
 };
@@ -576,6 +595,21 @@ const vibeStoryPack: ReportStoryPackV3 = {
       { title: "From feature sprints to release-readiness finesse", summary: "The chapter shifted from core report construction to closing the last user-facing gaps before public release.", sourceRefs: ["vibe-src-codex-4", "vibe-src-git"], confidence: "high" },
       { title: "Privacy moved from afterthought to hard requirement", summary: "Licensing, scanner boundaries, retention, and public projection were reviewed as product behavior.", sourceRefs: ["vibe-src-codex-3", "vibe-src-claude-2"], confidence: "high" },
     ],
+    surpriseFacts: [
+      { title: "One session alone used 734 million tokens", summary: "That was 28 times the median session — a single verification block that dwarfed the rest of the week.", signalId: "vibe-tokens", sourceRefs: ["vibe-src-claude-1"], confidence: "high" },
+      { title: "Your longest session ran 38 hours 50 minutes", summary: "Privacy tracing, release preparation, and end-to-end verification happened in one extended block.", signalId: "vibe-longest", sourceRefs: ["vibe-src-claude-1"], confidence: "high" },
+      { title: "You averaged 1,799 changed lines per commit", summary: "78 commits moved 119,893 lines during a broad release-readiness sweep.", signalId: "vibe-lines", sourceRefs: ["vibe-src-git"], confidence: "medium" },
+    ],
+    recap: {
+      slides: [
+        { kind: "title", kicker: "Your build", headline: "Vibe-social", body: "Here's how this one went.", sourceRefs: [] },
+        { kind: "scale", kicker: "The shape of it", headline: "You ran 51 AI sessions on this one.", body: "Built across 7 days · 78 commits.", sourceRefs: ["vibe-src-git"] },
+        { kind: "signature", kicker: "The talk", headline: "One session used 734 million tokens.", body: "That was 28 times the median — a verification block that dwarfed the rest of the week.", signalId: "vibe-tokens", sourceRefs: ["vibe-src-claude-1"] },
+        { kind: "turning", kicker: "The night it clicked", headline: "Publish failed silently and hid the recovery path.", body: "You traced the handlers, moved privacy above the view boundary, and made the promise match the product.", sourceRefs: ["vibe-src-codex-1", "vibe-src-codex-3"] },
+        { kind: "receipt", kicker: "The receipt", headline: "The work, itemized.", body: "51 sessions · 78 commits · a privacy-first public story.", sourceRefs: ["vibe-src-git"] },
+        { kind: "close", kicker: "Only you can see this", headline: "Your private recap is ready.", body: "Come back anytime. Nothing is public unless you share a version.", sourceRefs: [] },
+      ],
+    },
     coverage: { sessionsSeen: 51, excerptsUsed: 240, evidenceBytes: 72877, windowStart: "2026-08-04T08:00:00.000Z", windowEnd: "2026-08-10T23:41:00.000Z" },
   },
 };
@@ -635,7 +669,7 @@ export const vibeSocialSnapshot: ProjectSnapshot = (() => {
       productInstinct: { value: 9, rawInputs: {}, formula: "weak completion-and-feedback proxy", caveat: "A weak proxy, not a personality measurement." },
     },
     archetype: { name: "Night Owl", rationale: ["Peak activity clustered around late evening sessions.", "Long release blocks combined debugging, verification, and privacy review."] },
-    workPatterns: { peakHours: [22, 15, 10], preferredDays: ["Sunday", "Monday"], medianSessionMinutes: 84, longestSessionMinutes: 2330, primaryModel: "claude-sonnet-5", timezoneLabel: "America/Vancouver" },
+    workPatterns: { peakHours: [22, 15, 10], preferredDays: ["Sunday", "Monday"], medianSessionMinutes: 84, longestSessionMinutes: 2330, primaryModel: "claude-sonnet-5", timezoneLabel: "America/Vancouver", nightShare: 41, morningShare: 12, weekendShare: 38, distinctToolCount: 58 },
   };
   snapshot.signals = vibeSignals;
   snapshot.narrative = {

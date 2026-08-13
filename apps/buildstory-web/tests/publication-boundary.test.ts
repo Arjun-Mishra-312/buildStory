@@ -14,8 +14,8 @@ import type { ReportStoryPackV3, Signal } from "../lib/ingestion/scanner-project
  * fields shared one gate: "Profile narrative" force-included all seven story-pack
  * sections regardless of their own checkboxes, "Growth edge" force-included "Story
  * growth edge", and the builder profile (archetype/scores/workPatterns) was
- * all-or-nothing. This test asserts every one of the 26 PublicFieldKeys is
- * independent: removing exactly one key changes only that key's own output.
+ * all-or-nothing. This test asserts every independent PublicFieldKey
+ * gate: removing exactly one key changes only that key's own output.
  */
 
 const ALL_FIELDS: PublicFieldKey[] = [
@@ -41,6 +41,7 @@ const ALL_FIELDS: PublicFieldKey[] = [
   "storyTraits",
   "storyGrowthEdge",
   "storySignals",
+  "storyRecap",
   "signalHeadline",
   "deepOpeningLine",
   "deepSignatureMoves",
@@ -70,6 +71,10 @@ const builderProfile: BuilderProfile = {
     longestSessionMinutes: 120,
     primaryModel: "gpt-5.4-codex",
     timezoneLabel: "UTC",
+    nightShare: 0,
+    morningShare: 55,
+    weekendShare: 0,
+    distinctToolCount: 6,
   },
 };
 
@@ -180,6 +185,7 @@ const accessors: Record<PublicFieldKey, (p: Public) => unknown> = {
   // selected, regardless of storySignals, since a published citation must
   // always resolve to a real signal. See the fixture comment above.
   storySignals: (p) => p.storyPack?.signals.find((signal) => signal.id === generalSignal.id) ?? null,
+  storyRecap: (p) => p.recapEnabled,
   signalHeadline: (p) => p.headlineFact,
   deepOpeningLine: (p) => p.storyPack?.version === "3.0.0" ? p.storyPack.deepAnalysis?.openingLine ?? null : null,
   deepSignatureMoves: (p) => p.storyPack?.version === "3.0.0" ? p.storyPack.deepAnalysis?.signatureMoves ?? [] : [],
@@ -224,6 +230,7 @@ const hiddenValue: Record<PublicFieldKey, unknown> = {
   storyTraits: [],
   storyGrowthEdge: "",
   storySignals: null,
+  storyRecap: false,
   signalHeadline: null,
   deepOpeningLine: { title: "", summary: "", sourceRefs: [], confidence: "low" },
   deepSignatureMoves: [],

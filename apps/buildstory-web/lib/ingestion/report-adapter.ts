@@ -4,6 +4,7 @@ import { PROJECT_SNAPSHOT_SCHEMA_VERSION } from "./scanner-project-snapshot";
 import { computeBuilderProfile } from "./profile";
 import { computeSignals } from "./signals";
 import { buildStoryPackSources } from "../narrative/story-pack";
+import { SCANNER_DEFAULT_DESCRIPTION, SCANNER_DEFAULT_TAGLINE } from "../report/public-brief";
 
 export type ReportOwner = {
   id: string;
@@ -75,9 +76,8 @@ export function reportSnapshotFromScanner(
       id: project.id,
       slug: project.slug,
       name: repositoryName,
-      tagline: `A private build report generated from ${snapshot.sessions.length} repository-scoped AI session${snapshot.sessions.length === 1 ? "" : "s"}.`,
-      description:
-        "Buildstory assembled this report from the validated, content-free metadata in the uploaded ProjectSnapshot. Review every field before publishing.",
+      tagline: SCANNER_DEFAULT_TAGLINE,
+      description: SCANNER_DEFAULT_DESCRIPTION,
       status: "building",
       visibility: "private",
       owner,
@@ -105,6 +105,9 @@ export function reportSnapshotFromScanner(
       endedAt: activityWindow.endedAt,
       activeDays: activeDays(snapshot),
       timezone: snapshot.timeWindow.timezone,
+      ...(snapshot.timeWindow.utcOffsetMinutes !== undefined
+        ? { utcOffsetMinutes: snapshot.timeWindow.utcOffsetMinutes }
+        : {}),
     },
     sessions: snapshot.sessions.map((session) => ({
       id: session.sessionRef,

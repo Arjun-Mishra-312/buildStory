@@ -105,6 +105,7 @@ export function buildStoryFromSnapshot(snapshot: ProjectSnapshot) {
     repository: snapshot.repository,
     dateRange: `${shortMonthDay.format(new Date(activityWindow.startedAt))} — ${shortMonthDay.format(new Date(activityWindow.endedAt))}, ${endedAtYear}`,
     activeDays: snapshot.timeWindow.activeDays,
+    utcOffsetMinutes: snapshot.timeWindow.utcOffsetMinutes ?? 0,
     sessionCount: snapshot.sessions.length,
     subagentCount,
     buildHours: Math.round((minutes / 60) * 10) / 10,
@@ -446,6 +447,7 @@ export function publicBuildStoryFromSnapshot(
     // on the page itself. signals is already notability-sorted, so [0] is
     // always the single most notable computed fact.
     headlineFact: selected.has("signalHeadline") ? story.signals[0]?.headline ?? null : null,
+    recapEnabled: selected.has("storyRecap"),
     decisionPatterns: selected.has("decisionPatterns")
       ? (story.narrative?.decisionPatterns ?? []).map(
           (line) => sanitizePublicText(line, NARRATIVE_FIELD_LIMITS.decisionPatternItem).value,

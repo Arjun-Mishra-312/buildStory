@@ -5,7 +5,7 @@ import { ProjectWorkbench } from "@/components/project-workbench";
 import { requireCreator } from "@/lib/auth/runtime";
 import { buildStoryFromSnapshot, publicBuildStoryFromSnapshot } from "@/lib/build-story";
 import { deriveNarrativeDisplayStatus } from "@/lib/ingestion/narrative-status";
-import { getProjectDetail, getProjectForVerification, getReport, listReportMedia, shouldUseDurableStore } from "@/lib/ingestion/store";
+import { getProjectDetail, getProjectForVerification, getReport, listReportMedia, shouldUseDurableStore, countPublicArchetypes } from "@/lib/ingestion/store";
 import { computeChapterDelta, publicChapterDelta } from "@/lib/story/chapter-delta";
 import { getProfile } from "@/lib/social/store";
 import { builderRoleLabel } from "@/lib/identity/builder-roles";
@@ -81,6 +81,7 @@ export default async function ImportedReportPage({ params }: PageProps) {
   const livePreviewDelta = previousChapterReport && previousChapter?.chapterIndex != null
     ? computeChapterDelta(previousChapterReport.snapshot, report.snapshot, previousChapter.chapterIndex, previousChapter.chapterIndex + 1)
     : null;
+  const archetypeCounts = await countPublicArchetypes().catch(() => ({ total: 0, byKey: {} }));
   return (
     <div className="creator-project-page">
       <div className="mock-boundary-banner mock-boundary-banner--project">
@@ -114,6 +115,7 @@ export default async function ImportedReportPage({ params }: PageProps) {
         narrative={report.narrative}
         narrativeStatus={narrativeStatus}
         reviewedEvidence={report.sourceSnapshot?.narrativeEvidence?.excerpts ?? []}
+        archetypeCounts={archetypeCounts}
       />
     </div>
   );

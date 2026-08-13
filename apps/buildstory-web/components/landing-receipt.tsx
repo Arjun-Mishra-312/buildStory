@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ModelName } from "@/components/model-mark";
 
 const modelMix = [
   ["claude-sonnet-5", "68%", "68%"],
@@ -37,7 +38,13 @@ export function LandingReceipt() {
           </section>
           <section className="landing-report-preview__mix">
             <span className="landing-report-preview__label">MODEL MIX BY REQUESTS</span>
-            {modelMix.map(([name, percentage, width]) => <div className="landing-report-preview__model" key={name}><span>{name}</span><i style={{ width }} /><strong>{percentage}</strong></div>)}
+            {modelMix.map(([name, percentage, width]) => (
+              <div className="landing-report-preview__model" key={name}>
+                <span><ModelName label={name} /></span>
+                <i style={{ width }} />
+                <strong>{percentage}</strong>
+              </div>
+            ))}
           </section>
         </div>
 

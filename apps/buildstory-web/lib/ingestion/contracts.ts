@@ -64,6 +64,8 @@ export const PUBLIC_FIELD_KEYS = [
   "storyGrowthEdge",
   /** Deterministic, computed facts (see lib/ingestion/signals.ts) - the one story-pack section that is never model-written. */
   "storySignals",
+  /** Recap overlay and save-cards on the public story. Private recap does not depend on this. */
+  "storyRecap",
   "deepOpeningLine",
   "deepSignatureMoves",
   "deepByTheNumbers",
@@ -96,6 +98,51 @@ export const PUBLIC_FIELD_KEYS = [
 ] as const;
 
 export type PublicFieldKey = (typeof PUBLIC_FIELD_KEYS)[number];
+
+/**
+ * Default public selection for a first chapter. Keep this in one place so the
+ * D1 and memory stores cannot drift — a memory-mode preview that hides recap
+ * while production shows it is a publication-boundary bug.
+ */
+export const DEFAULT_PUBLIC_FIELDS: PublicFieldKey[] = [
+  "tagline",
+  "description",
+  "timeWindow",
+  "sessionSummary",
+  "milestones",
+  "modelMix",
+  "costEstimate",
+  "gitAggregates",
+  "redactionSummary",
+  "archetype",
+  "profileScores",
+  "workPatterns",
+  "narrative",
+  "storyBuildArc",
+  "storyMoments",
+  "storyTurningPoint",
+  "storyDecisions",
+  "storyLearnings",
+  "storyTraits",
+  "standoutTraits",
+  "storySignals",
+  "signalHeadline",
+  "storyRecap",
+];
+
+/**
+ * Fields introduced after reports were already published. Unioned onto a
+ * carried-forward chapter selection and onto the one-shot UI port job so an
+ * older project is not stuck without recap/signals just because the creator
+ * customized the previous chapter before these keys existed.
+ */
+export const UI_PORT_PUBLIC_FIELDS = ["storySignals", "signalHeadline", "storyRecap"] as const satisfies readonly PublicFieldKey[];
+
+export function withUiPortPublicFields(fields: readonly PublicFieldKey[]): PublicFieldKey[] {
+  const selected = new Set<PublicFieldKey>(fields);
+  for (const field of UI_PORT_PUBLIC_FIELDS) selected.add(field);
+  return PUBLIC_FIELD_KEYS.filter((field) => selected.has(field));
+}
 
 export type BuilderProfileDimension = "planning" | "steering" | "execution" | "engineering" | "productInstinct";
 

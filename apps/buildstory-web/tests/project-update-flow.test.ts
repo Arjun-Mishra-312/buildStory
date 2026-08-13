@@ -118,7 +118,11 @@ test("project updates: publishing a second chapter requires the same repository,
 
   const report2 = await getReport(creatorId, reportId2);
   assert.equal(report2.projectId, projectId, "the update lands on the same project, not a new one");
-  assert.deepEqual(report2.selectedPublicFields, [...chosenFields], "field selection carries forward from the previous chapter's saved selection");
+  assert.deepEqual(
+    report2.selectedPublicFields,
+    ["tagline", "description", "modelMix", "gitAggregates", "storySignals", "storyRecap", "signalHeadline"],
+    "field selection carries forward, and newly introduced recap/signal keys are unioned so old projects are not stuck without them",
+  );
   assert.equal(report2.category, "developer-tools", "category carries forward from the previous chapter");
   assert.equal(report2.editorial.reflection, "Learned to trust the redaction pass.", "reflection carries forward from the previous chapter");
 

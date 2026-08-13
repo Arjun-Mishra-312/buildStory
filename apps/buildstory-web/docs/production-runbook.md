@@ -79,7 +79,16 @@ The scanner accepts a hosted ingestion destination only when explicitly pinned p
      `vars`. Never place secret values in `.env.production.example`, Git, command
      history, or CI output.
 3. Ensure `BUILDSTORY_STORE=d1`, `BUILDSTORY_DEV_AUTH_BYPASS=false`, and `BUILDSTORY_LOCAL_API_ENABLED=false` in `vars`.
-4. Apply forward-compatible migrations before routing traffic to code that needs them. This UI release adds no D1 migration: it only changes presentation. The production migration ledger was read-only verified on 2026-08-12 and contains `0000` through `0026`; the checked-in journal retains the two story-deck migrations that are already present remotely. Validate the set with `npm run migrate:d1:dry-run`. For a future SQL migration, invoke the custom runner directly as `npx tsx scripts/migrate-d1.ts --config=wrangler.deploy.jsonc` after reviewing the remote ledger; do not pass `--baseline` to the current production database. Keep the previous application version available until readiness and public-route smoke tests pass.
+4. Apply forward-compatible migrations before routing traffic to code that needs them. This UI release adds **no D1 schema migration** (`0000` through `0026` remain the ledger). Old reports store profile, signals, and the public projection in existing JSON columns; they do not need new tables. After the Worker is serving this release, run the one-shot UI port so published stories pick up recap, computed signals, and archetype facets:
+
+   ```powershell
+   $env:BUILDSTORY_PUBLIC_ORIGIN = "https://buildstory.dev"
+   $env:BUILDSTORY_CRON_SECRET = "<the existing cron secret>"
+   npm run port:report-ui --prefix apps/buildstory-web -- --dry-run
+   npm run port:report-ui --prefix apps/buildstory-web
+   ```
+
+   The job pages `POST /api/internal/reports/port-ui` (same `BUILDSTORY_CRON_SECRET` as leaderboard recompute). It recomputes builder profiles and signals from the retained scanner snapshot, unions `storySignals` / `signalHeadline` / `storyRecap` onto each report's public field list, and rebuilds `buildstory_public_story_index` plus archetype facets for currently published reports. Private recap already reconstructs at read time from signals; this job is what makes the public recap and rarity counts match. Drop `app/api/internal/reports/port-ui` after the production run. Validate the SQL ledger with `npm run migrate:d1:dry-run` as before; do not pass `--baseline` to the current production database. Keep the previous application version available until readiness and public-route smoke tests pass.
 5. Configure edge rate limits for Auth.js, creator mutation paths, and `/api/v1/cli/*` (now reachable in production). Do not add CORS allowances for CLI routes.
 6. Deploy only with explicit user/release approval. After deployment, verify health, readiness, Google callback, owner isolation, edit/publish, and a sanitized public projection.
 7. **First launch only — promote the operator to admin.** Every account is created with `role = 'member'`, and every self-service role route (`/studio/admin`, `PATCH /api/admin/users/[handle]/role`) requires an existing admin to call it - so without this step nobody can ever reach `/studio/moderation`, `/studio/admin`, or action a filed content report. Set the bootstrap secret, then call the bootstrap-only route once after the operator has signed in for the first time (so their `buildstory_users` row exists):

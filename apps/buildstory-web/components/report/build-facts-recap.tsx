@@ -1,4 +1,5 @@
 import type { Signal, StoryPackSignalFinding } from "@/lib/ingestion/scanner-project-snapshot";
+import { PUBLIC_FACTS_LIMIT } from "@/lib/report/public-brief";
 
 export function BuildFactsRecap({
   signals,
@@ -8,15 +9,16 @@ export function BuildFactsRecap({
   framing?: StoryPackSignalFinding[];
 }) {
   if (!signals.length) return null;
+  const visible = signals.slice(0, PUBLIC_FACTS_LIMIT);
   const framingBySignal = new Map(framing.map((finding) => [finding.signalId, finding]));
 
   return (
-    <div className="build-facts-recap" aria-label={`${signals.length} facts computed from the build`}>
-      {signals.map((signal, index) => {
+    <div className="build-facts-recap" aria-label={`${visible.length} facts computed from the build`}>
+      {visible.map((signal, index) => {
         const finding = framingBySignal.get(signal.id);
         return (
           <article
-            className={`build-facts-recap__item${index === 0 || index === signals.length - 1 ? " build-facts-recap__item--wide" : ""}`}
+            className={`build-facts-recap__item${index === 0 || index === visible.length - 1 ? " build-facts-recap__item--wide" : ""}`}
             data-family={signal.family}
             key={signal.id}
           >

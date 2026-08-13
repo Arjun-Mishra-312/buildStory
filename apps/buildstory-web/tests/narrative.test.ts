@@ -402,7 +402,7 @@ test("deep hosted generation composes validated analysis with a separate high-qu
     assert.equal(synthesisSchema?.properties?.moments?.maxItems, 12);
     assert.equal(synthesisSchema?.required?.includes("standoutTraits"), false, "pass 2 must not be required to write standoutTraits");
     assert.equal("deepAnalysis" in (synthesisSchema?.properties ?? {}), false, "the synthesis pass does not regenerate private analysis");
-    assert.match(requests[1]!.messages?.at(-1)?.content ?? "", /Do not write standoutTraits or deepAnalysis/);
+    assert.match(requests[1]!.messages?.map((message) => message.content).join("\n") ?? "", /Do not write standoutTraits or deepAnalysis/);
   } finally {
     stub.restore();
     process.env.BUILDSTORY_OPENROUTER_API_KEY = previousKey;
@@ -568,10 +568,16 @@ test("the OUTPUT CONTRACT block states the schema's own cardinality and length b
   assert.match(combined, /hero\.headline: 1-120 chars/);
   assert.match(combined, /buildArc must contain exactly one discover, one decide, and one deliver phase entry\./);
   assert.match(combined, /Every sourceRefs entry must be copied exactly.*SOURCE CATALOG/);
+  assert.match(combined, /recap\.slides: 4-12 items/);
+  assert.match(combined, /textScale: one of large\/medium/);
+  assert.match(combined, /layout: one of copy\/stat-grid\/ranked\/hour-bars\/weekday\/streak/);
+  assert.match(combined, /Write hero, buildArc, moments, turningPoint, decisions, learnings, standoutTraits, growthEdge, and recap/);
 
   const deepAnalysis = buildDeepAnalysisMessages(snapshot, []).map((message) => message.content).join("\n");
   assert.match(deepAnalysis, /signatureMoves: 0-6 items/);
   assert.match(deepAnalysis, /byTheNumbers: 1-8 items/);
+  assert.match(deepAnalysis, /surpriseFacts: 0-3 items/);
+  assert.match(deepAnalysis, /recap\.slides: 4-12 items/);
   assert.match(deepAnalysis, /openingLine\.confidence: one of high\/medium\/low/);
   // The cut, advice-shaped sections must never appear anywhere in a Deep
   // prompt - not the contract, not the system framing. (The word

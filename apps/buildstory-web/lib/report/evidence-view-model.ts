@@ -1,5 +1,6 @@
 import type { PublicBuildStoryViewModel } from "@/lib/build-story";
 import type { ReportStoryPack, Signal } from "@/lib/ingestion/scanner-project-snapshot";
+import { footnoteForMetric } from "./public-brief";
 
 export type ReportSurface = "private" | "preview" | "public";
 
@@ -8,6 +9,7 @@ export type EvidenceMetric = {
   label: string;
   value: string;
   tone: "coral" | "cobalt" | "ochre" | "sage" | "lilac" | "ink";
+  note?: string;
 };
 
 export type EvidenceDistributionRow = {
@@ -78,14 +80,19 @@ export function buildEvidenceViewModel(
   surface: ReportSurface,
   pack: ReportStoryPack | null = null,
 ): EvidenceViewModel {
+  const signals = pack?.signals ?? story.signals;
   const metrics: EvidenceMetric[] = [];
-  if (story.activeDays > 0) metrics.push({ id: "activeDays", label: "active days", value: story.activeDays.toLocaleString(), tone: "cobalt" });
-  if (story.sessionCount > 0) metrics.push({ id: "sessions", label: "AI sessions", value: story.sessionCount.toLocaleString(), tone: "coral" });
-  if (story.git.commits > 0) metrics.push({ id: "commits", label: "commits", value: story.git.commits.toLocaleString(), tone: "ochre" });
-  if (story.git.additions > 0) metrics.push({ id: "linesAdded", label: "lines added", value: story.git.additions.toLocaleString(), tone: "sage" });
-  if (story.models.length > 0) metrics.push({ id: "models", label: "models in mix", value: story.models.length.toLocaleString(), tone: "lilac" });
-  if (story.tokenUsage?.totalTokens) metrics.push({ id: "tokens", label: "tokens processed", value: compactNumber.format(story.tokenUsage.totalTokens), tone: "ink" });
-  if (story.cost?.totalMicroUsd != null) metrics.push({ id: "cost", label: "est. API-equivalent", value: usdFormat.format(story.cost.totalMicroUsd / 1_000_000), tone: "coral" });
+  const pushMetric = (metric: EvidenceMetric) => {
+    const note = footnoteForMetric(metric.id, signals);
+    metrics.push(note ? { ...metric, note } : metric);
+  };
+  if (story.activeDays > 0) pushMetric({ id: "activeDays", label: "active days", value: story.activeDays.toLocaleString(), tone: "cobalt" });
+  if (story.sessionCount > 0) pushMetric({ id: "sessions", label: "AI sessions", value: story.sessionCount.toLocaleString(), tone: "coral" });
+  if (story.git.commits > 0) pushMetric({ id: "commits", label: "commits", value: story.git.commits.toLocaleString(), tone: "ochre" });
+  if (story.git.additions > 0) pushMetric({ id: "linesAdded", label: "lines added", value: story.git.additions.toLocaleString(), tone: "sage" });
+  if (story.models.length > 0) pushMetric({ id: "models", label: "models in mix", value: story.models.length.toLocaleString(), tone: "lilac" });
+  if (story.tokenUsage?.totalTokens) pushMetric({ id: "tokens", label: "tokens processed", value: compactNumber.format(story.tokenUsage.totalTokens), tone: "ink" });
+  if (story.cost?.totalMicroUsd != null) pushMetric({ id: "cost", label: "est. API-equivalent", value: usdFormat.format(story.cost.totalMicroUsd / 1_000_000), tone: "coral" });
 
   const pricedModels = story.models.filter((model) => model.share != null);
   const useCostShare = pricedModels.length > 0 && pricedModels.length === story.models.length;
@@ -122,6 +129,6 @@ export function buildEvidenceViewModel(
       occurredAt: source.occurredAt,
       evidenceCount: source.evidenceRefs.length,
     })),
-    signals: pack?.signals ?? story.signals,
+    signals,
   };
 }

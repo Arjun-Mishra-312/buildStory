@@ -345,7 +345,7 @@ export function adaptiveReportPolicy(snapshot: ScannerProjectSnapshot, tier: Ana
   const complexityBand = score <= 25 ? "compact" : score <= 55 ? "standard" : "complex";
   const deep = tier === "deep";
   const maxExcerpts = deep
-    ? complexityBand === "compact" ? 100 : complexityBand === "standard" ? 180 : 240
+    ? Math.min(240, complexityBand === "compact" ? 160 : complexityBand === "standard" ? 280 : 400)
     : complexityBand === "compact" ? 40 : complexityBand === "standard" ? 60 : 80;
   return {
     complexityScore: score,

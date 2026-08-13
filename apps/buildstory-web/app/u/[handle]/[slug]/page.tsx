@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ProjectWorkbench } from "@/components/project-workbench";
-import { getPublicProjectVerification, getPublishedStory, listPublishedChapters } from "@/lib/ingestion/store";
+import { getPublicProjectVerification, getPublishedStory, listPublishedChapters, countPublicArchetypes } from "@/lib/ingestion/store";
 import { getProfileByHandle } from "@/lib/social/store";
 import { builderRoleLabel } from "@/lib/identity/builder-roles";
 
@@ -46,6 +46,7 @@ export default async function PublishedStoryPage({ params }: PageProps) {
   const currentChapterIndex = chapters.at(-1)?.chapterIndex ?? 1;
   const verifiedRepoAt = await getPublicProjectVerification(handle, slug).catch(() => null);
   const profile = await getProfileByHandle(handle).catch(() => null);
+  const archetypeCounts = await countPublicArchetypes().catch(() => ({ total: 0, byKey: {} }));
   return (
     <ProjectWorkbench
       story={story}
@@ -54,6 +55,7 @@ export default async function PublishedStoryPage({ params }: PageProps) {
       currentChapterIndex={currentChapterIndex}
       initialVerifiedRepoAt={verifiedRepoAt}
       ownerRoleOverride={profile?.builderRole ? builderRoleLabel(profile.builderRole) : null}
+      archetypeCounts={archetypeCounts}
     />
   );
 }

@@ -149,12 +149,34 @@ export type ReportStoryPackV2 = {
    */
   growthEdge: { title: string; observation: string; nextStep?: string; sourceRefs: string[] };
   /**
+   * Optional Wrapped-style recap. Standard, local, and Deep generation may
+   * write this; the private report always reconstructs a fallback from
+   * signals when it is absent. Pro unlocks analysis depth, not exclusive
+   * recap features.
+   */
+  recap?: StoryPackRecap;
+  /**
    * Deterministic, ranked facts computed straight from the scanner snapshot -
    * present on every tier and every narrative mode, including "off". See
    * lib/ingestion/signals.ts. The LLM-written `byTheNumbers` findings below
    * cite these by `signalId`; they never restate a number outside this list.
    */
   signals: Signal[];
+};
+
+export type StoryPackRecapTextScale = "large" | "medium";
+export type StoryPackRecapLayout = "copy" | "stat-grid" | "ranked" | "hour-bars" | "weekday" | "streak";
+export type StoryPackRecap = {
+  slides: Array<{
+    kind: "title" | "scale" | "signature" | "turning" | "receipt" | "close";
+    kicker: string;
+    headline: string;
+    body?: string;
+    textScale?: StoryPackRecapTextScale;
+    layout?: StoryPackRecapLayout;
+    signalId?: string;
+    sourceRefs: string[];
+  }>;
 };
 
 export type StoryPackConfidence = "high" | "medium" | "low";
@@ -184,6 +206,10 @@ export type ReportStoryPackV3 = Omit<ReportStoryPackV2, "version"> & {
     /** Friction as narrative, not audit findings. Replaces `frictionAndRecovery`. */
     whereItGotHard: StoryPackFinding[];
     chapterChanges: StoryPackFinding[];
+    /** Optional recap; same shape as pack-level `recap`. Kept so older Deep packs still typecheck. */
+    recap?: StoryPackRecap;
+    /** Up to three surprising true facts, each bound to a computed signal. */
+    surpriseFacts?: StoryPackSignalFinding[];
     coverage: {
       sessionsSeen: number;
       excerptsUsed: number;

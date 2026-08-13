@@ -311,6 +311,14 @@ export async function explorePublishedStories(query: ExploreQuery = {}) {
   return (await backend()).explorePublishedStories(query);
 }
 
+export async function countPublicArchetypes() {
+  return (await backend()).countPublicArchetypes();
+}
+
+export async function portReportUi(cursor = "", limit = 5, dryRun = false, reportId?: string) {
+  return (await backend()).portReportUi(cursor, limit, dryRun, reportId);
+}
+
 export function statusLabel(status: UploadSessionStatus) {
   return status.replaceAll("_", " ");
 }

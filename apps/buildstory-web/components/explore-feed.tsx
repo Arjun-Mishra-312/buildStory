@@ -8,6 +8,7 @@ import { STORY_CATEGORIES, type StoryCategory } from "@/lib/ingestion/contracts"
 import { initialsFrom } from "@/lib/identity/initials";
 import { StoryVisual } from "@/components/story-visual";
 import { categoryLabel, formatBuildTime, statusClass } from "@/lib/story/display-labels";
+import { ModelName } from "@/components/model-mark";
 
 export type ExploreStory = PublicBuildStoryViewModel & { publishedAt: string | null; reportId?: string };
 type SortMode = "newest" | "trending";
@@ -19,11 +20,11 @@ type Facets = {
 };
 
 function StoryStats({ story }: { story: ExploreStory }) {
-  const model = story.models[0]?.label ?? "Not shared";
+  const model = story.models[0];
   return (
     <div className="explore-story-stats" aria-label="Build statistics">
       <span><small>Build time</small><strong>{formatBuildTime(story.buildHours)}</strong></span>
-      <span><small>Primary model</small><strong>{model}</strong></span>
+      <span><small>Primary model</small><strong>{model ? <ModelName id={model.id} label={model.label} provider={model.provider} /> : "Not shared"}</strong></span>
       <span><small>Active</small><strong>{story.activeDays}d</strong></span>
       <span><small>Sessions</small><strong>{story.sessionCount}</strong></span>
       <span><small>Commits</small><strong>{story.git.commits}</strong></span>
@@ -172,7 +173,7 @@ export function ExploreFeed({
           <div className="explore-facet-rail__head"><strong>Refine</strong><button ref={filterCloseRef} type="button" className="explore-facet-close" onClick={closeDrawer}>Close</button></div>
           <fieldset><legend>Category</legend><label className="facet-option"><input type="radio" name="category" checked={!category} onChange={() => setCategory("")} /><span>All projects</span><em>{resultTotal}</em></label>{STORY_CATEGORIES.map((value: StoryCategory) => { const item = facets.categories.find((facet) => facet.value === value); return <label className="facet-option" key={value}><input type="radio" name="category" checked={category === value} onChange={() => setCategory(value)} /><span>{categoryLabel(value)}</span><em>{item?.count ?? 0}</em></label>; })}</fieldset>
           <fieldset><legend>Tools & stack</legend>{facets.tools.slice(0, 8).map((item) => <label className="facet-option" key={item.value}><input type="checkbox" checked={tools.includes(item.value.toLocaleLowerCase())} onChange={() => toggle(tools, item.value.toLocaleLowerCase(), setTools)} /><span>{item.label}</span><em>{item.count}</em></label>)}</fieldset>
-          <fieldset><legend>Models</legend>{facets.models.length ? facets.models.slice(0, 6).map((item) => <label className="facet-option" key={item.value}><input type="checkbox" checked={models.includes(item.value.toLocaleLowerCase())} onChange={() => toggle(models, item.value.toLocaleLowerCase(), setModels)} /><span>{item.label}</span><em>{item.requestShare}%</em></label>) : <p className="facet-empty">No public model data yet.</p>}</fieldset>
+          <fieldset><legend>Models</legend>{facets.models.length ? facets.models.slice(0, 6).map((item) => <label className="facet-option" key={item.value}><input type="checkbox" checked={models.includes(item.value.toLocaleLowerCase())} onChange={() => toggle(models, item.value.toLocaleLowerCase(), setModels)} /><span><ModelName id={item.value} label={item.label} /></span><em>{item.requestShare}%</em></label>) : <p className="facet-empty">No public model data yet.</p>}</fieldset>
           <label className="facet-option facet-option--demo"><input type="checkbox" checked={hasDemo} onChange={(event) => setHasDemo(event.target.checked)} /><span>Has live demo</span><em>{facets.liveDemoCount}</em></label>
           {activeCount ? <button type="button" className="button button--text" onClick={clear}>Clear all filters</button> : null}
         </aside>

@@ -7,6 +7,8 @@ import { ReportSection } from "./report-section";
 import type { ReportInsightsViewModel } from "@/lib/report/report-insights-view-model";
 import { ReportInsightStory } from "@/components/report/report-insight-story";
 import { BuildFactsRecap } from "@/components/report/build-facts-recap";
+import { StoryInsightIndex, type StoryInsightItem } from "@/components/report/story-insight-index";
+import { ProviderMark } from "@/components/model-mark";
 
 const sourceDateFormat = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", timeZone: "UTC" });
 
@@ -20,11 +22,17 @@ function providerName(provider: string): string {
 
 function StorySourceBadge({ source, privateView, onOpen }: { source: ReportStoryPack["sources"][number]; privateView: boolean; onOpen: (ref: string) => void }) {
   const label = `${providerName(source.provider)} · ${sourceDateFormat.format(new Date(source.occurredAt))}`;
+  const inner = (
+    <>
+      <ProviderMark provider={source.provider} />
+      {label}
+    </>
+  );
   return privateView ? (
     <button className="story-pack__source" type="button" onClick={() => onOpen(source.ref)} title="Open evidence metadata">
-      {label} · {source.evidenceRefs.length} evidence
+      {inner} · {source.evidenceRefs.length} evidence
     </button>
-  ) : <span className="story-pack__source">{label}</span>;
+  ) : <span className="story-pack__source">{inner}</span>;
 }
 
 /** Private reports get collapsible narrative chrome; public stories keep the editorial layout unchanged. */
@@ -156,6 +164,45 @@ export function StoryPackView({
       || standoutTraits.length
       || pack.growthEdge.title,
   );
+  const publicInsightItems: StoryInsightItem[] = [
+    ...pack.learnings.map((item, index) => ({ id: `learning-${index}`, group: "Learnings", title: item.title, body: item.detail })),
+    ...standoutTraits.map((item, index) => ({ id: `trait-${index}`, group: "Standout traits", title: item.title, body: item.detail })),
+    ...(pack.growthEdge.title ? [{ id: "growth-edge", group: "Growth edge", title: pack.growthEdge.title, body: pack.growthEdge.observation }] : []),
+    ...(deep?.signatureMoves ?? []).map((item, index) => ({ id: `signature-${index}`, group: "Signature moves", title: item.title, body: item.summary })),
+    ...(deep?.whereItGotHard ?? []).map((item, index) => ({ id: `hard-${index}`, group: "Where it got hard", title: item.title, body: item.summary })),
+    ...(deep?.chapterChanges ?? []).map((item, index) => ({ id: `changed-${index}`, group: "What changed", title: item.title, body: item.summary })),
+  ];
+  const insightStory = insights ? (
+    <ReportInsightStory
+      model={insights}
+      reviewedEvidence={reviewedEvidence}
+      controls={privateView ? {
+        journey: {
+          hidden: sectionIsHidden("narrativeArc") && sectionIsHidden("narrativeMoments"),
+          open: !sectionIsHidden("narrativeArc") ? sectionIsOpen("narrativeArc", true) : sectionIsOpen("narrativeMoments", true),
+          onOpenChange: !sectionIsHidden("narrativeArc") ? setSectionOpen("narrativeArc") : setSectionOpen("narrativeMoments"),
+        },
+        dossier: {
+          hidden: sectionIsHidden("narrativeInsights"),
+        },
+      } : undefined}
+    />
+  ) : null;
+  const factsRecap = pack.signals.length > 0 && !sectionIsHidden("narrativeSignals") ? (
+    <NarrativeSection
+      privateView={privateView}
+      id="narrativeSignals"
+      label="BY THE NUMBERS"
+      meta="Cool facts computed straight from the build"
+      open={sectionIsOpen("narrativeSignals", true)}
+      onOpenChange={setSectionOpen("narrativeSignals")}
+      style={sectionStyle("narrativeSignals", 2)}
+      legacyClassName="story-pack__facts-recap"
+      legacyAriaLabel="By the numbers"
+    >
+      <BuildFactsRecap signals={pack.signals} framing={deep?.byTheNumbers} />
+    </NarrativeSection>
+  ) : null;
 
   return (
     <div className={`story-pack ${privateView ? "story-pack--private" : "story-pack--public"}`}>
@@ -167,51 +214,24 @@ export function StoryPackView({
         <span>SOURCE COVERAGE</span>
         <div>{sourceCoverage.length ? sourceCoverage.map(([provider, count]) => <span key={provider}>{providerName(provider)} · {count} source{count === 1 ? "" : "s"}</span>) : <span>No provider sessions matched this report.</span>}</div>
       </section> : null}
+      {privateView ? (
       <section className="story-pack__hero">
-        <span className="story-section__label">AI-WRITTEN BUILD STORY</span>
+        <span className="story-section__label">HERE'S HOW THIS ONE WENT</span>
         <h2>{pack.hero.headline}</h2>
         <p>{pack.hero.summary}</p>
       </section>
+      ) : null}
 
       <div className="story-pack__sections">
 
-      {insights ? <ReportInsightStory
-        model={insights}
-        reviewedEvidence={reviewedEvidence}
-        controls={privateView ? {
-          journey: {
-            hidden: sectionIsHidden("narrativeArc") && sectionIsHidden("narrativeMoments"),
-            open: !sectionIsHidden("narrativeArc") ? sectionIsOpen("narrativeArc", true) : sectionIsOpen("narrativeMoments", true),
-            onOpenChange: !sectionIsHidden("narrativeArc") ? setSectionOpen("narrativeArc") : setSectionOpen("narrativeMoments"),
-          },
-          dossier: {
-            hidden: sectionIsHidden("narrativeInsights"),
-          },
-        } : undefined}
-      /> : null}
-
-      {pack.signals.length > 0 && !sectionIsHidden("narrativeSignals") ? (
-        <NarrativeSection
-          privateView={privateView}
-          id="narrativeSignals"
-          label="BY THE NUMBERS"
-          meta="Cool facts computed straight from the build"
-          open={sectionIsOpen("narrativeSignals", true)}
-          onOpenChange={setSectionOpen("narrativeSignals")}
-          style={sectionStyle("narrativeSignals", 2)}
-          legacyClassName="story-pack__facts-recap"
-          legacyAriaLabel="By the numbers"
-        >
-          <BuildFactsRecap signals={pack.signals} framing={deep?.byTheNumbers} />
-        </NarrativeSection>
-      ) : null}
+      {privateView ? <>{insightStory}{factsRecap}</> : <>{factsRecap}{insightStory}{publicInsightItems.length ? <StoryInsightIndex items={publicInsightItems} /> : null}</>}
 
       {!insights && pack.buildArc.length && !sectionIsHidden("narrativeArc") ? (
         <NarrativeSection
           privateView={privateView}
           id="narrativeArc"
-          label="BUILD ARC"
-          meta={privateView ? "Evidence-linked phases" : "How the build moved"}
+          label="HOW IT MOVED"
+          meta="Discover · decide · deliver"
           open={sectionIsOpen("narrativeArc", true)}
           onOpenChange={setSectionOpen("narrativeArc")}
           style={sectionStyle("narrativeArc", 0)}
@@ -229,14 +249,14 @@ export function StoryPackView({
                 <small>{phase.phase.toUpperCase()}</small>
                 <h3>{phase.headline}</h3>
                 <p>{phase.summary}</p>
-                <div className="story-pack__sources">{phase.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div>
+                {privateView ? <div className="story-pack__sources">{phase.sourceRefs.map((ref) => { const source = sourceByRef.get(ref); return source ? <StorySourceBadge key={ref} source={source} privateView={privateView} onOpen={openEvidence} /> : null; })}</div> : null}
               </article>
             ))}
           </div>
         </NarrativeSection>
       ) : null}
 
-      {!insights && moments.length && !sectionIsHidden("narrativeMoments") ? (
+      {!insights && moments.length && privateView && !sectionIsHidden("narrativeMoments") ? (
         <NarrativeSection
           privateView={privateView}
           id="narrativeMoments"
@@ -268,11 +288,11 @@ export function StoryPackView({
         </NarrativeSection>
       ) : null}
 
-      {hasInsightCards && !sectionIsHidden("narrativeInsights") ? (
+      {hasInsightCards && privateView && !sectionIsHidden("narrativeInsights") ? (
         <div className="story-pack__insight-grid" style={sectionStyle("narrativeInsights", 2)}>{insightCards}</div>
       ) : null}
 
-      {deep && !sectionIsHidden("narrativeInsights") ? (
+      {deep && privateView && !sectionIsHidden("narrativeInsights") ? (
         <NarrativeSection
           privateView={privateView}
           id="narrativeInsights"

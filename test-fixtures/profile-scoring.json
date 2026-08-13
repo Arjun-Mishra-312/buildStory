@@ -77,14 +77,18 @@
       "engineering": 25,
       "productInstinct": 33
     },
-    "archetype": "Velocity Machine",
+    "archetype": "Shipping Machine",
     "workPatterns": {
       "peakHours": [15, 21],
       "preferredDays": ["Monday"],
       "medianSessionMinutes": 75,
       "longestSessionMinutes": 90,
       "primaryModel": "codex:gpt-fixture",
-      "timezoneLabel": "UTC-07:00"
+      "timezoneLabel": "UTC-07:00",
+      "nightShare": 0,
+      "morningShare": 0,
+      "weekendShare": 0,
+      "distinctToolCount": 4
     }
   }
 }

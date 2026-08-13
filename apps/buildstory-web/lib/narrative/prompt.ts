@@ -57,7 +57,7 @@ function factsBlock(snapshot: ScannerProjectSnapshot): string {
     `Models used: ${models}`,
     `Archetype: ${profile.archetype.name} (${profile.archetype.rationale.join(" ")})`,
     `Profile scores: ${scoreLine}`,
-    `Work patterns: peak hours ${profile.workPatterns.peakHours.join(", ") || "none"}; preferred days ${profile.workPatterns.preferredDays.join(", ") || "none"}; median session ${profile.workPatterns.medianSessionMinutes} minutes; longest session ${profile.workPatterns.longestSessionMinutes} minutes; primary model ${profile.workPatterns.primaryModel ?? "none"}; timezone ${profile.workPatterns.timezoneLabel}`,
+    `Work patterns: peak hours ${profile.workPatterns.peakHours.join(", ") || "none"}; preferred days ${profile.workPatterns.preferredDays.join(", ") || "none"}; night share ${profile.workPatterns.nightShare}%; morning share ${profile.workPatterns.morningShare}%; weekend share ${profile.workPatterns.weekendShare}%; distinct tools ${profile.workPatterns.distinctToolCount}; median session ${profile.workPatterns.medianSessionMinutes} minutes; longest session ${profile.workPatterns.longestSessionMinutes} minutes; primary model ${profile.workPatterns.primaryModel ?? "none"}; timezone ${profile.workPatterns.timezoneLabel}`,
     tokenLine,
   ].join("\n");
 }
@@ -95,29 +95,13 @@ function excerptsBlock(snapshot: ScannerProjectSnapshot): string {
 }
 
 /**
- * Full COMPUTED SIGNALS block with ids - used only by the Deep analysis
- * pass, whose byTheNumbers findings must cite an exact signalId (enforced by
- * validateStoryPackComponent, the same way sourceRefs provenance is
- * enforced). Every number in this block was computed in code, not written by
- * a model - see lib/ingestion/signals.ts.
+ * Full COMPUTED SIGNALS block with ids. Recap slides (every tier) and Deep
+ * byTheNumbers findings must cite an exact signalId. Every number in this
+ * block was computed in code, not written by a model - see lib/ingestion/signals.ts.
  */
 function signalsBlock(signals: Signal[]): string {
   if (signals.length === 0) return "COMPUTED SIGNALS:\nNone computed for this build window.";
   return ["COMPUTED SIGNALS:", ...signals.map((signal) => `- ${signal.id}: ${signal.headline} (${signal.detail})`)].join("\n");
-}
-
-/**
- * Short, id-free version folded into the Standard/combined prompt as extra
- * grounding color: the model may draw on these headlines the same way it
- * draws on any other FACTS line (they were given to it verbatim, so citing
- * one is never "inventing a number"), but Standard's schema has no signalId
- * field to validate a citation against, so it never asks the model to
- * attribute a finding to one by id the way Deep's byTheNumbers does.
- */
-function notablePatternsBlock(signals: Signal[]): string {
-  if (signals.length === 0) return "";
-  const top = signals.slice(0, 5).map((signal) => `- ${signal.headline}`);
-  return `\n\nNOTABLE PATTERNS (already verified true; draw on these for color if natural, but invent no additional statistics):\n${top.join("\n")}`;
 }
 
 function sourceCatalogBlock(snapshot: ScannerProjectSnapshot): string {
@@ -176,7 +160,9 @@ function outputContractBlock(schema: SchemaLike, extraRules: string[]): string {
 
 const BUILD_ARC_CARDINALITY_RULE = "buildArc must contain exactly one discover, one decide, and one deliver phase entry.";
 const SOURCE_REF_PROVENANCE_RULE = "Every sourceRefs entry must be copied exactly, character for character, from a ref in SOURCE CATALOG. Never invent one.";
-const SIGNAL_ID_PROVENANCE_RULE = "Every byTheNumbers.signalId must be copied exactly, character for character, from an id in COMPUTED SIGNALS. Never invent a signalId or a statistic that isn't backed by one.";
+const RECAP_SIGNAL_ID_RULE = "Every recap.slides[].signalId must be copied exactly, character for character, from an id in COMPUTED SIGNALS. Never invent a signalId or a statistic that isn't backed by one.";
+const SIGNAL_ID_PROVENANCE_RULE = `Every byTheNumbers.signalId and surpriseFacts.signalId must be copied exactly, character for character, from an id in COMPUTED SIGNALS. Never invent a signalId or a statistic that isn't backed by one. ${RECAP_SIGNAL_ID_RULE}`;
+const RECAP_STORY_RULE = "recap is a watchable 9:16 story for every analysis tier, including Standard and local models — Pro unlocks depth, not exclusive recap features. Write 4-12 slides (kinds title/scale/signature/turning/receipt/close). Prefer 6+ when the evidence supports it; a thin 4-slide recap is valid and Buildstory will pad computed widget slides. textScale is large or medium only. layout is optional and must be one of copy, stat-grid, ranked, hour-bars, weekday, streak — pick a layout to request a presentation; never invent bar lengths, ranks, streak days, or other widget numbers (the UI fills those from computed scan facts). For each wow fact, write TWO signature slides in a row that share the same signalId: (1) a setup with NO number; (2) a reveal that cites that signalId so the UI can slam the number. Receipt slides should be almost empty. Numbered signature slides must cite a real signalId. Scale and stat-grid slides do not need a signalId."
 const NO_RESTATEMENT_RULES: string[] = [
   "standoutTraits must not restate any signatureMoves entry.",
   "moments must not restate any whereItGotHard entry - choose delivery or discovery moments instead.",
@@ -205,26 +191,26 @@ export function buildProfileMessages(snapshot: ScannerProjectSnapshot): Array<{ 
 }
 
 export function buildCombinedMessages(snapshot: ScannerProjectSnapshot, signals: Signal[] = []): Array<{ role: "system" | "user"; content: string }> {
-  const contract = outputContractBlock(STORY_PACK_OUTPUT_SCHEMA as unknown as SchemaLike, [BUILD_ARC_CARDINALITY_RULE, SOURCE_REF_PROVENANCE_RULE]);
+  const contract = outputContractBlock(STORY_PACK_OUTPUT_SCHEMA as unknown as SchemaLike, [BUILD_ARC_CARDINALITY_RULE, SOURCE_REF_PROVENANCE_RULE, RECAP_SIGNAL_ID_RULE, RECAP_STORY_RULE]);
   return [
     { role: "system", content: SYSTEM_PROMPT },
     {
       role: "user",
-      content: `FACTS:\n${factsBlock(snapshot)}${notablePatternsBlock(signals)}\n\nSOURCE CATALOG:\n${sourceCatalogBlock(snapshot)}\n\n${contract}\n\nEXCERPTS:\n${excerptsBlock(snapshot)}\n\nWrite hero, buildArc, moments, turningPoint, decisions, learnings, standoutTraits, and growthEdge as one JSON object matching the schema.`,
+      content: `FACTS:\n${factsBlock(snapshot)}\n\nSOURCE CATALOG:\n${sourceCatalogBlock(snapshot)}\n\n${signalsBlock(signals)}\n\n${contract}\n\nEXCERPTS:\n${excerptsBlock(snapshot)}\n\nWrite hero, buildArc, moments, turningPoint, decisions, learnings, standoutTraits, growthEdge, and recap as one JSON object matching the schema.`,
     },
   ];
 }
 
 export function buildDeepAnalysisMessages(snapshot: ScannerProjectSnapshot, signals: Signal[] = [], previousChapter: unknown = null): Array<{ role: "system" | "user"; content: string }> {
-  const contract = outputContractBlock(STORY_PACK_DEEP_ANALYSIS_SCHEMA as unknown as SchemaLike, [SOURCE_REF_PROVENANCE_RULE, SIGNAL_ID_PROVENANCE_RULE]);
+  const contract = outputContractBlock(STORY_PACK_DEEP_ANALYSIS_SCHEMA as unknown as SchemaLike, [SOURCE_REF_PROVENANCE_RULE, SIGNAL_ID_PROVENANCE_RULE, RECAP_STORY_RULE]);
   return [
     {
       role: "system",
-      content: `${SYSTEM_PROMPT}\nPerform a thorough read of how this build actually went. Prefer an empty list or low confidence over an unsupported claim. Focus on: the one-line hook (openingLine), this builder's distinctive patterns (signatureMoves), framing the most notable COMPUTED SIGNALS into shareable findings (byTheNumbers), where the build genuinely got hard (whereItGotHard), and what changed since the previous chapter (chapterChanges). Each list answers a different question; do not restate the same event across signatureMoves, whereItGotHard, and byTheNumbers. Every byTheNumbers entry must cite a real signalId - it frames a signal that was already computed, never a number you calculate or estimate yourself.`,
+      content: `${SYSTEM_PROMPT}\nPerform a thorough read of how this build actually went. Write in second person ("you") about this builder's own work. Prefer an empty list or low confidence over an unsupported claim. Focus on: the one-line hook (openingLine), this builder's distinctive patterns (signatureMoves), framing the most notable COMPUTED SIGNALS into shareable findings (byTheNumbers), where the build genuinely got hard (whereItGotHard), what changed since the previous chapter (chapterChanges), three surprising true facts a builder would screenshot for themselves (surpriseFacts, each bound to a real signalId), and a short recap script (recap.slides) they would watch once when the report is ready. ${RECAP_STORY_RULE} Each list answers a different question; do not restate the same event across signatureMoves, whereItGotHard, surpriseFacts, and byTheNumbers. Every byTheNumbers and surpriseFacts entry must cite a real signalId - it frames a signal that was already computed, never a number you calculate or estimate yourself.`,
     },
     {
       role: "user",
-      content: `FACTS:\n${factsBlock(snapshot)}\n\nSOURCE CATALOG:\n${sourceCatalogBlock(snapshot)}\n\n${signalsBlock(signals)}\n\n${contract}\n\nEXCERPTS:\n${excerptsBlock(snapshot)}\n\nPREVIOUS CHAPTER (final retained report only; may be null):\n${JSON.stringify(previousChapter)}\n\nReturn the deepAnalysis JSON object only. Every finding must use only source references from SOURCE CATALOG, and every byTheNumbers entry must cite a signalId from COMPUTED SIGNALS.`,
+      content: `FACTS:\n${factsBlock(snapshot)}\n\nSOURCE CATALOG:\n${sourceCatalogBlock(snapshot)}\n\n${signalsBlock(signals)}\n\n${contract}\n\nEXCERPTS:\n${excerptsBlock(snapshot)}\n\nPREVIOUS CHAPTER (final retained report only; may be null):\n${JSON.stringify(previousChapter)}\n\nReturn the deepAnalysis JSON object only. Every finding must use only source references from SOURCE CATALOG, and every byTheNumbers, surpriseFacts, and numbered recap slide must cite a signalId from COMPUTED SIGNALS.`,
     },
   ];
 }

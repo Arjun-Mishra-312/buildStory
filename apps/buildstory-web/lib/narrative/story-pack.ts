@@ -7,6 +7,7 @@ import type {
   StoryPackConfidence,
   StoryPackFinding,
   StoryPackPhase,
+  StoryPackRecap,
   StoryPackSource,
 } from "../ingestion/scanner-project-snapshot";
 import { computeBuilderProfile } from "../ingestion/profile";
@@ -40,6 +41,29 @@ export const STORY_PACK_OUTPUT_SCHEMA = {
     // Deep's nextBuildActions for the same reason) and is no longer part of
     // what the model is asked to write.
     growthEdge: { type: "object", additionalProperties: false, required: ["title", "observation", "sourceRefs"], properties: { title: { type: "string", minLength: 1, maxLength: 120 }, observation: { type: "string", minLength: 1, maxLength: 400 }, sourceRefs: { type: "array", minItems: 1, maxItems: 4, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 40 } } } },
+    recap: {
+      type: "object", additionalProperties: false,
+      required: ["slides"],
+      properties: {
+        slides: {
+          type: "array", minItems: 4, maxItems: 12,
+          items: {
+            type: "object", additionalProperties: false,
+            required: ["kind", "kicker", "headline", "sourceRefs"],
+            properties: {
+              kind: { type: "string", enum: ["title", "scale", "signature", "turning", "receipt", "close"] },
+              kicker: { type: "string", minLength: 1, maxLength: 80 },
+              headline: { type: "string", minLength: 1, maxLength: 160 },
+              body: { type: "string", maxLength: 400 },
+              textScale: { type: "string", enum: ["large", "medium"] },
+              layout: { type: "string", enum: ["copy", "stat-grid", "ranked", "hour-bars", "weekday", "streak"] },
+              signalId: { type: "string", minLength: 1, maxLength: 60 },
+              sourceRefs: { type: "array", minItems: 0, maxItems: 4, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 40 } },
+            },
+          },
+        },
+      },
+    },
   },
 } as const;
 
@@ -75,6 +99,8 @@ export const STORY_PACK_DEEP_ANALYSIS_SCHEMA = {
     byTheNumbers: { type: "array", minItems: 1, maxItems: 8, items: STORY_PACK_SIGNAL_FINDING_SCHEMA },
     whereItGotHard: { type: "array", maxItems: 6, items: STORY_PACK_FINDING_SCHEMA },
     chapterChanges: { type: "array", maxItems: 5, items: STORY_PACK_FINDING_SCHEMA },
+    surpriseFacts: { type: "array", maxItems: 3, items: STORY_PACK_SIGNAL_FINDING_SCHEMA },
+    recap: STORY_PACK_OUTPUT_SCHEMA.properties.recap,
   },
 } as const;
 
@@ -101,6 +127,7 @@ export const STORY_PACK_STORY_SCHEMA = {
     buildArc: STORY_PACK_OUTPUT_SCHEMA.properties.buildArc,
     moments: STORY_PACK_OUTPUT_SCHEMA.properties.moments,
     turningPoint: STORY_PACK_OUTPUT_SCHEMA.properties.turningPoint,
+    recap: STORY_PACK_OUTPUT_SCHEMA.properties.recap,
   },
 } as const;
 
@@ -304,6 +331,45 @@ function validateDeepComponent(value: Record<string, unknown>, allowed: Set<stri
   const byTheNumbers = deep.byTheNumbers;
   errors.push(...listError(byTheNumbers, "deepAnalysis.byTheNumbers", 1, 8));
   if (Array.isArray(byTheNumbers)) byTheNumbers.forEach((entry, index) => errors.push(...validateSignalFinding(entry, `deepAnalysis.byTheNumbers[${index}]`, allowed, allowedSignalIds, warnings)));
+  const surpriseFacts = deep.surpriseFacts;
+  if (surpriseFacts !== undefined) {
+    errors.push(...listError(surpriseFacts, "deepAnalysis.surpriseFacts", 0, 3));
+    if (Array.isArray(surpriseFacts)) surpriseFacts.forEach((entry, index) => errors.push(...validateSignalFinding(entry, `deepAnalysis.surpriseFacts[${index}]`, allowed, allowedSignalIds, warnings)));
+  }
+  if (deep.recap !== undefined) errors.push(...validateRecap(deep.recap, "deepAnalysis.recap", allowed, allowedSignalIds, warnings));
+  return errors;
+}
+
+function validateRecap(value: unknown, path: string, allowed: Set<string>, allowedSignalIds: Set<string>, warnings: string[]): string[] {
+  const recap = record(value);
+  if (!recap) return [`${path} must be an object.`];
+  const errors: string[] = [];
+  const slides = recap.slides;
+  errors.push(...listError(slides, `${path}.slides`, 4, 12));
+  if (!Array.isArray(slides)) return errors;
+  slides.forEach((entry, index) => {
+    const slide = record(entry);
+    const slidePath = `${path}.slides[${index}]`;
+    if (!slide) { errors.push(`${slidePath} must be an object.`); return; }
+    if (!["title", "scale", "signature", "turning", "receipt", "close"].includes(String(slide.kind))) errors.push(`${slidePath}.kind is unsupported.`);
+    const kicker = stringError(slide.kicker, `${slidePath}.kicker`, 1, 80, warnings); if (kicker) errors.push(kicker);
+    const headline = stringError(slide.headline, `${slidePath}.headline`, 1, 160, warnings); if (headline) errors.push(headline);
+    if (slide.body !== undefined && String(slide.body).trim()) {
+      const body = stringError(slide.body, `${slidePath}.body`, 1, 400, warnings); if (body) errors.push(body);
+    }
+    if (slide.textScale !== undefined && slide.textScale !== "large" && slide.textScale !== "medium") {
+      errors.push(`${slidePath}.textScale is unsupported.`);
+    }
+    if (slide.layout !== undefined && !["copy", "stat-grid", "ranked", "hour-bars", "weekday", "streak"].includes(String(slide.layout))) {
+      errors.push(`${slidePath}.layout is unsupported.`);
+    }
+    if (!Array.isArray(slide.sourceRefs)) errors.push(`${slidePath}.sourceRefs must be an array.`);
+    else if (slide.sourceRefs.length) errors.push(...refsError(slide.sourceRefs, `${slidePath}.sourceRefs`, allowed, 4));
+    if (slide.signalId !== undefined) {
+      if (typeof slide.signalId !== "string" || !slide.signalId.trim()) errors.push(`${slidePath}.signalId must be a non-empty string.`);
+      else if (allowedSignalIds.size > 0 && !allowedSignalIds.has(slide.signalId)) errors.push(`${slidePath}.signalId references unknown signal ${slide.signalId}.`);
+    }
+  });
   return errors;
 }
 
@@ -329,11 +395,18 @@ export function validateStoryPackComponent(value: unknown, component: StoryPackC
   if (!candidate) return { ok: false, errors: ["response must be a JSON object."], warnings: [] };
   const warnings: string[] = [];
   const errors = component === "story"
-    ? validateStoryComponent(candidate, allowedRefs, warnings)
+    ? [
+        ...validateStoryComponent(candidate, allowedRefs, warnings),
+        ...(candidate.recap !== undefined ? validateRecap(candidate.recap, "recap", allowedRefs, allowedSignalIds, warnings) : []),
+      ]
     : component === "insights"
       ? validateInsightsComponent(candidate, allowedRefs, warnings)
       : component === "deep-narrative"
-        ? [...validateStoryComponent(candidate, allowedRefs, warnings, 12, false), ...validateInsightsComponent(candidate, allowedRefs, warnings, false, true)]
+        ? [
+            ...validateStoryComponent(candidate, allowedRefs, warnings, 12, false),
+            ...validateInsightsComponent(candidate, allowedRefs, warnings, false, true),
+            ...(candidate.recap !== undefined ? validateRecap(candidate.recap, "recap", allowedRefs, allowedSignalIds, warnings) : []),
+          ]
         : validateDeepComponent(candidate, allowedRefs, allowedSignalIds, warnings);
   return { ok: errors.length === 0, errors: errors.slice(0, 20), warnings: [...new Set(warnings)].slice(0, 20) };
 }
@@ -424,7 +497,52 @@ export function normalizeStoryPack(value: unknown, snapshot: ScannerProjectSnaps
   if (decisions.length < 2) { fallbacks.push("decisions"); decisions.push(...fallback.decisions.slice(decisions.length, 2)); }
   const insightList = (name: "learnings" | "standoutTraits") => { const result = (Array.isArray(candidate[name]) ? candidate[name] : []).slice(0, 4).map((entry, index) => { const raw = item(entry); const base = fallback[name][index % fallback[name].length]!; return { title: clean(`${name}.${index}.title`, raw.title, 120, base.title, fallbacks), detail: clean(`${name}.${index}.detail`, raw.detail, 300, base.detail, fallbacks), sourceRefs: sourceRefs(`${name}.${index}.sourceRefs`, raw.sourceRefs, allowed, base.sourceRefs, fallbacks) }; }); if (result.length < 2) { fallbacks.push(name); result.push(...fallback[name].slice(result.length, 2)); } return result; };
   const turning = item(candidate.turningPoint); const growth = item(candidate.growthEdge);
-  return { storyPack: { version: "2.0.0", sources: fallback.sources, signals: fallback.signals, hero: { headline: clean("hero.headline", hero.headline, 120, fallback.hero.headline, fallbacks), summary: clean("hero.summary", hero.summary, 480, fallback.hero.summary, fallbacks) }, buildArc, moments, turningPoint: { quote: clean("turningPoint.quote", turning.quote, 300, fallback.turningPoint.quote, fallbacks), sourceRefs: sourceRefs("turningPoint.sourceRefs", turning.sourceRefs, allowed, fallback.turningPoint.sourceRefs, fallbacks) }, decisions, learnings: insightList("learnings"), standoutTraits: insightList("standoutTraits"), growthEdge: { title: clean("growthEdge.title", growth.title, 120, fallback.growthEdge.title, fallbacks), observation: clean("growthEdge.observation", growth.observation, 400, fallback.growthEdge.observation, fallbacks), sourceRefs: sourceRefs("growthEdge.sourceRefs", growth.sourceRefs, allowed, fallback.growthEdge.sourceRefs, fallbacks) } }, fallbacksUsed: [...new Set(fallbacks)].sort() };
+  const recap = normalizeRecap(candidate.recap, "recap", allowed, new Set(fallback.signals.map((signal) => signal.id)), fallback.sources[0]?.ref ? [fallback.sources[0].ref] : [], fallbacks);
+  return { storyPack: { version: "2.0.0", sources: fallback.sources, signals: fallback.signals, hero: { headline: clean("hero.headline", hero.headline, 120, fallback.hero.headline, fallbacks), summary: clean("hero.summary", hero.summary, 480, fallback.hero.summary, fallbacks) }, buildArc, moments, turningPoint: { quote: clean("turningPoint.quote", turning.quote, 300, fallback.turningPoint.quote, fallbacks), sourceRefs: sourceRefs("turningPoint.sourceRefs", turning.sourceRefs, allowed, fallback.turningPoint.sourceRefs, fallbacks) }, decisions, learnings: insightList("learnings"), standoutTraits: insightList("standoutTraits"), growthEdge: { title: clean("growthEdge.title", growth.title, 120, fallback.growthEdge.title, fallbacks), observation: clean("growthEdge.observation", growth.observation, 400, fallback.growthEdge.observation, fallbacks), sourceRefs: sourceRefs("growthEdge.sourceRefs", growth.sourceRefs, allowed, fallback.growthEdge.sourceRefs, fallbacks) }, ...(recap ? { recap } : {}) }, fallbacksUsed: [...new Set(fallbacks)].sort() };
+}
+
+function normalizeRecap(
+  value: unknown,
+  path: string,
+  allowed: Set<string>,
+  allowedSignalIds: Set<string>,
+  fallbackRefs: string[],
+  fallbacks: string[],
+): StoryPackRecap | undefined {
+  const slides = record(value)?.slides;
+  if (!Array.isArray(slides)) return undefined;
+  const recapKinds = ["title", "scale", "signature", "turning", "receipt", "close"] as const;
+  type RecapKind = (typeof recapKinds)[number];
+  const normalized: StoryPackRecap = {
+    slides: slides.slice(0, 12).flatMap((entry, index) => {
+      const raw = record(entry) ?? {};
+      const kind = raw.kind;
+      if (!recapKinds.includes(kind as RecapKind)) return [];
+      const recapKind: RecapKind = kind as RecapKind;
+      const signalId = typeof raw.signalId === "string" && allowedSignalIds.has(raw.signalId) ? raw.signalId : undefined;
+      const textScale = raw.textScale === "large" || raw.textScale === "medium" ? raw.textScale : undefined;
+      const layout = raw.layout === "copy" || raw.layout === "stat-grid" || raw.layout === "ranked"
+        || raw.layout === "hour-bars" || raw.layout === "weekday" || raw.layout === "streak"
+        ? raw.layout
+        : undefined;
+      const headline = typeof raw.headline === "string" ? raw.headline.trim() : "";
+      if (!headline) return [];
+      const body = typeof raw.body === "string" && raw.body.trim()
+        ? clean(`${path}.slides.${index}.body`, raw.body, 400, "", fallbacks)
+        : "";
+      return [{
+        kind: recapKind,
+        kicker: clean(`${path}.slides.${index}.kicker`, raw.kicker, 80, "Your build", fallbacks),
+        headline: headline.slice(0, 160),
+        ...(body ? { body } : {}),
+        sourceRefs: sourceRefs(`${path}.slides.${index}.sourceRefs`, Array.isArray(raw.sourceRefs) && raw.sourceRefs.length ? raw.sourceRefs : fallbackRefs, allowed, fallbackRefs, fallbacks),
+        ...(signalId ? { signalId } : {}),
+        ...(textScale ? { textScale } : {}),
+        ...(layout ? { layout } : {}),
+      }];
+    }),
+  };
+  return normalized.slides.length >= 4 ? normalized : undefined;
 }
 
 export function normalizeDeepStoryPack(value: unknown, snapshot: ScannerProjectSnapshot): { storyPack: ReportStoryPackV3; fallbacksUsed: string[] } {
@@ -461,10 +579,22 @@ export function normalizeDeepStoryPack(value: unknown, snapshot: ScannerProjectS
     // No signal at all (an evidence-thin snapshot) means there is nothing
     // for this finding to attach to - drop it rather than fabricate an id.
     .filter((entry): entry is StoryPackFinding & { signalId: string } => entry.signalId !== "");
+  const surpriseFacts: Array<StoryPackFinding & { signalId: string }> = (Array.isArray(deep.surpriseFacts) ? deep.surpriseFacts : [])
+    .slice(0, 3)
+    .map((entry, index) => {
+      const raw = record(entry) ?? {};
+      const path = `deepAnalysis.surpriseFacts.${index}`;
+      const signalId = typeof raw.signalId === "string" && allowedSignalIds.has(raw.signalId) ? raw.signalId : fallbackSignalId;
+      if (signalId !== raw.signalId) fallbacks.push(`${path}.signalId`);
+      return { ...finding(entry, path), signalId: signalId ?? "" };
+    })
+    .filter((entry): entry is StoryPackFinding & { signalId: string } => entry.signalId !== "");
+  const recap = normalizeRecap(deep.recap ?? candidate.recap ?? normalized.storyPack.recap, "deepAnalysis.recap", allowed, allowedSignalIds, fallbackRefs, fallbacks);
   const evidenceBytes = (snapshot.narrativeEvidence?.excerpts ?? []).reduce((sum, excerpt) => sum + new TextEncoder().encode(excerpt.text).byteLength, 0);
   return {
     storyPack: {
       ...normalized.storyPack,
+      ...(recap ? { recap } : {}),
       version: "3.0.0",
       analysisTier: "deep",
       moments: Array.isArray(candidate.moments)
@@ -487,6 +617,8 @@ export function normalizeDeepStoryPack(value: unknown, snapshot: ScannerProjectS
         byTheNumbers,
         whereItGotHard: findings("whereItGotHard", 6),
         chapterChanges: findings("chapterChanges", 5),
+        ...(surpriseFacts.length ? { surpriseFacts } : {}),
+        ...(recap && recap.slides.length >= 4 ? { recap } : {}),
         coverage: {
           sessionsSeen: snapshot.sessions.length,
           excerptsUsed: snapshot.narrativeEvidence?.excerpts.length ?? 0,

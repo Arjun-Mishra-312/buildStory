@@ -3,6 +3,7 @@ import type { ReportStoryPack, StoryPackPhase } from "@/lib/ingestion/scanner-pr
 import type { ReportIntelligence } from "@/lib/narrative/v4";
 import type { ChapterDelta, NumericDelta } from "@/lib/story/chapter-delta";
 import type { ReportSurface } from "./evidence-view-model";
+import { buildTurningBeat, isSessionActivityTitle, type TurningBeat } from "./public-brief";
 
 export type InsightClaimKind = "arc" | "moment" | "decision" | "learning" | "trait" | "turning-point";
 
@@ -39,6 +40,7 @@ export type BuildJourneyPhase = {
   milestones: Array<{ id: string; title: string; date: string; kind: string }>;
   models: Array<{ label: string; sessions: number }>;
   sessions: Array<{ id: string; label: string; startedAt: string; endedAt: string }>;
+  citedSourceCount: number;
 };
 
 export type DecisionDossierItem = {
@@ -75,6 +77,7 @@ export type ReportInsightsViewModel = {
   journey: BuildJourneyPhase[];
   dossier: DecisionDossierItem[];
   turningPoint: { quote: string; sourceRefs: string[] } | null;
+  turningBeat: TurningBeat | null;
   sessionShape: SessionShapeSeries[];
   outcomes: OutcomeFigure[];
   chapterComparison: {
@@ -197,24 +200,29 @@ export function buildReportInsightsViewModel({
   const phaseOrder: StoryPackPhase[] = ["discover", "decide", "deliver"];
   const reportMapSessions = surface === "private" ? intelligence?.reportMap.sessionMaps ?? [] : [];
   const modelRoles = surface === "private" ? intelligence?.outcomeLab.modelRoles ?? [] : [];
-  const journey = (pack?.buildArc ?? []).map((arc, index) => ({
-    phase: arc.phase,
-    index: phaseOrder.indexOf(arc.phase) + 1 || index + 1,
-    headline: arc.headline,
-    summary: arc.summary,
-    sourceRefs: arc.sourceRefs,
-    moments: (pack?.moments ?? []).filter((moment) => moment.phase === arc.phase).map((moment, momentIndex) => ({ id: `${arc.phase}-${momentIndex}`, title: moment.title, kind: moment.kind, sourceRefs: moment.sourceRefs })),
-    milestones: story.milestones.filter((milestone) => {
-      if (arc.phase === "deliver") return milestone.kind === "ship" || milestone.kind === "feedback";
-      if (arc.phase === "decide") return milestone.kind === "decision";
-      return milestone.kind === "breakthrough";
-    }).map((milestone) => ({ id: milestone.id, title: milestone.title, date: milestone.date, kind: milestone.kind })),
-    models: modelRoles.map((model) => ({
-      label: story.models.find((item) => item.id === model.modelRef)?.label ?? model.modelRef,
-      sessions: arc.phase === "discover" ? model.discoverySessions : arc.phase === "decide" ? model.decisionSessions : model.deliverySessions,
-    })).filter((model) => model.sessions > 0),
-    sessions: reportMapSessions.filter((session) => session.phases.includes(arc.phase)).map((session) => ({ id: session.sessionRef, label: providerLabels[session.provider] ?? session.provider, startedAt: session.startedAt, endedAt: session.endedAt })),
-  })).sort((left, right) => left.index - right.index);
+  const journey = (pack?.buildArc ?? []).map((arc, index) => {
+    const moments = (pack?.moments ?? []).filter((moment) => moment.phase === arc.phase).map((moment, momentIndex) => ({ id: `${arc.phase}-${momentIndex}`, title: moment.title, kind: moment.kind, sourceRefs: moment.sourceRefs }));
+    return {
+      phase: arc.phase,
+      index: phaseOrder.indexOf(arc.phase) + 1 || index + 1,
+      headline: arc.headline,
+      summary: arc.summary,
+      sourceRefs: arc.sourceRefs,
+      moments,
+      milestones: story.milestones.filter((milestone) => {
+        if (isSessionActivityTitle(milestone.title)) return false;
+        if (arc.phase === "deliver") return milestone.kind === "ship" || milestone.kind === "feedback";
+        if (arc.phase === "decide") return milestone.kind === "decision";
+        return milestone.kind === "breakthrough";
+      }).map((milestone) => ({ id: milestone.id, title: milestone.title, date: milestone.date, kind: milestone.kind })),
+      models: modelRoles.map((model) => ({
+        label: story.models.find((item) => item.id === model.modelRef)?.label ?? model.modelRef,
+        sessions: arc.phase === "discover" ? model.discoverySessions : arc.phase === "decide" ? model.decisionSessions : model.deliverySessions,
+      })).filter((model) => model.sessions > 0),
+      sessions: reportMapSessions.filter((session) => session.phases.includes(arc.phase)).map((session) => ({ id: session.sessionRef, label: providerLabels[session.provider] ?? session.provider, startedAt: session.startedAt, endedAt: session.endedAt })),
+      citedSourceCount: new Set([...arc.sourceRefs, ...moments.flatMap((moment) => moment.sourceRefs)]).size,
+    };
+  }).sort((left, right) => left.index - right.index);
 
   const sessionShape = surface === "private" ? [
     summarizeDistribution(("sessions" in story ? story.sessions : []).map((session) => session.durationMinutes), "duration", "Session duration", "minutes"),
@@ -237,6 +245,7 @@ export function buildReportInsightsViewModel({
     journey,
     dossier,
     turningPoint: pack?.turningPoint.quote ? pack.turningPoint : null,
+    turningBeat: surface === "private" ? null : buildTurningBeat(pack),
     sessionShape,
     outcomes,
     chapterComparison: chapterComparison(chapterDelta),

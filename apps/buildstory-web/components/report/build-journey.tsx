@@ -5,41 +5,54 @@ import { ReportFigure } from "./report-figure";
 
 const phaseLabels = { discover: "Discover", decide: "Decide", deliver: "Deliver" } as const;
 
-export function BuildJourney({ phases, activeRefs, onSelectRefs }: { phases: BuildJourneyPhase[]; activeRefs: string[]; onSelectRefs: (refs: string[]) => void }) {
+export function BuildJourney({
+  phases,
+  activeRefs,
+  onSelectRefs,
+  layout = "folios",
+  chrome = true,
+}: {
+  phases: BuildJourneyPhase[];
+  activeRefs: string[];
+  onSelectRefs: (refs: string[]) => void;
+  layout?: "folios" | "spine";
+  chrome?: boolean;
+}) {
   if (!phases.length) return null;
   const active = new Set(activeRefs);
   const dimmed = active.size > 0;
+  const spine = layout === "spine";
   return (
     <ReportFigure
       id="build-journey"
       index="01"
       title="BUILD JOURNEY"
       question="How did the work move?"
-      description="One chronology combines the narrative arc, decisive moments, and milestones into the story of how the build found its shape."
-      sourceNote="Source: evidence-linked story phases, moments, and projected milestones."
-      className="build-journey"
-      table={<table><thead><tr><th>Phase</th><th>Story</th><th>Moments</th><th>Milestones</th></tr></thead><tbody>{phases.map((phase) => <tr key={phase.phase}><th>{phaseLabels[phase.phase]}</th><td>{phase.headline}</td><td>{phase.moments.length}</td><td>{phase.milestones.length}</td></tr>)}</tbody></table>}
+      description="Discover, decide, and deliver — the moments that shaped the build."
+      sourceNote="Source: evidence-linked story phases and moments."
+      chrome={chrome}
+      className={`build-journey${spine ? " build-journey--spine" : ""}`}
+      table={chrome ? <table><thead><tr><th>Phase</th><th>Story</th><th>Moments</th></tr></thead><tbody>{phases.map((phase) => <tr key={phase.phase}><th>{phaseLabels[phase.phase]}</th><td>{phase.headline}</td><td>{phase.moments.length}</td></tr>)}</tbody></table> : undefined}
     >
+      {!chrome ? <header className="build-journey__mast"><span>BUILD JOURNEY</span><strong>Discover · Decide · Deliver</strong></header> : null}
       <div className="build-journey__layout">
         <div className="build-journey__phases">
           {phases.map((phase) => {
             const refs = [...new Set([...phase.sourceRefs, ...phase.moments.flatMap((moment) => moment.sourceRefs)])];
             const matches = !dimmed || refs.some((ref) => active.has(ref));
+            const ticks = Math.min(12, Math.max(phase.citedSourceCount, phase.sessions.length));
             return (
               <article className={matches ? "" : "is-dimmed"} key={phase.phase} data-phase={phase.phase}>
-                <header><span>FOLIO {String(phase.index).padStart(2, "0")}</span><strong>{phaseLabels[phase.phase]}</strong><small>{phase.phase === "discover" ? "FIELD NOTES" : phase.phase === "decide" ? "WORKING PROOF" : "RELEASE DESK"}</small></header>
+                <header><span>{String(phase.index).padStart(2, "0")}</span><strong>{phaseLabels[phase.phase]}</strong><small>{phase.phase === "discover" ? "How it started" : phase.phase === "decide" ? "What you chose" : "How it landed"}</small></header>
                 <h3>{phase.headline}</h3>
                 <p>{phase.summary}</p>
                 {phase.moments.length ? <ol>{phase.moments.map((moment, momentIndex) => <li key={moment.id}><button type="button" onClick={() => onSelectRefs(moment.sourceRefs)}><b>{String.fromCharCode(65 + momentIndex)}</b><span><small>{moment.kind}</small><strong>{moment.title}</strong></span></button></li>)}</ol> : null}
                 {phase.milestones.length ? <div className="build-journey__milestones">{phase.milestones.map((milestone) => <span key={milestone.id}><i /><time>{milestone.date}</time><strong>{milestone.title}</strong></span>)}</div> : null}
+                {ticks > 0 ? <div className="build-journey__sessions"><span>{phase.citedSourceCount || phase.sessions.length} cited source{(phase.citedSourceCount || phase.sessions.length) === 1 ? "" : "s"}</span>{Array.from({ length: ticks }, (_, index) => <i key={index} />)}</div> : null}
                 <footer><span>{phaseLabels[phase.phase].toUpperCase()}</span><b>{phase.index}</b></footer>
               </article>
             );
           })}
-        </div>
-        <div className="build-journey__illustration" aria-hidden="true">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/assets/illustrations/story-moments/branching-decisions.webp" alt="" />
         </div>
       </div>
     </ReportFigure>

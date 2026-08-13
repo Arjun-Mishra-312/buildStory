@@ -12,7 +12,10 @@ import { sanitizePublicText } from "@/lib/publication/sanitization";
 import { computeChapterDelta, publicChapterDelta, type ChapterDelta } from "@/lib/story/chapter-delta";
 import { notifyFollowersOfStoryUpdate } from "@/lib/social/store";
 import { getTrendingScoreForReport, registerProfile as registerSocialProfileRecord, registerReport as registerSocialReportRecord } from "@/lib/social/mock-store";
-import { MAX_MEDIA_PER_REPORT, PUBLIC_FIELD_KEYS } from "./contracts";
+import { archetypeFacetKey } from "./profile";
+import type { PublicArchetypeCounts } from "@/lib/report/archetype-catalog";
+import { hydrateGeneratedReport, planReportUiPort } from "@/lib/report/hydrate-report";
+import { DEFAULT_PUBLIC_FIELDS, MAX_MEDIA_PER_REPORT, PUBLIC_FIELD_KEYS, withUiPortPublicFields } from "./contracts";
 import { DEFAULT_STORY_BACKGROUND_ID, isStoryBackgroundId } from "@/lib/background-options";
 import { builderRoleLabel, isBuilderRole, type BuilderRole } from "@/lib/identity/builder-roles";
 import { GUIDE_VERSION, isGuideKey, isGuideState, type GuideKey, type GuideState, type GuidanceRecord } from "@/lib/guidance/contracts";
@@ -310,6 +313,7 @@ function createSeedStore(): MockStore {
       "standoutTraits",
       "growthEdge",
       "artifactLinks",
+      "storyRecap",
     ],
     editorial: {
       tagline: orbitNotesSnapshot.identity.tagline,
@@ -1562,17 +1566,7 @@ export async function acceptSnapshot(
     readyAt: null,
     sourceSnapshot: validated.snapshot,
     snapshot: reportSnapshot,
-    selectedPublicFields: previousReport?.selectedPublicFields ?? [
-      "tagline",
-      "description",
-      "timeWindow",
-      "sessionSummary",
-      "milestones",
-      "modelMix",
-      "costEstimate",
-      "gitAggregates",
-      "redactionSummary",
-    ],
+    selectedPublicFields: withUiPortPublicFields(previousReport?.selectedPublicFields ?? DEFAULT_PUBLIC_FIELDS),
     editorial: {
       tagline: previousReport && previousTaglineEdited ? previousReport.editorial.tagline : reportSnapshot.identity.tagline,
       description: previousReport && previousDescriptionEdited ? previousReport.editorial.description : reportSnapshot.identity.description,
@@ -1757,7 +1751,7 @@ export async function getReport(creatorId: string, reportId: string): Promise<Ge
   if (narrative && (narrative.status === "queued" || narrative.status === "generating")) {
     await processNarrativeJob(reportId);
   }
-  return { ...structuredClone(report), narrative: narrativeRecordFor(reportId) };
+  return hydrateGeneratedReport({ ...structuredClone(report), narrative: narrativeRecordFor(reportId) });
 }
 
 export function updateReport(
@@ -1989,7 +1983,8 @@ export async function publishReport(creatorId: string, reportId: string): Promis
       : null;
   }
 
-  const publicStory = publicBuildStoryFromSnapshot(report.snapshot, report.selectedPublicFields, { tagline: report.editorial.tagline, description: report.editorial.description, reflection: report.editorial.reflection, category: report.category }, { ...report.artifact, media: listReportMedia(report.id) }, { storyBackgroundId: report.storyBackgroundId });
+  const hydrated = hydrateGeneratedReport(report);
+  const publicStory = publicBuildStoryFromSnapshot(hydrated.snapshot, report.selectedPublicFields, { tagline: report.editorial.tagline, description: report.editorial.description, reflection: report.editorial.reflection, category: report.category }, { ...report.artifact, media: listReportMedia(report.id) }, { storyBackgroundId: report.storyBackgroundId });
   // Gated at publish time and frozen alongside every other public field - a creator
   // who never republishes after toggling a field off must not have that field's
   // numbers reappear here just because the delta band re-reads live state.
@@ -2658,6 +2653,80 @@ export function deleteAccountData(userId: string): string[] {
   }
   store.users.delete(userId);
   return orphanedR2Keys;
+}
+
+export function countPublicArchetypes(): PublicArchetypeCounts {
+  const byKey: Record<string, number> = {};
+  let total = 0;
+  for (const entry of store.publicStoryIndex.values()) {
+    const name = entry.story.profile?.archetype?.name;
+    if (!name) continue;
+    const key = archetypeFacetKey(name);
+    byKey[key] = (byKey[key] ?? 0) + 1;
+    total += 1;
+  }
+  return { total, byKey };
+}
+
+export type PortReportUiPage = {
+  processed: number;
+  hydrated: number;
+  fieldsUpdated: number;
+  republished: number;
+  nextCursor: string | null;
+  done: boolean;
+};
+
+export function portReportUi(cursor = "", limit = 5, dryRun = false, reportId?: string): PortReportUiPage {
+  const reports = [...store.reports.values()]
+    .filter((report) => report.status === "ready" && (!reportId || report.id === reportId))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const start = reportId || !cursor ? 0 : reports.findIndex((report) => report.id > cursor);
+  const pageSize = reportId ? 1 : Math.max(1, Math.min(limit, 10));
+  const slice = start < 0 ? [] : reports.slice(start, start + pageSize);
+  let hydrated = 0;
+  let fieldsUpdated = 0;
+  let republished = 0;
+  const now = new Date().toISOString();
+  for (const report of slice) {
+    const { next, plan } = planReportUiPort(report);
+    if (plan.hydrateSnapshot) hydrated += 1;
+    if (plan.updatePublicFields) fieldsUpdated += 1;
+    if (plan.refreshPublicIndex) republished += 1;
+    if (dryRun) continue;
+    if (plan.hydrateSnapshot) report.snapshot = next.snapshot;
+    if (plan.updatePublicFields) report.selectedPublicFields = next.selectedPublicFields;
+    if (plan.refreshPublicIndex) {
+      const publicStory = publicBuildStoryFromSnapshot(
+        next.snapshot,
+        next.selectedPublicFields,
+        { tagline: report.editorial.tagline, description: report.editorial.description, reflection: report.editorial.reflection, category: report.category },
+        { ...report.artifact, media: listReportMedia(report.id) },
+        { storyBackgroundId: report.storyBackgroundId },
+      );
+      const publicStoryWithDelta = {
+        ...publicStory,
+        chapterDelta: report.chapterDelta ? publicChapterDelta(report.chapterDelta, next.selectedPublicFields) : null,
+      };
+      store.publicStoryIndex.set(report.id, {
+        story: publicStoryWithDelta,
+        category: publicStory.category,
+        searchText: [publicStory.name, publicStory.tagline, publicStory.description, publicStory.owner.name, publicStory.owner.handle, publicStory.category, ...publicStory.stack, ...publicStory.tools.map((tool) => tool.label), ...publicStory.models.flatMap((model) => [model.id, model.label])].join(" ").slice(0, 12_000),
+        hasLiveDemo: Boolean(publicStory.artifactLinks.projectUrl),
+        updatedAt: now,
+      });
+      registerSocialReport(report.id, userIdForCreator(report.creatorId), report, publicStoryWithDelta);
+    }
+  }
+  const nextCursor = slice.at(-1)?.id ?? null;
+  return {
+    processed: slice.length,
+    hydrated,
+    fieldsUpdated,
+    republished,
+    nextCursor,
+    done: Boolean(reportId) || slice.length < pageSize,
+  };
 }
 
 export function statusLabel(status: UploadSessionStatus) {

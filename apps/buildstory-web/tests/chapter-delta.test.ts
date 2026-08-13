@@ -21,6 +21,10 @@ const baseProfile: BuilderProfile = {
     longestSessionMinutes: 90,
     primaryModel: "gpt-5.4-codex",
     timezoneLabel: "UTC",
+    nightShare: 0,
+    morningShare: 40,
+    weekendShare: 0,
+    distinctToolCount: 5,
   },
 };
 

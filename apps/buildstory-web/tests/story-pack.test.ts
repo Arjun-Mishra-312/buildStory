@@ -3,7 +3,7 @@ import test from "node:test";
 import { publicBuildStoryFromSnapshot } from "../lib/build-story";
 import { reportSnapshotFromScanner } from "../lib/ingestion/report-adapter";
 import { validateProjectSnapshot } from "../lib/ingestion/validation";
-import { defaultStoryPack, normalizeStoryPack, validateDeepAnalysisComponent, validateStoryPackComponent } from "../lib/narrative/story-pack";
+import { defaultStoryPack, normalizeDeepStoryPack, normalizeStoryPack, validateDeepAnalysisComponent, validateStoryPackComponent } from "../lib/narrative/story-pack";
 import type { ScannerProjectSnapshot } from "../lib/ingestion/scanner-project-snapshot";
 import scannerFixture from "./fixtures/scanner-project-snapshot.json";
 import legacyScannerFixture from "./fixtures/legacy-scanner-project-snapshot.json";
@@ -78,6 +78,116 @@ test("a byTheNumbers finding citing an unknown signalId fails validation", () =>
   }, allowed, allowedSignalIds);
   assert.equal(result.ok, false);
   assert.ok(result.errors.some((error) => error.includes("references unknown signal")));
+});
+
+test("recap slides must cite real signalIds when they name one", () => {
+  const allowed = new Set(["S01"]);
+  const finding = { title: "Evidence synthesis", summary: "The reviewed evidence supports this finding.", sourceRefs: ["S01"], confidence: "high" };
+  const slide = { kind: "title", kicker: "Your build", headline: "Here's how this one went.", body: "A true detail from this build.", sourceRefs: [] };
+  const result = validateDeepAnalysisComponent({
+    openingLine: finding,
+    signatureMoves: [],
+    byTheNumbers: [{ ...finding, signalId: "night-owl-share" }],
+    whereItGotHard: [],
+    chapterChanges: [],
+    recap: {
+      slides: [
+        slide,
+        { ...slide, kind: "scale" },
+        { ...slide, kind: "signature", signalId: "night-owl-share", sourceRefs: ["S01"] },
+        { ...slide, kind: "close" },
+      ],
+    },
+  }, allowed, new Set(["night-owl-share"]));
+  assert.equal(result.ok, true, result.errors.join("; "));
+
+  const unknown = validateDeepAnalysisComponent({
+    openingLine: finding,
+    signatureMoves: [],
+    byTheNumbers: [{ ...finding, signalId: "night-owl-share" }],
+    whereItGotHard: [],
+    chapterChanges: [],
+    recap: {
+      slides: [
+        slide,
+        { ...slide, kind: "scale" },
+        { ...slide, kind: "signature", signalId: "invented-signal", sourceRefs: ["S01"] },
+        { ...slide, kind: "close" },
+      ],
+    },
+  }, allowed, new Set(["night-owl-share"]));
+  assert.equal(unknown.ok, false);
+  assert.ok(unknown.errors.some((error) => error.includes("unknown signal")));
+});
+
+test("omitting recap stays valid and normalizeRecap drops empty headlines instead of padding them", () => {
+  const pack = defaultStoryPack(snapshot);
+  const refs = new Set(pack.sources.map((source) => source.ref));
+  assert.equal(validateStoryPackComponent({
+    hero: pack.hero,
+    buildArc: pack.buildArc,
+    moments: pack.moments,
+    turningPoint: pack.turningPoint,
+  }, "story", refs).ok, true);
+
+  const normalized = normalizeStoryPack({
+    ...pack,
+    recap: {
+      slides: [
+        { kind: "title", kicker: "Your build", headline: "Kept hook", sourceRefs: [] },
+        { kind: "scale", kicker: "Scale", headline: "   ", sourceRefs: [] },
+        { kind: "signature", kicker: "Sig", headline: "A true beat", sourceRefs: [], layout: "cubes" },
+        { kind: "turning", kicker: "Turn", headline: "The night it clicked", sourceRefs: [] },
+        { kind: "receipt", kicker: "Receipt", headline: "Itemized", sourceRefs: [] },
+        { kind: "close", kicker: "Close", headline: "Done", sourceRefs: [], layout: "stat-grid" },
+      ],
+    },
+  }, snapshot);
+  assert.ok(normalized.storyPack.recap);
+  assert.equal(normalized.storyPack.recap.slides.some((slide) => !slide.headline.trim()), false);
+  assert.equal(normalized.storyPack.recap.slides.find((slide) => slide.kind === "signature")?.layout, undefined);
+  assert.equal(normalized.storyPack.recap.slides.find((slide) => slide.kind === "close")?.layout, "stat-grid");
+
+  const thin = normalizeStoryPack({
+    recap: {
+      slides: [
+        { kind: "title", kicker: "Your build", headline: "", sourceRefs: [] },
+        { kind: "scale", kicker: "Scale", headline: "", sourceRefs: [] },
+        { kind: "close", kicker: "Close", headline: "Only one real line", sourceRefs: [] },
+      ],
+    },
+  }, snapshot);
+  assert.equal(thin.storyPack.recap, undefined);
+});
+
+test("Deep synthesis keeps analysis-pass recap slides", () => {
+  const pack = defaultStoryPack(snapshot);
+  const finding = {
+    title: "Evidence synthesis",
+    summary: "The reviewed evidence supports this finding.",
+    sourceRefs: pack.sources[0] ? [pack.sources[0].ref] : [],
+    confidence: "high" as const,
+  };
+  const result = normalizeDeepStoryPack({
+    ...pack,
+    deepAnalysis: {
+      openingLine: finding,
+      signatureMoves: [finding],
+      byTheNumbers: pack.signals[0] ? [{ ...finding, signalId: pack.signals[0].id }] : [],
+      whereItGotHard: [],
+      chapterChanges: [],
+      recap: {
+        slides: [
+          { kind: "title", kicker: "Your build", headline: "Analysis recap hook", sourceRefs: [] },
+          { kind: "scale", kicker: "Scale", headline: "The shape of it", sourceRefs: [], layout: "stat-grid" },
+          { kind: "receipt", kicker: "Receipt", headline: "Itemized", sourceRefs: [] },
+          { kind: "close", kicker: "Close", headline: "Ready", sourceRefs: [] },
+        ],
+      },
+    },
+  }, snapshot);
+  assert.equal(result.storyPack.recap?.slides[0]?.headline, "Analysis recap hook");
+  assert.equal(result.storyPack.recap?.slides[1]?.layout, "stat-grid");
 });
 
 test("Deep narrative validation preserves up to twelve supported moments while Standard remains compact", () => {

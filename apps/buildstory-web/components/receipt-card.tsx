@@ -1,5 +1,7 @@
 import type { PublicBuildStoryViewModel } from "@/lib/build-story";
+import { receiptFilesTouchedNote } from "@/lib/report/public-brief";
 import { Tooltip } from "./shell/tooltip";
+import { ModelName } from "./model-mark";
 
 type ReceiptStory = Pick<
   PublicBuildStoryViewModel,
@@ -20,12 +22,15 @@ type ReceiptStory = Pick<
 type ReceiptCardProps = {
   story: ReceiptStory;
   compact?: boolean;
+  inset?: boolean;
+  animate?: boolean;
+  storyFit?: boolean;
 };
 
 const usdFormat = new Intl.NumberFormat("en", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const formatMicroUsd = (microUsd: number) => usdFormat.format(microUsd / 1_000_000);
 
-export function ReceiptCard({ story, compact = false }: ReceiptCardProps) {
+export function ReceiptCard({ story, compact = false, inset = false, animate = false, storyFit = false }: ReceiptCardProps) {
   const coverageNotes: string[] = [];
   if (story.coverage && story.coverage.sessionsSkipped > 0) {
     const n = story.coverage.sessionsSkipped;
@@ -36,8 +41,10 @@ export function ReceiptCard({ story, compact = false }: ReceiptCardProps) {
     coverageNotes.push(`${n.toLocaleString()} model${n === 1 ? "" : "s"} priced only part of its observed usage.`);
   }
 
+  const filesNote = receiptFilesTouchedNote(story.git.filesTouched);
+
   return (
-    <aside className={`receipt ${compact ? "receipt--compact" : ""}`}>
+    <aside className={`receipt ${compact ? "receipt--compact" : ""} ${inset ? "receipt--inset" : ""} ${animate ? "receipt--print" : ""} ${storyFit ? "receipt--story" : ""}`.trim()}>
       <div className="receipt__teeth receipt__teeth--top" aria-hidden="true" />
       <div className="receipt__header">
         <div>
@@ -77,7 +84,7 @@ export function ReceiptCard({ story, compact = false }: ReceiptCardProps) {
         {story.models.map((model) => (
           <div className="receipt__model" key={model.id}>
             <div>
-              <span>{model.label}</span>
+              <span><ModelName id={model.id} label={model.label} provider={model.provider} /></span>
               <span>
                 {model.share === null ? "unpriced" : `${model.share}%`}
                 {model.costMicroUsd != null ? <em className="receipt__model-cost">{formatMicroUsd(model.costMicroUsd)}</em> : null}
@@ -128,6 +135,7 @@ export function ReceiptCard({ story, compact = false }: ReceiptCardProps) {
       <div className="receipt__barcode" aria-hidden="true" />
       <p className="receipt__fineprint">
         Rate-card estimate, not billed subscription spend · process evidence, not a productivity score.
+        {filesNote ? ` ${filesNote}` : ""}
       </p>
       <div className="receipt__teeth receipt__teeth--bottom" aria-hidden="true" />
     </aside>

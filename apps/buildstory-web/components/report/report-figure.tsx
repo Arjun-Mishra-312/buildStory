@@ -39,6 +39,7 @@ export function ReportFigure({
   children,
   table,
   className = "",
+  chrome = true,
 }: {
   id: string;
   index: string;
@@ -49,18 +50,21 @@ export function ReportFigure({
   children: ReactNode;
   table?: ReactNode;
   className?: string;
+  chrome?: boolean;
 }) {
   const descriptionId = `${id}-description`;
   return (
-    <figure className={`report-figure ${className}`.trim()} aria-labelledby={`${id}-title`} aria-describedby={descriptionId}>
-      <figcaption>
-        <span>{index} / {title}</span>
-        <h2 id={`${id}-title`}>{question}</h2>
-        <p id={descriptionId}>{description}</p>
-      </figcaption>
+    <figure className={`report-figure${chrome ? "" : " report-figure--bare"} ${className}`.trim()} aria-labelledby={`${id}-title`} aria-describedby={chrome ? descriptionId : undefined} aria-label={chrome ? undefined : title}>
+      {chrome ? (
+        <figcaption>
+          <span>{index} / {title}</span>
+          <h2 id={`${id}-title`}>{question}</h2>
+          <p id={descriptionId}>{description}</p>
+        </figcaption>
+      ) : <h2 id={`${id}-title`} className="sr-only">{title}</h2>}
       <div className="report-figure__canvas">{children}</div>
-      {table ? <details className="report-figure__data"><summary>View figure data</summary>{table}</details> : null}
-      <footer>{sourceNote}</footer>
+      {chrome && table ? <details className="report-figure__data"><summary>View figure data</summary>{table}</details> : null}
+      {chrome ? <footer>{sourceNote}</footer> : null}
     </figure>
   );
 }

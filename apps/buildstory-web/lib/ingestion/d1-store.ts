@@ -11,7 +11,7 @@ import { NARRATIVE_FIELD_LIMITS, NARRATIVE_PROMPT_VERSION } from "@/lib/narrativ
 import type { ProjectSnapshot } from "@/lib/project-snapshot";
 import { sanitizePublicText } from "@/lib/publication/sanitization";
 import { computeChapterDelta, publicChapterDelta, type ChapterDelta } from "@/lib/story/chapter-delta";
-import { MAX_MEDIA_PER_REPORT, PUBLIC_FIELD_KEYS } from "./contracts";
+import { DEFAULT_PUBLIC_FIELDS, MAX_MEDIA_PER_REPORT, PUBLIC_FIELD_KEYS, withUiPortPublicFields } from "./contracts";
 import type {
   ActiveHighlight,
   BillingProfile,
@@ -37,7 +37,10 @@ import type {
   UploadSessionView,
   UserRecord,
 } from "./contracts";
+import { archetypeFacetKey, canonicalArchetypeName } from "./profile";
 import { reportSnapshotFromScanner } from "./report-adapter";
+import type { PublicArchetypeCounts } from "@/lib/report/archetype-catalog";
+import { hydrateGeneratedReport, planReportUiPort } from "@/lib/report/hydrate-report";
 import type { ReportStoryPack, ScannerProjectSnapshot } from "./scanner-project-snapshot";
 import { PROJECT_SNAPSHOT_SCHEMA_VERSION } from "./scanner-project-snapshot";
 import { MAX_SNAPSHOT_BYTES, validateProjectSnapshot } from "./validation";
@@ -121,29 +124,6 @@ type ReportRow = {
 };
 
 const PUBLIC_FIELDS: readonly PublicFieldKey[] = PUBLIC_FIELD_KEYS;
-
-const DEFAULT_PUBLIC_FIELDS: PublicFieldKey[] = [
-  "tagline",
-  "description",
-  "timeWindow",
-  "sessionSummary",
-  "milestones",
-  "modelMix",
-  "costEstimate",
-  "gitAggregates",
-  "redactionSummary",
-  "archetype",
-  "profileScores",
-  "workPatterns",
-  "narrative",
-  "storyBuildArc",
-  "storyMoments",
-  "storyTurningPoint",
-  "storyDecisions",
-  "storyLearnings",
-  "storyTraits",
-  "standoutTraits",
-];
 
 export class D1IngestionError extends Error {
   readonly isBuildstoryIngestionError = true;
@@ -282,6 +262,7 @@ function reportFromRow(row: ReportRow, narrative: NarrativeRecord | null = null)
       500,
     );
   }
+  const sourceSnapshot = parseJson<ScannerProjectSnapshot>(row.source_snapshot_json, "source snapshot");
   return {
     id: row.id,
     creatorId: row.creator_id,
@@ -290,10 +271,7 @@ function reportFromRow(row: ReportRow, narrative: NarrativeRecord | null = null)
     status: row.status as ReportStatus,
     createdAt: row.created_at,
     readyAt: row.ready_at,
-    sourceSnapshot: parseJson<ScannerProjectSnapshot>(
-      row.source_snapshot_json,
-      "source snapshot",
-    ),
+    sourceSnapshot,
     snapshot: parseJson<ProjectSnapshot>(row.snapshot_json, "report snapshot"),
     selectedPublicFields: fields as PublicFieldKey[],
     editorial: {
@@ -2074,7 +2052,9 @@ export async function acceptSnapshot(
   const carryForwardDescription = previousReportRow && previousSnapshotIdentity && previousReportRow.editorial_description !== previousSnapshotIdentity.description
     ? previousReportRow.editorial_description
     : reportSnapshot.identity.description;
-  const carryForwardFields = previousReportRow ? previousReportRow.selected_public_fields_json : JSON.stringify(DEFAULT_PUBLIC_FIELDS);
+    const carryForwardFields = previousReportRow
+      ? JSON.stringify(withUiPortPublicFields(parseJson<PublicFieldKey[]>(previousReportRow.selected_public_fields_json, "public field")))
+      : JSON.stringify(DEFAULT_PUBLIC_FIELDS);
   const carryForwardReflection = previousReportRow?.editorial_reflection ?? "";
   const carryForwardCategory = previousReportRow?.category ?? null;
   const carryForwardBackground = previousReportRow?.story_background_id ?? DEFAULT_STORY_BACKGROUND_ID;
@@ -2285,7 +2265,7 @@ export async function getReport(
     throw new D1IngestionError("not_found", "Report not found.", 404);
   }
   const narrativeRow = await narrativeByReportId(reportId);
-  return reportFromRow(row, narrativeRow ? narrativeFromRow(narrativeRow) : null);
+  return hydrateGeneratedReport(reportFromRow(row, narrativeRow ? narrativeFromRow(narrativeRow) : null));
 }
 
 export async function updateReport(
@@ -2509,6 +2489,49 @@ export async function deleteReportMedia(creatorId: string, mediaId: string): Pro
  * chapter (e.g. republishing an old draft out of order) never touches the current
  * canonical chapter. See db/schema.ts's chapterIndex comment for the full model.
  */
+function publicStoryIndexStatements(
+  db: Awaited<ReturnType<typeof database>>,
+  report: GeneratedReport,
+  publicStoryWithDelta: PublicBuildStoryViewModel & { chapterDelta: ChapterDelta | null },
+  updatedAt: string,
+) {
+  const publicCoverUrl = publicStoryWithDelta.artifactMedia.find((item) => item.kind === "cover")?.url ?? publicStoryWithDelta.artifactMedia[0]?.url ?? null;
+  const publicSearchText = [
+    publicStoryWithDelta.name,
+    publicStoryWithDelta.tagline,
+    publicStoryWithDelta.description,
+    publicStoryWithDelta.owner.name,
+    publicStoryWithDelta.owner.handle,
+    publicStoryWithDelta.category,
+    ...publicStoryWithDelta.stack,
+    ...publicStoryWithDelta.tools.map((tool) => tool.label),
+    ...publicStoryWithDelta.models.map((model) => model.label),
+  ].join(" ").slice(0, 12_000);
+  const statements = [
+    db.prepare(`INSERT INTO buildstory_public_story_index (report_id, story_json, category, search_text, has_live_demo, cover_url, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(report_id) DO UPDATE SET story_json = excluded.story_json, category = excluded.category, search_text = excluded.search_text, has_live_demo = excluded.has_live_demo, cover_url = excluded.cover_url, updated_at = excluded.updated_at`)
+      .bind(report.id, JSON.stringify(publicStoryWithDelta), report.category, publicSearchText, publicStoryWithDelta.artifactLinks.projectUrl ? 1 : 0, publicCoverUrl, updatedAt),
+    db.prepare("DELETE FROM buildstory_public_story_facets WHERE report_id = ?").bind(report.id),
+    db.prepare("INSERT INTO buildstory_public_story_facets (id, report_id, kind, facet_key, label, weight) VALUES (?, ?, 'category', ?, ?, 1)").bind(makeId("facet"), report.id, report.category, report.category),
+  ];
+  const publicFacetTools = new Map(
+    [...publicStoryWithDelta.stack, ...publicStoryWithDelta.tools.map((item) => item.label)].map((tool) => [tool.toLocaleLowerCase("en-US"), tool]),
+  );
+  for (const tool of publicFacetTools.values()) {
+    statements.push(db.prepare("INSERT INTO buildstory_public_story_facets (id, report_id, kind, facet_key, label, weight) VALUES (?, ?, 'tool', ?, ?, 1)").bind(makeId("facet"), report.id, tool.toLocaleLowerCase("en-US"), tool));
+  }
+  for (const model of new Map(publicStoryWithDelta.models.map((item) => [item.id.toLocaleLowerCase("en-US"), item])).values()) {
+    statements.push(db.prepare("INSERT INTO buildstory_public_story_facets (id, report_id, kind, facet_key, label, weight) VALUES (?, ?, 'model', ?, ?, ?)").bind(makeId("facet"), report.id, model.id.toLocaleLowerCase("en-US"), model.label, model.requests));
+  }
+  const publicArchetype = publicStoryWithDelta.profile?.archetype?.name;
+  if (publicArchetype) {
+    const label = canonicalArchetypeName(publicArchetype);
+    statements.push(db.prepare("INSERT INTO buildstory_public_story_facets (id, report_id, kind, facet_key, label, weight) VALUES (?, ?, 'archetype', ?, ?, 1)").bind(makeId("facet"), report.id, archetypeFacetKey(publicArchetype), label));
+  }
+  return statements;
+}
+
 export async function publishReport(
   creatorId: string,
   reportId: string,
@@ -2616,8 +2639,6 @@ export async function publishReport(
     { ...report.artifact, media: await listReportMedia(reportId) },
     { storyBackgroundId: report.storyBackgroundId },
   );
-  const publicCoverUrl = publicStory.artifactMedia.find((item) => item.kind === "cover")?.url ?? publicStory.artifactMedia[0]?.url ?? null;
-  const publicSearchText = [publicStory.name, publicStory.tagline, publicStory.description, publicStory.owner.name, publicStory.owner.handle, publicStory.category, ...publicStory.stack, ...publicStory.tools.map((tool) => tool.label), ...publicStory.models.map((model) => model.label)].join(" ").slice(0, 12_000);
   // Gated at publish time and frozen into story_json, exactly like every other public
   // field - a creator who never republishes after toggling a field off must not have
   // that field's numbers reappear here just because the delta band re-reads live state.
@@ -2633,23 +2654,7 @@ export async function publishReport(
       )
       .bind(thisPath, publishedAt, thisUrl, chapterIndex, chapterDeltaJson, publishedAt, reportId, report.projectId),
   );
-  statements.push(
-    db.prepare(`INSERT INTO buildstory_public_story_index (report_id, story_json, category, search_text, has_live_demo, cover_url, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(report_id) DO UPDATE SET story_json = excluded.story_json, category = excluded.category, search_text = excluded.search_text, has_live_demo = excluded.has_live_demo, cover_url = excluded.cover_url, updated_at = excluded.updated_at`)
-      .bind(reportId, JSON.stringify(publicStoryWithDelta), report.category, publicSearchText, publicStory.artifactLinks.projectUrl ? 1 : 0, publicCoverUrl, publishedAt),
-  );
-  statements.push(db.prepare("DELETE FROM buildstory_public_story_facets WHERE report_id = ?").bind(reportId));
-  statements.push(db.prepare("INSERT INTO buildstory_public_story_facets (id, report_id, kind, facet_key, label, weight) VALUES (?, ?, 'category', ?, ?, 1)").bind(makeId("facet"), reportId, report.category, report.category));
-  const publicFacetTools = new Map(
-    [...publicStory.stack, ...publicStory.tools.map((item) => item.label)].map((tool) => [tool.toLocaleLowerCase("en-US"), tool]),
-  );
-  for (const tool of publicFacetTools.values()) {
-    statements.push(db.prepare("INSERT INTO buildstory_public_story_facets (id, report_id, kind, facet_key, label, weight) VALUES (?, ?, 'tool', ?, ?, 1)").bind(makeId("facet"), reportId, tool.toLocaleLowerCase("en-US"), tool));
-  }
-  for (const model of new Map(publicStory.models.map((item) => [item.id.toLocaleLowerCase("en-US"), item])).values()) {
-    statements.push(db.prepare("INSERT INTO buildstory_public_story_facets (id, report_id, kind, facet_key, label, weight) VALUES (?, ?, 'model', ?, ?, ?)").bind(makeId("facet"), reportId, model.id.toLocaleLowerCase("en-US"), model.label, model.requests));
-  }
+  statements.push(...publicStoryIndexStatements(db, report, publicStoryWithDelta, publishedAt));
 
   try {
     await db.batch(statements);
@@ -3552,4 +3557,88 @@ export async function searchPublishedStories(query: string, limit = 20, cursor?:
     });
   }
   return stories;
+}
+
+export async function countPublicArchetypes(): Promise<PublicArchetypeCounts> {
+  const db = await database();
+  const rows = await db
+    .prepare("SELECT facet_key, COUNT(*) AS count FROM buildstory_public_story_facets WHERE kind = 'archetype' GROUP BY facet_key")
+    .all<{ facet_key: string; count: number }>();
+  const byKey: Record<string, number> = {};
+  let total = 0;
+  for (const row of rows.results) {
+    byKey[row.facet_key] = row.count;
+    total += row.count;
+  }
+  return { total, byKey };
+}
+
+export type PortReportUiPage = {
+  processed: number;
+  hydrated: number;
+  fieldsUpdated: number;
+  republished: number;
+  nextCursor: string | null;
+  done: boolean;
+};
+
+/**
+ * One-shot operator job: persist current profile/signals, union recap/signal
+ * public fields, and rebuild frozen public projections. Safe to re-run.
+ */
+export async function portReportUi(cursor = "", limit = 5, dryRun = false, reportId?: string): Promise<PortReportUiPage> {
+  const db = await database();
+  const pageSize = Math.max(1, Math.min(limit, 10));
+  const onlyId = reportId;
+  const rows = onlyId
+    ? await db.prepare("SELECT id FROM buildstory_reports WHERE status = 'ready' AND id = ?").bind(onlyId).all<{ id: string }>()
+    : cursor
+      ? await db.prepare("SELECT id FROM buildstory_reports WHERE status = 'ready' AND id > ? ORDER BY id LIMIT ?").bind(cursor, pageSize).all<{ id: string }>()
+      : await db.prepare("SELECT id FROM buildstory_reports WHERE status = 'ready' ORDER BY id LIMIT ?").bind(pageSize).all<{ id: string }>();
+  const ids = rows.results.map((row) => row.id);
+  let hydrated = 0;
+  let fieldsUpdated = 0;
+  let republished = 0;
+  for (const id of ids) {
+    const row = await reportById(id);
+    if (!row) continue;
+    const report = reportFromRow(row);
+    const { next, plan } = planReportUiPort(report);
+    if (plan.hydrateSnapshot) hydrated += 1;
+    if (plan.updatePublicFields) fieldsUpdated += 1;
+    if (plan.refreshPublicIndex) republished += 1;
+    if (dryRun) continue;
+    const now = new Date().toISOString();
+    const statements = [];
+    if (plan.hydrateSnapshot || plan.updatePublicFields) {
+      statements.push(
+        db.prepare("UPDATE buildstory_reports SET snapshot_json = ?, selected_public_fields_json = ?, updated_at = ? WHERE id = ?")
+          .bind(JSON.stringify(next.snapshot), JSON.stringify(next.selectedPublicFields), now, id),
+      );
+    }
+    if (plan.refreshPublicIndex) {
+      const publicStory = publicBuildStoryFromSnapshot(
+        next.snapshot,
+        next.selectedPublicFields,
+        { tagline: next.editorial.tagline, description: next.editorial.description, reflection: next.editorial.reflection, category: next.category },
+        { ...next.artifact, media: await listReportMedia(id) },
+        { storyBackgroundId: next.storyBackgroundId },
+      );
+      const publicStoryWithDelta = {
+        ...publicStory,
+        chapterDelta: next.chapterDelta ? publicChapterDelta(next.chapterDelta, next.selectedPublicFields) : null,
+      };
+      statements.push(...publicStoryIndexStatements(db, next, publicStoryWithDelta, now));
+    }
+    if (statements.length) await db.batch(statements);
+  }
+  const nextCursor = ids.at(-1) ?? null;
+  return {
+    processed: ids.length,
+    hydrated,
+    fieldsUpdated,
+    republished,
+    nextCursor,
+    done: Boolean(onlyId) || ids.length < pageSize,
+  };
 }

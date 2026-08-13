@@ -44,6 +44,7 @@ export type SnapshotTimeWindow = {
   endedAt: string;
   activeDays: number;
   timezone: string;
+  utcOffsetMinutes?: number;
 };
 
 export type SessionSummary = {
