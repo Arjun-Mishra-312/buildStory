@@ -31,7 +31,7 @@ export type RecapStreakRange = {
 export type RecapWidget =
   | { type: "stat-grid"; tiles: RecapStatTile[] }
   | { type: "ranked"; items: RecapRankedItem[] }
-  | { type: "hour-bars"; bars: RecapBar[]; peakLabel: string; sparse: boolean }
+  | { type: "hour-bars"; bars: RecapBar[]; peakLabel: string }
   | { type: "weekday"; bars: RecapBar[] }
   | { type: "streak"; others: RecapStreakRange[] };
 
@@ -238,25 +238,9 @@ function hourBarsFrom(context: RecapContext): Extract<RecapWidget, { type: "hour
       type: "hour-bars",
       bars,
       peakLabel: `Peak ${String(peak).padStart(2, "0")}:00`,
-      sparse: false,
     };
   }
-  const peaks = (context.peakHours ?? []).filter((hour) => hour >= 0 && hour <= 23);
-  if (!peaks.length) return null;
-  const peakSet = new Set(peaks);
-  const lead = peaks[0]!;
-  return {
-    type: "hour-bars",
-    bars: counts.map((_, hour) => ({
-      key: String(hour).padStart(2, "0"),
-      label: String(hour).padStart(2, "0"),
-      count: peakSet.has(hour) ? 1 : 0,
-      share: 0,
-      peak: peakSet.has(hour),
-    })),
-    peakLabel: `Peak ${String(lead).padStart(2, "0")}:00`,
-    sparse: true,
-  };
+  return null;
 }
 
 function weekdayFrom(context: RecapContext): Extract<RecapWidget, { type: "weekday" }> | null {

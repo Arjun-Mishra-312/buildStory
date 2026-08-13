@@ -409,11 +409,9 @@ function hourSlide(widgets: RecapWidgets): RecapSlide | null {
     kind: "turning",
     kicker: "Your hours",
     headline: "When the work actually happened.",
-    body: widget.sparse
-      ? widget.peakLabel
-      : peak
-        ? `${widget.peakLabel} · ${peak.count} session${peak.count === 1 ? "" : "s"}`
-        : widget.peakLabel,
+    body: peak
+      ? `${widget.peakLabel} · ${peak.count} session${peak.count === 1 ? "" : "s"}`
+      : widget.peakLabel,
     visual: illustrationForSlideKind("turning"),
     textScale: "medium",
     sourceRefs: [],
@@ -477,13 +475,16 @@ function streakSlide(widgets: RecapWidgets): RecapSlide | null {
   });
 }
 
-function hydrateSlide(slide: RecapSlide, widgets: RecapWidgets): RecapSlide {
+function hydrateSlide(slide: RecapSlide, widgets: RecapWidgets): RecapSlide | null {
   const requested = slide.layout && slide.layout !== "copy" ? slide.layout : undefined;
   const inferred = !requested && slide.kind === "scale" && widgets.statGrid ? "stat-grid" as const : undefined;
   const layout = requested ?? inferred;
   if (!layout) return slide;
   const widget = widgetForLayout(layout, widgets);
-  if (!widget) return { ...slide, layout: "copy", widget: undefined };
+  if (!widget) {
+    if (requested === "hour-bars") return null;
+    return { ...slide, layout: "copy", widget: undefined };
+  }
   if (layout === "streak" && widgets.streak && !slide.giantValue) {
     return fitSlide({
       ...slide,
@@ -590,7 +591,7 @@ export function buildRecapScript(context: RecapContext): RecapScript {
   const widgets = computeRecapWidgets(context);
   const authored = authoredRecapSlides(context.pack);
   if (authored.length >= 4) {
-    const hydrated = authored.map((slide) => hydrateSlide(slide, widgets));
+    const hydrated = authored.map((slide) => hydrateSlide(slide, widgets)).filter((slide): slide is RecapSlide => Boolean(slide));
     const hasClose = hydrated.some((slide) => slide.kind === "close");
     const withClose = hasClose ? hydrated : [...hydrated, fitSlide({
       id: "close",

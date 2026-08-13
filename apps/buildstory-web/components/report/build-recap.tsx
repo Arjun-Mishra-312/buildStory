@@ -322,16 +322,16 @@ export function BuildRecap({
   );
 }
 
-function RecapBars({ bars, sparse = false }: { bars: RecapBar[]; sparse?: boolean }) {
+function RecapBars({ bars }: { bars: RecapBar[] }) {
   return (
     <ol className="build-recap__bars">
       {bars.map((bar) => (
         <li key={bar.key} data-peak={bar.peak ? "" : undefined}>
           <span>{bar.label}</span>
-          <b className="build-recap__track" data-sparse={sparse ? "" : undefined}>
-            <i style={{ ["--share" as string]: sparse ? (bar.peak ? 0.18 : 0) : bar.share }} />
+          <b className="build-recap__track">
+            <i style={{ ["--share" as string]: bar.share }} />
           </b>
-          <em>{sparse ? (bar.peak ? "peak" : "") : bar.count || ""}</em>
+          <em>{bar.count || ""}</em>
         </li>
       ))}
     </ol>
@@ -417,7 +417,7 @@ function RecapStreaks({ others }: { others: RecapStreakRange[] }) {
 function RecapWidgetView({ widget }: { widget: RecapWidget }) {
   if (widget.type === "stat-grid") return <RecapStatGrid tiles={widget.tiles} />;
   if (widget.type === "ranked") return <RecapRanked items={widget.items} />;
-  if (widget.type === "hour-bars") return <RecapBars bars={widget.bars} sparse={widget.sparse} />;
+  if (widget.type === "hour-bars") return <RecapBars bars={widget.bars} />;
   if (widget.type === "weekday") return <RecapBars bars={widget.bars} />;
   return <RecapStreaks others={widget.others} />;
 }

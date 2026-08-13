@@ -239,7 +239,6 @@ test("recap widgets derive hours, weekdays, streaks, and skip when sessions are 
   const widgets = computeRecapWidgets(widgetContext());
   assert.equal(widgets.statGrid?.tiles.length, 4);
   assert.equal(widgets.hourBars?.bars.length, 24);
-  assert.equal(widgets.hourBars?.sparse, false);
   assert.equal(widgets.hourBars?.bars[18]?.count, 4);
   assert.equal(widgets.weekday?.bars.length, 7);
   assert.ok((widgets.weekday?.bars.reduce((sum, bar) => sum + bar.count, 0) ?? 0) >= 6);
@@ -249,10 +248,12 @@ test("recap widgets derive hours, weekdays, streaks, and skip when sessions are 
   assert.equal(widgets.ranked?.items[0]?.markSrc, "/assets/brands/claude.svg");
 
   const empty = computeRecapWidgets(widgetContext({ sessions: [], peakHours: [22, 10] }));
-  assert.equal(empty.hourBars?.sparse, true);
-  assert.equal(empty.hourBars?.bars[22]?.peak, true);
+  assert.equal(empty.hourBars, null);
   assert.equal(empty.weekday, null);
   assert.equal(empty.streak, null);
+
+  const publicScript = buildRecapScript(widgetContext({ sessions: [], peakHours: [22, 15, 10], pack: packWithoutRecap() }));
+  assert.equal(publicScript.slides.some((slide) => slide.layout === "hour-bars"), false);
 });
 
 function packWithoutRecap() {

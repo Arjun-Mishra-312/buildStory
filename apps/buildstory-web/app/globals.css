@@ -10719,9 +10719,6 @@ html[data-theme="dark"] .story-pack__section-illustration img {
   transform-origin: left center;
   animation: recap-bar-fill .9s cubic-bezier(.2, .8, .2, 1) both;
 }
-.build-recap__track[data-sparse] > i {
-  border-radius: 99px;
-}
 .build-recap__ranked {
   display: grid;
   gap: 10px;
