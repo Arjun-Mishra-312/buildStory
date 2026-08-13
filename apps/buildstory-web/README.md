@@ -35,14 +35,20 @@ BUILDSTORY_STORE=memory
 
 The fallback identity and loopback API are impossible to enable when `NODE_ENV=production`. Development memory is intentionally disposable and includes the seeded Orbit Notes report.
 
-Build and install the co-located scanner separately:
+Install the open-source scanner separately:
 
 ```powershell
-npm --prefix packages/buildstory-scanner ci
-npm run build:scanner
-npm install --global ./artifacts/buildstory-scan-0.9.0.tgz
+npm install --global buildstory-scan
 buildstory-scan --version
 ```
+
+Or generate a local report without connecting:
+
+```powershell
+npx buildstory-scan generate --repo . --consent local-scan
+```
+
+Source: [`buildstory-scan`](https://github.com/Arjun-Mishra-312/buildstory-scan).
 
 The dashboard provides the exact `buildstory-scan connect ... --api-base-url http://localhost:3000/` command. A scan/upload still requires both `--consent local-scan` and `--upload-consent local-dashboard`.
 
@@ -86,14 +92,13 @@ See [`docs/production-runbook.md`](docs/production-runbook.md) for local, stagin
 
 ```powershell
 npm --prefix apps/buildstory-web run verify
-npm --prefix packages/buildstory-scanner test
 ```
 
-The web verification runs lint, strict TypeScript, a deployment build, rendered-route/privacy tests, and local API lifecycle tests. The scanner suite builds, tests privacy/redaction and loopback restrictions, packs into a clean prefix, verifies both `buildstory` and `story-scanner`, and exercises the one-PUT flow.
+The web verification runs lint, strict TypeScript, a deployment build, rendered-route/privacy tests, and local API lifecycle tests. Scanner tests live in the public [`buildstory-scan`](https://github.com/Arjun-Mishra-312/buildstory-scan) repository.
 
 Contract details:
 
 - [`docs/local-scanner-integration.md`](docs/local-scanner-integration.md)
 - [`docs/access-and-scanner-handoff.md`](docs/access-and-scanner-handoff.md)
 - [`lib/ingestion/project-snapshot.schema.json`](lib/ingestion/project-snapshot.schema.json)
-- [`../../packages/buildstory-scanner/docs/privacy.md`](../../packages/buildstory-scanner/docs/privacy.md)
+- [Scanner privacy boundary](https://github.com/Arjun-Mishra-312/buildstory-scan/blob/main/docs/privacy.md)

@@ -1,14 +1,18 @@
 # Buildstory
 
-Buildstory is a standalone product for publishing sanitized stories about AI-assisted software work. This repository contains both the desktop-first web application and the privacy-preserving local scanner; it has no runtime, build, or source dependency on the portfolio project.
+Buildstory turns AI-assisted software work into an evidence-backed build story.
 
-## Repository layout
+- The **report engine** is open source: [`buildstory-scan`](https://github.com/Arjun-Mishra-312/buildstory-scan). You can inspect how a repository is processed, or generate a report on your own machine with no account.
+- This repository is the **hosted product**: authentication, the interactive report UI, publishing, profiles, and discovery.
 
-- `apps/buildstory-web` — Next.js 16/Vinext web app, Auth.js integration, strict local scanner API, D1 schema and migration, Cloudflare Worker configuration, tests, and operations documentation.
-- `packages/buildstory-scanner` — read-only local CLI package exposing both `buildstory` and the compatible `story-scanner` alias.
-- `artifacts/` — packed scanner archives for local install and release verification. `npm run package:scanner` writes the current one; `npm run check:artifact` asserts the newest matches the source schema.
+```powershell
+npx buildstory-scan generate --repo . --consent local-scan
+```
 
-This is an npm workspace: one root lockfile covers both `apps/buildstory-web` and `packages/buildstory-scanner`, installed together from the repository root. Use Node.js 22.13 or newer for the complete product workspace.
+## This workspace
+
+- `apps/buildstory-web` — Next.js / Vinext web app (closed source)
+- The scanner package is developed in the public `buildstory-scan` repository and consumed here as a dependency
 
 ## Local setup
 
@@ -25,10 +29,9 @@ The development-only authentication fallback and loopback scanner API must be ex
 ```powershell
 npm run verify:product
 npm run build:buildstory
-npm run package:scanner
 ```
 
-`verify:product` runs the web lint, typecheck, build, rendered-route/security tests, and the scanner build/privacy/package/CLI tests. `package:scanner` writes a packed archive to `artifacts`; it does not publish to npm. The scanner publishes as `buildstory-scan` and installs one binary of the same name.
+`verify:product` runs the web lint, typecheck, build, and rendered-route/security tests. The scanner is developed and published from [`buildstory-scan`](https://github.com/Arjun-Mishra-312/buildstory-scan).
 
 Narrative generation is local-first. A new dashboard connection defaults to local Ollama generation: redacted excerpts may be used in memory to write the report, but the uploaded snapshot carries only the generated prose and deterministic metrics. Cloud narrative mode is an explicit dashboard choice and requires reviewing the redacted excerpts before they are uploaded. Off mode uploads metrics/profile facts without prose. No mode uses non-loopback network access during scanning except the single explicitly pinned upload origin.
 

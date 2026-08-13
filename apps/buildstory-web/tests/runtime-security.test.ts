@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { productionRuntimeIssues } from "../lib/config/runtime";
 import {
@@ -250,10 +251,7 @@ test("the hosted CLI API is opt-in and accepts requests only on the configured p
 test("web and scanner packages share the same ProjectSnapshot schema semantics", async () => {
   const [webSchema, scannerSchema] = await Promise.all([
     readFile(new URL("../lib/ingestion/project-snapshot.schema.json", import.meta.url), "utf8"),
-    readFile(
-      new URL("../../../packages/buildstory-scanner/schema/project-snapshot.schema.json", import.meta.url),
-      "utf8",
-    ),
+    readFile(fileURLToPath(import.meta.resolve("buildstory-scan/schema")), "utf8"),
   ]);
   assert.deepEqual(JSON.parse(webSchema), JSON.parse(scannerSchema));
 });

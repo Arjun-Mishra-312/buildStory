@@ -137,7 +137,11 @@ export function ScannerConnectionFlow({
           <div className="scanner-step-label"><span>1×</span> ONE-TIME SETUP</div>
           <h2>Install the BuildStory scanner.</h2>
           <p>
-            Run this once before creating your first story. If you already installed
+            Run this once before creating your first story. The scanner is open source:
+            you can generate a report on your machine without an account, or inspect
+            {" "}
+            <a href="https://github.com/Arjun-Mishra-312/buildstory-scan">how your repository is processed</a>
+            . If you already installed
             <code> buildstory-scan</code>, you can skip this step.
           </p>
         </div>

@@ -2,7 +2,7 @@
 
 ## Architecture and required providers
 
-The repository root orchestrates the complete Buildstory product. The web application's deploy root is `apps/buildstory-web`; the scanner remains a separate local package and is never deployed with the web app.
+The repository root orchestrates the hosted Buildstory product. The web application's deploy root is `apps/buildstory-web`. The scanner is the public [`buildstory-scan`](https://github.com/Arjun-Mishra-312/buildstory-scan) package and is never deployed with the web app.
 
 Hosted Buildstory runs as a single Cloudflare Worker (the committed Vinext
 Worker) with static assets, one D1 binding named `DB`, and one R2 binding named
@@ -28,7 +28,7 @@ The scanner accepts a hosted ingestion destination only when explicitly pinned p
 
 2. Copy `apps/buildstory-web/.env.example` to `.env.local`. For the documented fallback, set `BUILDSTORY_DEV_AUTH_BYPASS=true`, `BUILDSTORY_LOCAL_API_ENABLED=true`, and `BUILDSTORY_STORE=memory`.
 3. Start the web app with `npm run dev:buildstory` and open `http://localhost:3000`.
-4. Build/install the CLI from `packages/buildstory-scanner`, the newest archive in `artifacts/`, or `npm install --global buildstory-scan`.
+4. Install the CLI with `npm install --global buildstory-scan`, or run `npx buildstory-scan` from [the public engine repo](https://github.com/Arjun-Mishra-312/buildstory-scan).
 5. In `/studio/connect`, create a session and run the displayed connect command. From the chosen Git worktree run:
 
    ```powershell

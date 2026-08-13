@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import test from "node:test";
 import { computeSignals } from "../lib/ingestion/signals";
 import { buildStoryPackSources } from "../lib/narrative/story-pack";
@@ -36,27 +34,10 @@ test("computeSignals is deterministic: the same snapshot always produces the sam
   }
 });
 
-test("the scanner and web signals.ts twins compute identical output for the same fixture", async () => {
-  // Both packages ship a byte-identical copy of lib/ingestion/signals.ts,
-  // differing only in the import path (matching the profile.ts twin
-  // convention) - this proves the scanner-side copy at
-  // packages/buildstory-scanner/src/insights/signals.ts hasn't drifted, the
-  // same way the existing cross-package ProjectSnapshot schema test does.
-  const scannerSignalsSource = await readFile(
-    path.resolve(process.cwd(), "../../packages/buildstory-scanner/src/insights/signals.ts"),
-    "utf8",
-  );
-  const webSignalsSource = await readFile(
-    path.resolve(process.cwd(), "lib/ingestion/signals.ts"),
-    "utf8",
-  );
-  // Only the two module-path references differ between twins (an
-  // `import type` line and a re-`export type` line) - see signals.ts's own
-  // header comment. Normalize both away rather than assume line position.
-  const normalizeImportPaths = (source: string) => source
-    .replaceAll('"./scanner-project-snapshot"', '"PATH"')
-    .replaceAll('"../contract.js"', '"PATH"');
-  assert.equal(normalizeImportPaths(scannerSignalsSource), normalizeImportPaths(webSignalsSource));
+test("web computeSignals is the open-source engine implementation", async () => {
+  const { computeSignals: fromEngine } = await import("buildstory-scan/engine");
+  const inputs = signalInputs(snapshot);
+  assert.deepEqual(computeSignals(inputs), fromEngine(inputs as Parameters<typeof fromEngine>[0]));
 });
 
 test("no signal states a number that wasn't computed - every headline/detail is deterministic prose over the signal's own value", () => {

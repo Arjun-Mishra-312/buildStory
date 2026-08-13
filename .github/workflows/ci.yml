@@ -42,10 +42,7 @@ jobs:
           BUILDSTORY_LLM_MODEL: deepseek/deepseek-v4-flash
           BUILDSTORY_ENABLE_HOSTED_OPENAI: "false"
 
-      - name: Check packed scanner freshness
-        run: npm run check:artifact
-
-      - name: Verify buildstory-web (lint, typecheck, build, test) and buildstory-scanner (build, test)
+      - name: Verify buildstory-web (lint, typecheck, build, test)
         run: npm run verify:product
 
       - name: Validate migrations and deploy bundle

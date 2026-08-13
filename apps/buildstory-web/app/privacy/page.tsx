@@ -7,7 +7,7 @@ const sections: LegalSection[] = [
   {
     heading: "Who this covers",
     paragraphs: [
-      "This policy describes how Buildstory, a service operated by Arjun Mishra, an individual based in British Columbia, Canada (“we”, “us”), collects, uses, and shares information when you use the Buildstory website, the buildstory-scan command-line scanner, and related services (together, the “Service”).",
+      "This policy describes how Buildstory, a service operated by Arjun Mishra, an individual based in British Columbia, Canada (“we”, “us”), collects, uses, and shares information when you use the Buildstory website, the buildstory-scan command-line scanner, and related services (together, the “Service”). The report-generation engine is open source at https://github.com/Arjun-Mishra-312/buildstory-scan — you can inspect exactly how a repository is processed, or generate a report entirely on your own machine.",
       "Buildstory is operated by one person, not a company. References to “we” and “us” throughout this policy mean Arjun Mishra acting as the Service's operator.",
     ],
   },

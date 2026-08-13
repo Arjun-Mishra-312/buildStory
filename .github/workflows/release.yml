@@ -29,7 +29,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify:product
-      - run: npm run check:artifact
       - run: npm --prefix apps/buildstory-web run check:production-config
         env:
           # Deliberately placeholders, not real secrets. check:production-config

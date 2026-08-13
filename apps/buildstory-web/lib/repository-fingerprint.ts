@@ -1,7 +1,7 @@
 export type CanonicalRemote = { host: string; path: string };
 
 /**
- * Mirrors packages/buildstory-scanner/src/repository.ts's canonicalizeRemote()
+ * Mirrors buildstory-scan's repository.ts canonicalizeRemote()
  * byte-for-byte, INCLUDING its known bug: the SCP-like branch is checked first
  * and has no way to distinguish "user@host:path" (real SCP syntax) from any
  * "scheme://host/path" URL, so for a plain https:// remote (the common case)
@@ -42,7 +42,7 @@ async function sha256Hex(value: string): Promise<string> {
     .join("");
 }
 
-/** Mirrors packages/buildstory-scanner/src/canonical-json.ts's sha256() output format ("sha256:<hex>"). */
+/** Mirrors buildstory-scan's canonical-json.ts sha256() output format ("sha256:<hex>"). */
 export async function sha256Fingerprint(value: string): Promise<`sha256:${string}`> {
   return `sha256:${await sha256Hex(value)}`;
 }

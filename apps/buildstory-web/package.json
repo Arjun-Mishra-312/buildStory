@@ -40,7 +40,8 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "stripe": "22.4.0",
-    "workers-og": "^0.0.27"
+    "workers-og": "^0.0.27",
+    "buildstory-scan": "git+https://github.com/Arjun-Mishra-312/buildstory-scan.git#v1.2.0"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.50.0",

@@ -10,12 +10,12 @@ type DisclosurePoints = {
 };
 
 /**
- * Copy is derived from packages/buildstory-scanner/src/privacy-boundary.ts
+ * Copy is derived from buildstory-scan's privacy-boundary.ts
  * (the redaction categories: remote-url, raw-host, absolute-path,
  * relative-file-path, plus the known-secret-format list in redaction.ts)
- * and packages/buildstory-scanner/docs/privacy.md, so this disclosure and
- * the scanner's actual behavior cannot drift apart silently - if the
- * redaction boundary changes, this text should change with it.
+ * and docs/privacy.md in github.com/Arjun-Mishra-312/buildstory-scan, so this
+ * disclosure and the scanner's actual behavior cannot drift apart silently -
+ * if the redaction boundary changes, this text should change with it.
  */
 const REDACTED_FIRST = "Recognized email addresses, file paths, URLs, hostnames, and known secret formats are replaced or cause an excerpt to be dropped before it can leave this machine. Pattern redaction cannot identify every personal fact, pasted code fragment, novel secret, or low-entropy credential, so review remains required.";
 
