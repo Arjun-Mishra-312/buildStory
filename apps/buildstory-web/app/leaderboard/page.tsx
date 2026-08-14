@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { EditorialIllustration } from "@/components/editorial-illustration";
-import { BuilderAvatar, LeaderboardToggles } from "@/components/leaderboard-controls";
+import { LeaderboardToggles } from "@/components/leaderboard-controls";
+import { LeaderboardList } from "@/components/leaderboard-list";
 import {
   DEFAULT_LEADERBOARD_METRIC,
   DEFAULT_LEADERBOARD_PERIOD,
@@ -9,9 +9,7 @@ import {
   isLeaderboardPeriod,
 } from "@/lib/leaderboard/contracts";
 import { getLeaderboard } from "@/lib/leaderboard/store";
-import { formatUsageSpend, formatUsageTokens } from "@/lib/usage/format";
 import { getPinnedBadgesByUserIds } from "@/lib/badges/store";
-import { LeaderboardBadgeChips } from "@/components/profile-badges";
 
 export const metadata: Metadata = {
   title: "Leaderboard",
@@ -66,41 +64,7 @@ export default async function LeaderboardPage({ searchParams }: PageProps) {
             {unavailable ? <a href="/leaderboard">Try again</a> : null}
           </div>
         ) : (
-          <ol className="leaderboard-list">
-            {entries.map((entry) => (
-              <li key={entry.user.id} className="leaderboard-list__row">
-                <span className="leaderboard-list__rank">{entry.rank}</span>
-                <Link className="leaderboard-list__identity" href={`/u/${entry.user.handle}`}>
-                  <BuilderAvatar name={entry.user.displayName} url={entry.user.avatarUrl} className="avatar avatar--small" />
-                  <span>
-                    <strong>{entry.user.displayName}</strong>
-                    <small>@{entry.user.handle}</small>
-                  </span>
-                  <LeaderboardBadgeChips awards={badgeChips.get(entry.user.id) ?? []} />
-                </Link>
-                <span className="leaderboard-list__stat">
-                  <strong>{formatUsageSpend(entry.spendMicroUsd)}</strong>
-                  <small>est. spend</small>
-                </span>
-                <span className="leaderboard-list__stat">
-                  <strong>{formatUsageTokens(entry.tokens)}</strong>
-                  <small>tokens</small>
-                </span>
-                <span className="leaderboard-list__stat">
-                  <strong>{entry.commitCount.toLocaleString("en-US")}</strong>
-                  <small>commits</small>
-                </span>
-                <span className="leaderboard-list__stat">
-                  <strong>{entry.activeDays}</strong>
-                  <small>active days</small>
-                </span>
-                <span className="leaderboard-list__stat">
-                  <strong>{entry.lastActiveAt ?? "—"}</strong>
-                  <small>last active</small>
-                </span>
-              </li>
-            ))}
-          </ol>
+          <LeaderboardList entries={entries} badgeChips={badgeChips} />
         )}
     </section>
   );

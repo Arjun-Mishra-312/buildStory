@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { GithubStarButton } from "@/components/github-star-button";
 import { OllamaModelStatus } from "@/components/creator/ollama-model-status";
 import { ScannerConnectionFlow } from "@/components/creator/scanner-connection-flow";
 import { requireCreator } from "@/lib/auth/runtime";
@@ -74,6 +75,7 @@ export default async function UpdateProjectPage({ params }: PageProps) {
         initialSessions={sessions}
         scannerEnabled={localDiscovery || hosted}
         targetProject={{ id: project.id, name: project.name, nextChapterIndex }}
+        engineStarButton={<GithubStarButton compact />}
       /></div>
     </main>
   );

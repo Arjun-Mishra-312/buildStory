@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { GithubStarButton } from "@/components/github-star-button";
 import { BrandMark } from "./shell/brand-mark";
 
 export function SiteFooter() {
@@ -14,6 +15,7 @@ export function SiteFooter() {
           <Link href="/terms">Terms</Link>
           <Link href="/privacy">Privacy</Link>
           <a href="mailto:arjunmishra31204@gmail.com">Say hello</a>
+          <GithubStarButton compact />
         </div>
       </div>
     </footer>

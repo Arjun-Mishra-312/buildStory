@@ -49,7 +49,7 @@ export function TopBar({ viewer }: { viewer: Viewer | null }) {
           <NavLink href="/explore">Explore</NavLink>
           <NavLink href="/leaderboard">Leaderboard</NavLink>
           <NavLink href="/about#how-it-works">How it works</NavLink>
-          <NavLink href="/about#manifesto">Manifesto</NavLink>
+          <NavLink href="/about#badges">Badges</NavLink>
         </nav>
         <div className="site-header__actions">
           <div className={`site-mobile-menu${menuOpen ? " is-open" : ""}`} ref={menuRef}>
@@ -71,7 +71,7 @@ export function TopBar({ viewer }: { viewer: Viewer | null }) {
                     <NavLink href="/explore" onClick={() => setMenuOpen(false)}>Explore</NavLink>
                     <NavLink href="/leaderboard" onClick={() => setMenuOpen(false)}>Leaderboard</NavLink>
                     <NavLink href="/about#how-it-works" onClick={() => setMenuOpen(false)}>How it works</NavLink>
-                    <NavLink href="/about#manifesto" onClick={() => setMenuOpen(false)}>Manifesto</NavLink>
+                    <NavLink href="/about#badges" onClick={() => setMenuOpen(false)}>Badges</NavLink>
                     {viewer ? <NavLink href="/studio" onClick={() => setMenuOpen(false)}>Studio</NavLink> : <NavLink href={`/signin?callbackUrl=${encodeURIComponent(callback)}`} onClick={() => setMenuOpen(false)}>Sign in</NavLink>}
                   </nav>
                   <div className="site-mobile-menu__tools" aria-label="Account tools">

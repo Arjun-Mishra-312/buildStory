@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { GithubStarButton } from "@/components/github-star-button";
 import { OllamaModelStatus } from "@/components/creator/ollama-model-status";
 import { ScannerConnectionFlow } from "@/components/creator/scanner-connection-flow";
 import { requireCreator } from "@/lib/auth/runtime";
@@ -49,6 +50,7 @@ export default async function ConnectScannerPage() {
       <div data-guide="create-scanner"><ScannerConnectionFlow
         initialSessions={sessions}
         scannerEnabled={localDiscovery || hosted}
+        engineStarButton={<GithubStarButton compact />}
       /></div>
     </main>
   );

@@ -20,7 +20,7 @@ const facts: FactCard[] = [
   { index: "05", label: "EVIDENCE-BACKED INSIGHTS", value: "8", title: "moments changed the build", copy: "The report keeps the turning points that shaped the release, with source metadata attached.", tone: "coral" },
 ];
 
-export function LandingFactRail() {
+export function LandingFactRail({ embedded = false }: { embedded?: boolean }) {
   const railRef = useRef<HTMLDivElement>(null);
 
   function move(direction: number) {
@@ -36,10 +36,13 @@ export function LandingFactRail() {
   }
 
   return (
-    <section className="fact-rail-section section-wrap" id="facts" aria-labelledby="facts-heading">
+    <div className={embedded ? "fact-rail-embed" : "fact-rail-section section-wrap"} id={embedded ? undefined : "facts"} aria-labelledby="facts-heading">
       <header className="fact-rail__header">
-        <div className="section-index">( WHAT YOUR BUILD REVEALS )</div>
-        <div className="fact-rail__heading"><h2 id="facts-heading">What did your build reveal about you?</h2><p>These are the kinds of facts that surface when the work behind the artifact becomes visible.</p></div>
+        {embedded ? null : <div className="section-index">( WHAT YOUR BUILD REVEALS )</div>}
+        <div className="fact-rail__heading">
+          <h2 id="facts-heading">{embedded ? "What this build revealed" : "What did your build reveal about you?"}</h2>
+          {embedded ? null : <p>These are the kinds of facts that surface when the work behind the artifact becomes visible.</p>}
+        </div>
         <div className="fact-rail__controls" aria-label="Fact cards">
           <button type="button" onClick={() => move(-1)} aria-label="Show previous build fact">&larr;</button>
           <button type="button" onClick={() => move(1)} aria-label="Show next build fact">&rarr;</button>
@@ -49,6 +52,6 @@ export function LandingFactRail() {
         {facts.map((fact) => <article className={`fact-card fact-card--${fact.tone}`} key={fact.index}><span className="fact-card__index">{fact.index}</span><span className="fact-card__label">{fact.label}</span><strong>{fact.value}</strong><h3>{fact.title}</h3><p>{fact.copy}</p></article>)}
       </div>
       <p className="fact-rail__caption">Example discoveries from <Link href="/u/arjun-mishra/vibe-social">Vibe-social&apos;s public report</Link>. Your report will be different.</p>
-    </section>
+    </div>
   );
 }

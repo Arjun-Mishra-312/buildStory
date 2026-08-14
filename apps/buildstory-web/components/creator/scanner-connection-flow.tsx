@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { DeviceAuthorization, UploadSessionView } from "@/lib/ingestion/contracts";
 import { NARRATIVE_MODE_PREFERENCE_KEY, NARRATIVE_PROVIDER_PREFERENCE_KEY, OLLAMA_MODEL_PREFERENCE_KEY } from "./ollama-model-status";
 import { GuideTooltip } from "@/components/guidance/studio-guide";
@@ -44,11 +44,13 @@ export function ScannerConnectionFlow({
   initialSessions,
   scannerEnabled,
   targetProject = null,
+  engineStarButton = null,
 }: {
   initialSessions: UploadSessionView[];
   scannerEnabled: boolean;
   /** Set when this session is started from an existing project's "Scan for updates" flow, not the general "Create a story" flow. */
   targetProject?: TargetProject | null;
+  engineStarButton?: ReactNode;
 }) {
   const [projectLabel, setProjectLabel] = useState(targetProject?.name ?? "New local project");
   const [session, setSession] = useState<UploadSessionView | null>(null);
@@ -144,6 +146,7 @@ export function ScannerConnectionFlow({
             . If you already installed
             <code> buildstory-scan</code>, you can skip this step.
           </p>
+          {engineStarButton}
         </div>
         <div className="scanner-install__command">
           <button type="button" className="scanner-command scanner-command--install" onClick={() => copyCommand(INSTALL_COMMAND, "install")}>
