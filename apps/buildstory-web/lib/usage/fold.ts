@@ -60,7 +60,15 @@ export function usageWindowRelation(previous: UsageWindow, current: UsageWindow)
   return "overlapping";
 }
 
-export function foldChaptersToDailyRows(chapters: UsageChapterInput[]): UsageDailyRow[] {
+export type FeatSession = {
+  sessionRef: string;
+  startedAt: string;
+  endedAt: string;
+  durationMinutes: number;
+  totalTokens: number;
+};
+
+function foldAttributedSessions(chapters: UsageChapterInput[]): AttributedSession[] {
   const sorted = [...chapters].sort((left, right) => left.chapterIndex - right.chapterIndex);
   const folded = new Map<string, AttributedSession>();
   let previousWindow: UsageWindow | null = null;
@@ -81,7 +89,28 @@ export function foldChaptersToDailyRows(chapters: UsageChapterInput[]): UsageDai
     }
     previousWindow = current.window;
   }
-  return bucketDaily(Array.from(folded.values()));
+  return Array.from(folded.values());
+}
+
+export function foldChaptersToDailyRows(chapters: UsageChapterInput[]): UsageDailyRow[] {
+  return bucketDaily(foldAttributedSessions(chapters));
+}
+
+export function foldChaptersToFeatSessions(chapters: UsageChapterInput[]): FeatSession[] {
+  return foldAttributedSessions(chapters).map((session) => ({
+    sessionRef: session.sessionRef,
+    startedAt: session.startedAt,
+    endedAt: session.endedAt,
+    durationMinutes: durationMinutes(session.startedAt, session.endedAt),
+    totalTokens: session.allocations.reduce((sum, allocation) => sum + allocation.tokens, 0),
+  }));
+}
+
+function durationMinutes(startedAt: string, endedAt: string): number {
+  const start = Date.parse(startedAt);
+  const end = Date.parse(endedAt);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0;
+  return Math.max(0, Math.round((end - start) / 60_000));
 }
 
 function normalizeChapter(snapshot: unknown): NormalizedChapter | null {

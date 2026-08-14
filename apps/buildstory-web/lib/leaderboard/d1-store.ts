@@ -87,6 +87,12 @@ export async function recomputeLeaderboard(period: LeaderboardPeriod, options?: 
       )
       .bind(period, now),
   ]);
+  try {
+    const { refreshLeagueBadges } = await import("@/lib/badges/d1-store");
+    await refreshLeagueBadges();
+  } catch {
+    // League badges are additive; a recompute should still persist ranks.
+  }
 }
 
 export async function recomputeAllLeaderboards(): Promise<void> {

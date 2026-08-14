@@ -10,6 +10,8 @@ import {
 } from "@/lib/leaderboard/contracts";
 import { getLeaderboard } from "@/lib/leaderboard/store";
 import { formatUsageSpend, formatUsageTokens } from "@/lib/usage/format";
+import { getPinnedBadgesByUserIds } from "@/lib/badges/store";
+import { LeaderboardBadgeChips } from "@/components/profile-badges";
 
 export const metadata: Metadata = {
   title: "Leaderboard",
@@ -41,6 +43,7 @@ export default async function LeaderboardPage({ searchParams }: PageProps) {
   const period = parsePeriod(params.period);
   const metric = parseMetric(params.metric);
   const { entries, unavailable } = await loadEntries(period, metric);
+  const badgeChips = await getPinnedBadgesByUserIds(entries.map((entry) => entry.user.id)).catch(() => new Map());
   return (
     <section className="leaderboard-page section-wrap">
         <header className="explore-heading">
@@ -73,6 +76,7 @@ export default async function LeaderboardPage({ searchParams }: PageProps) {
                     <strong>{entry.user.displayName}</strong>
                     <small>@{entry.user.handle}</small>
                   </span>
+                  <LeaderboardBadgeChips awards={badgeChips.get(entry.user.id) ?? []} />
                 </Link>
                 <span className="leaderboard-list__stat">
                   <strong>{formatUsageSpend(entry.spendMicroUsd)}</strong>

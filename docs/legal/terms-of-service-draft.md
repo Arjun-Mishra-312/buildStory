@@ -92,7 +92,8 @@ Leaderboard rank is computed from estimated API-equivalent spend or
 token volume across your published stories (7 days, 30 days, or all
 time). Publishing a story includes that project's scanned usage on the
 public leaderboard and public profile. Spend is a rate-card estimate
-from priced transcripts, not billed invoices. We reserve the right to
+from priced transcripts, not billed invoices. Build badges are named
+feats derived from the same published scans. We reserve the right to
 adjust the ranking methodology, exclude accounts found to be gaming it,
 or reset rankings — state your policy here if so.
 

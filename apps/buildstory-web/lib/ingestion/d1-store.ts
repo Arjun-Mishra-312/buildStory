@@ -2666,6 +2666,12 @@ export async function publishReport(
   }
   const { refreshProjectUsageRollup } = await import("@/lib/usage/d1-store");
   await refreshProjectUsageRollup(report.projectId);
+  try {
+    const { refreshUserBadges } = await import("@/lib/badges/d1-store");
+    await refreshUserBadges(owner.id);
+  } catch {
+    // Badge evaluation must never block a successful publish.
+  }
   return getReport(creatorId, reportId);
 }
 
@@ -3013,6 +3019,12 @@ export async function markProjectRepoVerified(creatorId: string, projectId: stri
     .bind(now, now, projectId, owner.id)
     .run();
   if (changes(result) !== 1) throw new D1IngestionError("not_found", "Project not found.", 404);
+  try {
+    const { refreshUserBadges } = await import("@/lib/badges/d1-store");
+    await refreshUserBadges(owner.id);
+  } catch {
+    // Verification should still succeed if badge evaluation fails.
+  }
   return { verifiedRepoAt: now };
 }
 

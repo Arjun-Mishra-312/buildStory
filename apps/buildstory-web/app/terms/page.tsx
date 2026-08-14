@@ -53,7 +53,7 @@ const sections: LegalSection[] = [
   {
     heading: "7. Leaderboards and rankings",
     paragraphs: [
-      "Leaderboard rank is computed from estimated API-equivalent spend or token volume across your published stories, over 7 days, 30 days, or all time. Publishing a story includes that project's scanned usage on the public leaderboard and your public profile. Spend is a rate-card estimate from priced Claude Code and Codex transcripts — not billed subscription invoices — and Cursor sessions currently count toward activity, not spend or tokens. We reserve the right to adjust the ranking methodology, exclude accounts found to be gaming it, or reset rankings; we'll state a reason if we do.",
+      "Leaderboard rank is computed from estimated API-equivalent spend or token volume across your published stories, over 7 days, 30 days, or all time. Publishing a story includes that project's scanned usage on the public leaderboard and your public profile. Spend is a rate-card estimate from priced Claude Code and Codex transcripts — not billed subscription invoices — and Cursor sessions currently count toward activity, not spend or tokens. Build badges are named feats derived from the same published scans (session length, token volume, streaks, rank). We reserve the right to adjust ranking or badge methodology, exclude accounts found to be gaming it, or reset awards; we'll state a reason if we do.",
     ],
   },
   {

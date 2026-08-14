@@ -1,5 +1,6 @@
 import { ingestionErrorResponse, jsonError, requireApiCreator } from "@/lib/api/responses";
-import { getReport, publishReport, unpublishReport } from "@/lib/ingestion/store";
+import { ensureUser, getReport, publishReport, unpublishReport } from "@/lib/ingestion/store";
+import { listUserAwards, summarizeAwards } from "@/lib/badges/store";
 import { readBoundedJson } from "@/lib/ingestion/local-api";
 import { PUBLIC_FIELD_KEYS, type PublicFieldKey } from "@/lib/ingestion/contracts";
 import { assertSameOriginBrowserMutation } from "@/lib/security/browser-request";
@@ -28,9 +29,12 @@ export async function POST(request: Request, context: RouteContext) {
     if (reviewed.length !== saved.length || reviewed.some((field, index) => field !== saved[index])) {
       return jsonError("publication_review_stale", "The saved public-field selection changed. Review it again before publishing.", 409);
     }
+    const user = await ensureUser(creator);
+    const before = new Set((await listUserAwards(user.id)).map((award) => award.badgeId));
     const report = await publishReport(creator.creatorId, reportId);
+    const earnedBadges = summarizeAwards((await listUserAwards(user.id)).filter((award) => !before.has(award.badgeId)));
     return Response.json(
-      { publication: report.publication },
+      { publication: report.publication, earnedBadges },
       { headers: { "cache-control": "private, no-store" } },
     );
   } catch (error) {

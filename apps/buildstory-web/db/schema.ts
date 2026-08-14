@@ -748,3 +748,28 @@ export const leaderboardRuns = sqliteTable("buildstory_leaderboard_runs", {
   period: text("period").primaryKey(),
   computedAt: text("computed_at").notNull(),
 });
+
+/**
+ * First-earn-wins awards derived from published scans. Catalog lives in
+ * lib/badges/catalog.ts - this table stores evidence and pin order only.
+ */
+export const badgeAwards = sqliteTable(
+  "buildstory_badge_awards",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    badgeId: text("badge_id").notNull(),
+    earnedAt: text("earned_at").notNull(),
+    evidenceJson: text("evidence_json").notNull(),
+    sourceProjectId: text("source_project_id").references(() => projects.id, { onDelete: "set null" }),
+    sourceChapterId: text("source_chapter_id"),
+    pinnedRank: integer("pinned_rank"),
+  },
+  (table) => [
+    uniqueIndex("idx_buildstory_badge_awards_user_badge").on(table.userId, table.badgeId),
+    index("idx_buildstory_badge_awards_user").on(table.userId),
+    index("idx_buildstory_badge_awards_project").on(table.sourceProjectId),
+  ],
+);

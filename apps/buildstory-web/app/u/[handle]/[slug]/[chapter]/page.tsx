@@ -4,6 +4,7 @@ import { ProjectWorkbench } from "@/components/project-workbench";
 import { getPublicProjectVerification, getPublishedStoryChapter, listPublishedChapters, countPublicArchetypes } from "@/lib/ingestion/store";
 import { getProfileByHandle } from "@/lib/social/store";
 import { builderRoleLabel } from "@/lib/identity/builder-roles";
+import { getStorySealsForPath } from "@/lib/badges/store";
 
 type PageProps = { params: Promise<{ handle: string; slug: string; chapter: string }> };
 export const dynamic = "force-dynamic";
@@ -55,6 +56,7 @@ export default async function PublishedStoryChapterPage({ params }: PageProps) {
   const verifiedRepoAt = await getPublicProjectVerification(handle, slug).catch(() => null);
   const profile = await getProfileByHandle(handle).catch(() => null);
   const archetypeCounts = await countPublicArchetypes().catch(() => ({ total: 0, byKey: {} }));
+  const storySeals = await getStorySealsForPath(handle, slug).catch(() => []);
   return (
     <ProjectWorkbench
       story={story}
@@ -64,6 +66,7 @@ export default async function PublishedStoryChapterPage({ params }: PageProps) {
       initialVerifiedRepoAt={verifiedRepoAt}
       ownerRoleOverride={profile?.builderRole ? builderRoleLabel(profile.builderRole) : null}
       archetypeCounts={archetypeCounts}
+      storySeals={storySeals}
     />
   );
 }

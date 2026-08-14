@@ -2003,6 +2003,14 @@ export async function publishReport(creatorId: string, reportId: string): Promis
   if (thisChapterIndex !== null && thisChapterIndex > 1 && owner) {
     await notifyFollowersOfStoryUpdate(reportId, owner.id);
   }
+  if (owner) {
+    try {
+      const { refreshUserBadges } = await import("@/lib/badges/mock-store");
+      refreshUserBadges(owner.id);
+    } catch {
+      // Badge evaluation must never block a successful publish.
+    }
+  }
   return { ...structuredClone(report), narrative: narrativeRecordFor(reportId) };
 }
 
@@ -2140,13 +2148,19 @@ export function getProjectForVerification(creatorId: string, projectId: string):
   };
 }
 
-export function markProjectRepoVerified(creatorId: string, projectId: string): { verifiedRepoAt: string } {
+export async function markProjectRepoVerified(creatorId: string, projectId: string): Promise<{ verifiedRepoAt: string }> {
   const project = store.projects.get(projectId);
   if (!project || userIdForCreator(creatorId) !== project.ownerUserId) {
     throw new MockIngestionError("not_found", "Project not found.", 404);
   }
   const now = new Date().toISOString();
   project.verifiedRepoAt = now;
+  try {
+    const { refreshUserBadges } = await import("@/lib/badges/mock-store");
+    refreshUserBadges(project.ownerUserId);
+  } catch {
+    // Verification should still succeed if badge evaluation fails.
+  }
   return { verifiedRepoAt: now };
 }
 
@@ -2582,8 +2596,11 @@ export function searchPublishedStories(query: string, limit = 20, cursor?: strin
 export function listPublishedUsageProjects(): Array<{
   ownerUserId: string;
   projectId: string;
+  slug: string;
   commitCount: number;
   storyCount: number;
+  verifiedRepoAt: string | null;
+  maxChapterIndex: number;
   chapters: Array<{ chapterIndex: number; snapshot: unknown }>;
 }> {
   const byProject = new Map<string, Array<{ chapterIndex: number; snapshot: unknown }>>();
@@ -2598,13 +2615,19 @@ export function listPublishedUsageProjects(): Array<{
   }
   return Array.from(store.projects.values())
     .filter((project) => byProject.has(project.id))
-    .map((project) => ({
-      ownerUserId: project.ownerUserId,
-      projectId: project.id,
-      commitCount: project.latestCommitCount,
-      storyCount: byProject.get(project.id)?.length ?? 0,
-      chapters: byProject.get(project.id) ?? [],
-    }));
+    .map((project) => {
+      const chapters = byProject.get(project.id) ?? [];
+      return {
+        ownerUserId: project.ownerUserId,
+        projectId: project.id,
+        slug: project.slug,
+        commitCount: project.latestCommitCount,
+        storyCount: chapters.length,
+        verifiedRepoAt: project.verifiedRepoAt,
+        maxChapterIndex: chapters.reduce((max, chapter) => Math.max(max, chapter.chapterIndex), 0),
+        chapters,
+      };
+    });
 }
 
 /** Account export/deletion needs: everything owned by this user, keyed by the store's real user id rather than the creatorId ("google:<sub>") string used elsewhere. */

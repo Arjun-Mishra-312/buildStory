@@ -32,6 +32,7 @@ import { BuildRecap } from "./report/build-recap";
 import { WowFactPosters } from "./report/wow-fact-posters";
 import { ModelMixStrip } from "./report/model-mix-strip";
 import { BuilderProfilePublic } from "./report/builder-profile-public";
+import { StorySeals } from "./profile-badges";
 import { buildPublicBrief, buildPublicHeroCopy } from "@/lib/report/public-brief";
 import type { PublicArchetypeCounts } from "@/lib/report/archetype-catalog";
 import { buildRecapScript, recapSeenStorageKey, publicRecapSeenStorageKey } from "@/lib/report/recap";
@@ -77,6 +78,7 @@ type ProjectWorkbenchProps = {
   currentChapterIndex?: number;
   reviewedEvidence?: Array<{ excerptId: string; sessionRef: string; occurredAt: string; role: string; text: string }>;
   archetypeCounts?: PublicArchetypeCounts | null;
+  storySeals?: import("@/lib/badges/contracts").PublicBadgeAward[];
 };
 
 const usdFormat = new Intl.NumberFormat("en", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -216,6 +218,7 @@ export function ProjectWorkbench({
   currentChapterIndex,
   reviewedEvidence = [],
   archetypeCounts = null,
+  storySeals = [],
 }: ProjectWorkbenchProps) {
   const owner = ownerRoleOverride ? { ...story.owner, role: ownerRoleOverride } : story.owner;
   const router = useRouter();
@@ -305,6 +308,7 @@ export function ProjectWorkbench({
   const narrativePending = resolvedNarrativeStatus === "narrative_queued" || resolvedNarrativeStatus === "narrative_generating";
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [publicationError, setPublicationError] = useState<string | null>(null);
+  const [earnedBadges, setEarnedBadges] = useState<Array<{ name: string }>>([]);
   const [publishReviewOpen, setPublishReviewOpen] = useState(false);
   const [publishReviewAcknowledged, setPublishReviewAcknowledged] = useState(false);
   const [privateNoticeOpen, setPrivateNoticeOpen] = useState(false);
@@ -723,6 +727,8 @@ export function ProjectWorkbench({
         const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
         throw new Error(payload?.error?.message ?? "Could not publish this story.");
       }
+      const payload = (await response.json().catch(() => null)) as { earnedBadges?: Array<{ name: string }> } | null;
+      setEarnedBadges(payload?.earnedBadges ?? []);
       setPublicationStatus("published");
       setSaveState("saved");
       setPublishReviewOpen(false);
@@ -939,6 +945,12 @@ export function ProjectWorkbench({
           <span><i /> Published Build Story</span>
         </div>
       )}
+
+      {earnedBadges.length > 0 ? (
+        <p className="badge-unlock-strip" role="status">
+          You earned {earnedBadges.map((badge) => badge.name).join(", ")}.
+        </p>
+      ) : null}
 
       {access === "creator" && publicationStatus !== "published" && view === "private" ? (
         <div className={`private-report-banner${publicationStatus === "draft_changes" ? " private-report-banner--changes" : ""}`} role="status">
@@ -1185,6 +1197,7 @@ export function ProjectWorkbench({
                     <small>@{owner.handle} · {owner.role}</small>
                   </span>
                 </div>
+                {storySeals.length ? <StorySeals awards={storySeals} /> : null}
                 <div className="build-story__hero-actions" aria-label="Project links">
                   {displayArtifactLinks.projectUrl ? <a className="button button--primary" href={displayArtifactLinks.projectUrl} target="_blank" rel="noopener noreferrer nofollow">View live demo <span aria-hidden="true">↗</span></a> : null}
                   {displayArtifactLinks.repoUrl ? <a className="button button--secondary" href={displayArtifactLinks.repoUrl} target="_blank" rel="noopener noreferrer nofollow">GitHub repository <span aria-hidden="true">↗</span></a> : null}

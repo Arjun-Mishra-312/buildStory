@@ -12,6 +12,7 @@ import {
 } from "../lib/ingestion/mock-store";
 import { sha256Digest } from "../lib/ingestion/local-contract";
 import { getLeaderboard } from "../lib/leaderboard/mock-store";
+import { listUserAwards } from "../lib/badges/mock-store";
 import scannerFixture from "./fixtures/scanner-project-snapshot.json";
 
 process.env.BUILDSTORY_REPORT_READY_DELAY_MS = "0";
@@ -224,4 +225,34 @@ test("leaderboard: unpublish removes the contribution", async () => {
   assert.ok(getLeaderboard("all-time", 100, "spend").some((entry) => entry.user.id === user.id));
   unpublishReport(creatorId, reportId);
   assert.equal(getLeaderboard("all-time", 100, "spend").some((entry) => entry.user.id === user.id), false);
+});
+
+test("badges: first publish awards First Light and first-earn survives unpublish", async () => {
+  const creatorId = "dev:badge-first-light";
+  const user = ensureUser({
+    creatorId,
+    name: "Badge First Light",
+    email: "badge-first@buildstory.local",
+    image: null,
+  });
+  const reportId = await publishSnapshotForUser(creatorId, withUsage({
+    commits: 2,
+    tokens: 900,
+    costMicroUsd: 100_000,
+    startedAt: "2026-08-13T12:00:00.000Z",
+    fingerprint: "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+  }));
+  const first = listUserAwards(user.id);
+  assert.ok(first.some((award) => award.badgeId === "first-light"));
+  const count = first.filter((award) => award.badgeId === "first-light").length;
+  await publishSnapshotForUser(creatorId, withUsage({
+    commits: 3,
+    tokens: 1_100,
+    costMicroUsd: 120_000,
+    startedAt: "2026-08-13T13:00:00.000Z",
+    fingerprint: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  }));
+  assert.equal(listUserAwards(user.id).filter((award) => award.badgeId === "first-light").length, count);
+  unpublishReport(creatorId, reportId);
+  assert.ok(listUserAwards(user.id).some((award) => award.badgeId === "first-light"));
 });
