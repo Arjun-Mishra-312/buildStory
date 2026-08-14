@@ -1,6 +1,6 @@
 import { jsonError, socialErrorResponse } from "@/lib/api/responses";
 import { isLeaderboardPeriod, LEADERBOARD_PERIODS } from "@/lib/leaderboard/contracts";
-import { recomputeLeaderboard } from "@/lib/leaderboard/store";
+import { recomputeAllLeaderboards, recomputeLeaderboard } from "@/lib/leaderboard/store";
 
 /** Constant-time comparison so a mismatched secret can't be brute-forced via response-time differences. */
 function timingSafeEqual(a: string, b: string): boolean {
@@ -15,7 +15,7 @@ function timingSafeEqual(a: string, b: string): boolean {
 /**
  * External-scheduler fallback (e.g. a GitHub Actions cron job hitting this
  * with a bearer secret) until a real Cloudflare Cron Trigger is deployed,
- * which would call recomputeLeaderboard directly from a scheduled handler
+ * which would call recomputeAllLeaderboards directly from a scheduled handler
  * instead of over HTTP.
  */
 export async function POST(request: Request) {
@@ -30,10 +30,19 @@ export async function POST(request: Request) {
   }
   try {
     const body = (await request.json().catch(() => ({}))) as { period?: unknown };
-    const period = isLeaderboardPeriod(body.period) ? body.period : "all-time";
-    await recomputeLeaderboard(period);
+    if (body.period === undefined) {
+      await recomputeAllLeaderboards();
+      return Response.json(
+        { recomputed: "all", availablePeriods: LEADERBOARD_PERIODS },
+        { headers: { "cache-control": "no-store" } },
+      );
+    }
+    if (!isLeaderboardPeriod(body.period)) {
+      return jsonError("invalid_period", "Unknown leaderboard period.", 422);
+    }
+    await recomputeLeaderboard(body.period);
     return Response.json(
-      { recomputed: period, availablePeriods: LEADERBOARD_PERIODS },
+      { recomputed: body.period, availablePeriods: LEADERBOARD_PERIODS },
       { headers: { "cache-control": "no-store" } },
     );
   } catch (error) {

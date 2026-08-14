@@ -39,7 +39,7 @@ test("server-renders public routes through the shared shell", async () => {
     ["/", /Every build has/],
     ["/about", /Every build has/],
     ["/explore", /What are people/],
-    ["/leaderboard", /Ranked on sustained/],
+    ["/leaderboard", /Ranked on estimated/],
     ["/signin", /AUTHENTICATION DISABLED/],
     ["/p/some-story-slug", /TEMPORARILY UNAVAILABLE/],
   ];

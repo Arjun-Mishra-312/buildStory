@@ -88,13 +88,13 @@ cannot be undone — see the Privacy Policy for exactly what is removed.
 
 ## 7. Leaderboards and rankings
 
-Leaderboard rank is computed from verified, structural build activity
-(commits, active days) across your published stories, with a per-project
-daily cap specifically so a single burst of activity can't dominate a
-ranking meant to reflect sustained work. [CONFIRM: whether you want to
-reserve the right to adjust the ranking methodology, exclude accounts
-found to be gaming it outside the built-in cap, or reset rankings —
-state your policy here if so.]
+Leaderboard rank is computed from estimated API-equivalent spend or
+token volume across your published stories (7 days, 30 days, or all
+time). Publishing a story includes that project's scanned usage on the
+public leaderboard and public profile. Spend is a rate-card estimate
+from priced transcripts, not billed invoices. We reserve the right to
+adjust the ranking methodology, exclude accounts found to be gaming it,
+or reset rankings — state your policy here if so.
 
 ## 8. Disclaimers
 

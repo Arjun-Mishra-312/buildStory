@@ -1,35 +1,83 @@
-import { listProjectStatsForLeaderboard } from "@/lib/ingestion/mock-store";
+import { listPublishedUsageProjects } from "@/lib/ingestion/mock-store";
 import { getProfile } from "@/lib/social/mock-store";
+import { EMPTY_PROFILE_USAGE, aggregateProfileUsage } from "@/lib/usage/aggregate";
+import { foldChaptersToDailyRows, periodStartDay, type UsageDailyRow } from "@/lib/usage/fold";
 import {
-  ANTI_GAMING_MAX_COMMITS_PER_DAY,
-  VERIFIED_REPO_SCORE_MULTIPLIER,
+  DEFAULT_LEADERBOARD_METRIC,
   type LeaderboardEntry,
+  type LeaderboardMetric,
   type LeaderboardPeriod,
 } from "./contracts";
 
-/** Mirrors d1-store's recomputeLeaderboard, computed in-memory instead of via SQL window functions. */
-export function getLeaderboard(_period: LeaderboardPeriod, limit = 50): LeaderboardEntry[] {
-  const bounded = Math.min(Math.max(1, Math.trunc(limit)), 200);
-  const totals = new Map<string, { score: number; activeDays: number; storyCount: number }>();
-  for (const project of listProjectStatsForLeaderboard()) {
-    const cappedCommits = Math.min(
-      project.latestCommitCount,
-      project.latestActiveDays * ANTI_GAMING_MAX_COMMITS_PER_DAY,
-    );
-    const boosted = Math.round(cappedCommits * (project.verifiedRepoAt ? VERIFIED_REPO_SCORE_MULTIPLIER : 1));
-    const existing = totals.get(project.ownerUserId) ?? { score: 0, activeDays: 0, storyCount: 0 };
-    existing.score += boosted;
-    existing.activeDays += project.latestActiveDays;
-    existing.storyCount += project.publishedStoryCount;
+type UserTotals = {
+  spendMicroUsd: number;
+  priced: boolean;
+  tokens: number;
+  commitCount: number;
+  days: Set<string>;
+  lastActiveAt: string | null;
+  sessionCount: number;
+  storyCount: number;
+};
+
+function totalsForPeriod(period: LeaderboardPeriod): Map<string, UserTotals> {
+  const cutoff = periodStartDay(period);
+  const totals = new Map<string, UserTotals>();
+  for (const project of listPublishedUsageProjects()) {
+    const existing = totals.get(project.ownerUserId) ?? {
+      spendMicroUsd: 0,
+      priced: false,
+      tokens: 0,
+      commitCount: 0,
+      days: new Set<string>(),
+      lastActiveAt: null,
+      sessionCount: 0,
+      storyCount: 0,
+    };
+    existing.commitCount += project.commitCount;
+    existing.storyCount += project.storyCount;
+    const daily = foldChaptersToDailyRows(project.chapters).filter((row) => !cutoff || row.day >= cutoff);
+    for (const row of daily) {
+      existing.days.add(row.day);
+      if (row.modelKey === "__activity") {
+        existing.sessionCount += row.sessionCount;
+        continue;
+      }
+      existing.tokens += row.tokens;
+      if (row.costMicroUsd != null) {
+        existing.spendMicroUsd += row.costMicroUsd;
+        existing.priced = true;
+      }
+      if (!existing.lastActiveAt || row.day > existing.lastActiveAt) existing.lastActiveAt = row.day;
+    }
     totals.set(project.ownerUserId, existing);
   }
+  return totals;
+}
 
+function compareEntries(metric: LeaderboardMetric, left: UserTotals, leftId: string, right: UserTotals, rightId: string) {
+  if (metric === "tokens") {
+    if (right.tokens !== left.tokens) return right.tokens - left.tokens;
+    if (right.spendMicroUsd !== left.spendMicroUsd) return right.spendMicroUsd - left.spendMicroUsd;
+  } else {
+    if (right.spendMicroUsd !== left.spendMicroUsd) return right.spendMicroUsd - left.spendMicroUsd;
+    if (right.tokens !== left.tokens) return right.tokens - left.tokens;
+  }
+  const last = (right.lastActiveAt ?? "").localeCompare(left.lastActiveAt ?? "");
+  if (last !== 0) return last;
+  return leftId.localeCompare(rightId);
+}
+
+/** Mirrors d1-store's getLeaderboard, computed in-memory from published snapshots. */
+export function getLeaderboard(
+  period: LeaderboardPeriod,
+  limit = 50,
+  metric: LeaderboardMetric = DEFAULT_LEADERBOARD_METRIC,
+): LeaderboardEntry[] {
+  const bounded = Math.min(Math.max(1, Math.trunc(limit)), 200);
+  const totals = totalsForPeriod(period);
   const ranked = Array.from(totals.entries())
-    .sort(([leftId, left], [rightId, right]) => {
-      if (right.score !== left.score) return right.score - left.score;
-      if (right.activeDays !== left.activeDays) return right.activeDays - left.activeDays;
-      return leftId.localeCompare(rightId);
-    })
+    .sort(([leftId, left], [rightId, right]) => compareEntries(metric, left, leftId, right, rightId))
     .slice(0, bounded);
 
   const entries: LeaderboardEntry[] = [];
@@ -39,10 +87,25 @@ export function getLeaderboard(_period: LeaderboardPeriod, limit = 50): Leaderbo
     entries.push({
       rank: entries.length + 1,
       user: { id: profile.id, handle: profile.handle, displayName: profile.displayName, avatarUrl: profile.avatarUrl },
-      score: totalsForUser.score,
-      activeDays: totalsForUser.activeDays,
+      spendMicroUsd: totalsForUser.priced ? totalsForUser.spendMicroUsd : null,
+      tokens: totalsForUser.tokens,
+      commitCount: totalsForUser.commitCount,
+      activeDays: totalsForUser.days.size,
+      lastActiveAt: totalsForUser.lastActiveAt,
+      sessionCount: totalsForUser.sessionCount,
       storyCount: totalsForUser.storyCount,
     });
   }
   return entries;
+}
+
+export function getProfileUsage(userId: string) {
+  const rows: UsageDailyRow[] = [];
+  const allTimeRank = getLeaderboard("all-time", 200, "spend").find((entry) => entry.user.id === userId)?.rank ?? null;
+  for (const project of listPublishedUsageProjects()) {
+    if (project.ownerUserId !== userId) continue;
+    rows.push(...foldChaptersToDailyRows(project.chapters));
+  }
+  if (rows.length === 0) return { ...EMPTY_PROFILE_USAGE, rank: allTimeRank };
+  return aggregateProfileUsage(rows, allTimeRank);
 }

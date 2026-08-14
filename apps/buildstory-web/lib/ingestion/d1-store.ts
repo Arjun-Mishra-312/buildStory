@@ -2664,6 +2664,8 @@ export async function publishReport(
   if (chapterIndex > 1) {
     await notifyFollowersOfStoryUpdate(reportId, owner.id);
   }
+  const { refreshProjectUsageRollup } = await import("@/lib/usage/d1-store");
+  await refreshProjectUsageRollup(report.projectId);
   return getReport(creatorId, reportId);
 }
 
@@ -2724,6 +2726,8 @@ export async function unpublishReport(creatorId: string, reportId: string): Prom
     }
   }
   await db.batch(statements);
+  const { refreshProjectUsageRollup } = await import("@/lib/usage/d1-store");
+  await refreshProjectUsageRollup(row.project_id);
   return getReport(creatorId, reportId);
 }
 
@@ -2781,6 +2785,8 @@ export async function moderatorUnpublishReport(reportId: string): Promise<void> 
     }
   }
   await db.batch(statements);
+  const { refreshProjectUsageRollup } = await import("@/lib/usage/d1-store");
+  await refreshProjectUsageRollup(row.project_id);
 }
 
 /** Bootstraps or changes a moderator/admin. Handle-based since that's the only identifier an operator has on hand. */

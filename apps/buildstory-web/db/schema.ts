@@ -682,12 +682,39 @@ export const contentReportAudit = sqliteTable(
 );
 
 /**
+ * Per UTC day, per model usage for one published project. Rebuilt from folded
+ * scanner sessions on publish/unpublish so overlapping chapter windows are
+ * never summed twice. `__activity` rows carry session_count only.
+ */
+export const usageDaily = sqliteTable(
+  "buildstory_usage_daily",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    day: text("day").notNull(),
+    modelKey: text("model_key").notNull(),
+    modelLabel: text("model_label").notNull().default(""),
+    tokens: integer("tokens").notNull().default(0),
+    costMicroUsd: integer("cost_micro_usd"),
+    sessionCount: integer("session_count").notNull().default(0),
+    computedAt: text("computed_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_buildstory_usage_daily_project_day_model").on(table.projectId, table.day, table.modelKey),
+    index("idx_buildstory_usage_daily_user_day").on(table.userId, table.day),
+  ],
+);
+
+/**
  * Cron/manually computed, never live-aggregated on a page read (beyond a
  * bounded staleness fallback when nothing has ever run). One row per
- * (period, user). "score" is verified-provenance commits, capped per
- * project at activeDays * ANTI_GAMING_MAX_COMMITS_PER_DAY so a single
- * overnight run can't dominate a ranking meant to reward sustained
- * building - see lib/leaderboard/compute.ts.
+ * (period, user). Rank is estimated API-equivalent spend or tokens across
+ * published stories - see lib/leaderboard/d1-store.ts.
  */
 export const leaderboardEntries = sqliteTable(
   "buildstory_leaderboard_entries",
@@ -697,15 +724,22 @@ export const leaderboardEntries = sqliteTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    rank: integer("rank").notNull(),
-    score: integer("score").notNull(),
+    rankSpend: integer("rank_spend").notNull(),
+    rankTokens: integer("rank_tokens").notNull(),
+    spendMicroUsd: integer("spend_micro_usd").notNull().default(0),
+    priced: integer("priced").notNull().default(0),
+    tokens: integer("tokens").notNull().default(0),
+    commitCount: integer("commit_count").notNull().default(0),
     activeDays: integer("active_days").notNull(),
+    lastActiveAt: text("last_active_at"),
+    sessionCount: integer("session_count").notNull().default(0),
     storyCount: integer("story_count").notNull(),
     computedAt: text("computed_at").notNull(),
   },
   (table) => [
     uniqueIndex("idx_buildstory_leaderboard_period_user").on(table.period, table.userId),
-    index("idx_buildstory_leaderboard_period_rank").on(table.period, table.rank),
+    index("idx_buildstory_leaderboard_period_rank_spend").on(table.period, table.rankSpend),
+    index("idx_buildstory_leaderboard_period_rank_tokens").on(table.period, table.rankTokens),
   ],
 );
 

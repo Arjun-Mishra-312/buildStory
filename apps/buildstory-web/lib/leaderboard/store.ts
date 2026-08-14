@@ -1,4 +1,4 @@
-import type { LeaderboardPeriod } from "./contracts";
+import type { LeaderboardMetric, LeaderboardPeriod } from "./contracts";
 
 function shouldUseDurableStore() {
   return (
@@ -7,13 +7,13 @@ function shouldUseDurableStore() {
   );
 }
 
-export async function getLeaderboard(period: LeaderboardPeriod, limit?: number) {
+export async function getLeaderboard(period: LeaderboardPeriod, limit?: number, metric?: LeaderboardMetric) {
   if (shouldUseDurableStore()) {
     const { getLeaderboard: get } = await import("./d1-store");
-    return get(period, limit);
+    return get(period, limit, metric);
   }
   const { getLeaderboard: get } = await import("./mock-store");
-  return get(period, limit);
+  return get(period, limit, metric);
 }
 
 /** No-op in mock mode - the in-memory computation is always live, there is nothing to precompute. */
@@ -21,4 +21,10 @@ export async function recomputeLeaderboard(period: LeaderboardPeriod) {
   if (!shouldUseDurableStore()) return;
   const { recomputeLeaderboard: recompute } = await import("./d1-store");
   await recompute(period);
+}
+
+export async function recomputeAllLeaderboards() {
+  if (!shouldUseDurableStore()) return;
+  const { recomputeAllLeaderboards: recompute } = await import("./d1-store");
+  await recompute();
 }

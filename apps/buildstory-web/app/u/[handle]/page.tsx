@@ -4,9 +4,12 @@ import { notFound } from "next/navigation";
 import { ProfileFollowButton } from "@/components/profile-follow-button";
 import { ReportDialog } from "@/components/report-dialog";
 import { EditorialIllustration } from "@/components/editorial-illustration";
+import { BuilderAvatar } from "@/components/leaderboard-controls";
+import { ProfileUsageSection } from "@/components/profile-usage";
 import { getCreatorSession } from "@/lib/auth/runtime";
 import { ensureUser, listStoriesByOwner } from "@/lib/ingestion/store";
 import { getFollowState, getProfileByHandle, listFollowers, listFollowing } from "@/lib/social/store";
+import { getProfileUsage } from "@/lib/usage/store";
 import { builderRoleLabel } from "@/lib/identity/builder-roles";
 
 type PageProps = { params: Promise<{ handle: string }> };
@@ -45,10 +48,11 @@ export default async function ProfilePage({ params }: PageProps) {
   const stories = await listStoriesByOwner(profile.id, 30).catch(() => []);
   const followers = await listFollowers(profile.id, 20).catch(() => []);
   const following = await listFollowing(profile.id, 20).catch(() => []);
+  const usage = await getProfileUsage(profile.id).catch(() => null);
   return (
     <section className="profile-page section-wrap">
       <div className="profile-card profile-card--balanced">
-        <span className="avatar avatar--large">{profile.displayName.slice(0, 1).toUpperCase()}</span>
+        <BuilderAvatar name={profile.displayName} url={profile.avatarUrl} className="avatar avatar--large" />
         <span className="section-index">( BUILDER PROFILE )</span>
         <h1>{profile.displayName}{profile.plan === "pro" ? <span className="plan-badge">Pro</span> : null}</h1>
         <p className="profile-card__handle">@{profile.handle}</p>
@@ -71,6 +75,8 @@ export default async function ProfilePage({ params }: PageProps) {
           </div>
         ) : null}
       </div>
+      <div className="profile-main">
+      {usage ? <ProfileUsageSection usage={usage} /> : null}
       <div className="profile-stories">
         <span className="section-index">( PUBLISHED STORIES )</span>
         {stories.length === 0 ? (
@@ -120,6 +126,7 @@ export default async function ProfilePage({ params }: PageProps) {
             </ul>
           )}
         </div>
+      </div>
       </div>
     </section>
   );

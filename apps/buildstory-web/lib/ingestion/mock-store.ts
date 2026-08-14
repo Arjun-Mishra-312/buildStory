@@ -2578,27 +2578,32 @@ export function searchPublishedStories(query: string, limit = 20, cursor?: strin
     });
 }
 
-/** Verified-provenance stats per project that has at least one published report - the leaderboard's raw input. */
-export function listProjectStatsForLeaderboard(): Array<{
+/** Published (or draft_changes) chapters plus project totals - the usage leaderboard's raw input. */
+export function listPublishedUsageProjects(): Array<{
   ownerUserId: string;
-  latestCommitCount: number;
-  latestActiveDays: number;
-  verifiedRepoAt: string | null;
-  publishedStoryCount: number;
+  projectId: string;
+  commitCount: number;
+  storyCount: number;
+  chapters: Array<{ chapterIndex: number; snapshot: unknown }>;
 }> {
-  const publishedStoryCounts = new Map<string, number>();
+  const byProject = new Map<string, Array<{ chapterIndex: number; snapshot: unknown }>>();
   for (const report of store.reports.values()) {
     if (report.publication.status !== "published" && report.publication.status !== "draft_changes") continue;
-    publishedStoryCounts.set(report.projectId, (publishedStoryCounts.get(report.projectId) ?? 0) + 1);
+    const chapters = byProject.get(report.projectId) ?? [];
+    chapters.push({
+      chapterIndex: report.publication.chapterIndex ?? chapters.length + 1,
+      snapshot: report.sourceSnapshot ?? report.snapshot,
+    });
+    byProject.set(report.projectId, chapters);
   }
   return Array.from(store.projects.values())
-    .filter((project) => publishedStoryCounts.has(project.id))
+    .filter((project) => byProject.has(project.id))
     .map((project) => ({
       ownerUserId: project.ownerUserId,
-      latestCommitCount: project.latestCommitCount,
-      latestActiveDays: project.latestActiveDays,
-      verifiedRepoAt: project.verifiedRepoAt,
-      publishedStoryCount: publishedStoryCounts.get(project.id) ?? 0,
+      projectId: project.id,
+      commitCount: project.latestCommitCount,
+      storyCount: byProject.get(project.id)?.length ?? 0,
+      chapters: byProject.get(project.id) ?? [],
     }));
 }
 

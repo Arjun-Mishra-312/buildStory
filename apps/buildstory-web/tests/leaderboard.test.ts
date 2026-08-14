@@ -6,111 +6,128 @@ import {
   createUploadSession,
   ensureUser,
   getReport,
-  markProjectRepoVerified,
   publishReport,
+  unpublishReport,
   updateReport,
 } from "../lib/ingestion/mock-store";
 import { sha256Digest } from "../lib/ingestion/local-contract";
-import { ANTI_GAMING_MAX_COMMITS_PER_DAY, VERIFIED_REPO_SCORE_MULTIPLIER } from "../lib/leaderboard/contracts";
 import { getLeaderboard } from "../lib/leaderboard/mock-store";
 import scannerFixture from "./fixtures/scanner-project-snapshot.json";
 
 process.env.BUILDSTORY_REPORT_READY_DELAY_MS = "0";
 
-/** The fixture's milestone summary is a scanner-generated aggregate the server cross-checks against git.commits, so both must change together. */
-function withCommitCount(commits: number) {
+function withUsage(args: { commits: number; tokens: number; costMicroUsd: number | null; startedAt: string; fingerprint?: string }) {
   const snapshot = structuredClone(scannerFixture);
-  snapshot.git.commits = commits;
+  snapshot.git.commits = args.commits;
+  if (args.fingerprint) snapshot.repository.fingerprint = args.fingerprint;
   const repositoryMilestone = snapshot.milestones.find((milestone) => milestone.kind === "repository-activity");
   if (repositoryMilestone) {
-    repositoryMilestone.summary = `${commits} commits observed in the selected time window.`;
+    repositoryMilestone.summary = `${args.commits} commits observed in the selected time window.`;
   }
+  const session = snapshot.sessions[0]!;
+  session.startedAt = args.startedAt;
+  session.endedAt = args.startedAt;
+  session.tokenUsage = {
+    inputTokens: args.tokens,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    reasoningOutputTokens: 0,
+    totalTokens: args.tokens,
+  };
+  snapshot.usage.tokenUsage = session.tokenUsage;
+  snapshot.usage.models[0]!.tokenUsage = session.tokenUsage;
+  const model = snapshot.usage.models[0] as { costMicroUsd: number | null };
+  model.costMicroUsd = args.costMicroUsd;
+  snapshot.usage.cost = {
+    totalMicroUsd: args.costMicroUsd,
+    pricedTokens: args.costMicroUsd == null ? 0 : args.tokens,
+    unpricedTokens: args.costMicroUsd == null ? args.tokens : 0,
+    pricingTableVersion: "2026-08-05.1",
+  } as typeof snapshot.usage.cost;
+  snapshot.timeWindow.start = args.startedAt;
+  snapshot.timeWindow.end = args.startedAt;
   return snapshot;
 }
 
-async function publishSnapshotForUser(creatorId: string, commits: number) {
+async function publishSnapshotForUser(creatorId: string, snapshot: ReturnType<typeof withUsage>) {
   const created = await createUploadSession(creatorId, "Leaderboard test project", "http://localhost/");
   const { sessionId, userCode } = created.deviceAuthorization;
   const claim = await claimUploadSession(sessionId, userCode);
-  const snapshot = withCommitCount(commits);
   const raw = JSON.stringify(snapshot);
   const receipt = await acceptSnapshot(sessionId, claim.uploadGrant.bearerToken, await sha256Digest(raw), snapshot);
   const reportId = receipt.reportEndpoint!.split("/").at(-1)!;
-  await getReport(creatorId, reportId); // lazily flips the report to "ready"
+  await getReport(creatorId, reportId);
   updateReport(creatorId, reportId, { category: "developer-tools" });
   await publishReport(creatorId, reportId);
   return reportId;
 }
 
-test("leaderboard: caps a project's commit contribution at activeDays * daily max, not the raw count", async () => {
-  const gamerCreatorId = "dev:leaderboard-gamer";
-  const gamerUser = ensureUser({
-    creatorId: gamerCreatorId,
-    name: "Leaderboard Gamer",
-    email: "gamer@buildstory.local",
+test("leaderboard: ranks by estimated spend, not commits", async () => {
+  const spendCreatorId = "dev:leaderboard-spender";
+  const spendUser = ensureUser({
+    creatorId: spendCreatorId,
+    name: "Leaderboard Spender",
+    email: "spender@buildstory.local",
     image: null,
   });
-  const modestCreatorId = "dev:leaderboard-modest";
-  const modestUser = ensureUser({
-    creatorId: modestCreatorId,
-    name: "Leaderboard Modest",
-    email: "modest@buildstory.local",
+  const tokenCreatorId = "dev:leaderboard-tokenizer";
+  const tokenUser = ensureUser({
+    creatorId: tokenCreatorId,
+    name: "Leaderboard Tokenizer",
+    email: "tokenizer@buildstory.local",
     image: null,
   });
 
-  // The fixture's single session gives exactly 1 active day, so the cap for
-  // one project is 1 * ANTI_GAMING_MAX_COMMITS_PER_DAY regardless of git.commits.
-  await publishSnapshotForUser(gamerCreatorId, 500);
-  await publishSnapshotForUser(modestCreatorId, 5);
+  await publishSnapshotForUser(spendCreatorId, withUsage({
+    commits: 2,
+    tokens: 1_000,
+    costMicroUsd: 5_000_000,
+    startedAt: "2026-08-12T12:00:00.000Z",
+    fingerprint: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  }));
+  await publishSnapshotForUser(tokenCreatorId, withUsage({
+    commits: 80,
+    tokens: 50_000,
+    costMicroUsd: 1_000_000,
+    startedAt: "2026-08-12T12:00:00.000Z",
+    fingerprint: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  }));
 
-  const entries = getLeaderboard("all-time", 100);
-  const gamerEntry = entries.find((entry) => entry.user.id === gamerUser.id);
-  const modestEntry = entries.find((entry) => entry.user.id === modestUser.id);
-  assert.ok(gamerEntry, "gamer should appear on the leaderboard");
-  assert.ok(modestEntry, "modest builder should appear on the leaderboard");
-
-  assert.equal(gamerEntry!.score, ANTI_GAMING_MAX_COMMITS_PER_DAY);
-  assert.equal(modestEntry!.score, 5);
-  assert.ok(
-    gamerEntry!.rank < modestEntry!.rank,
-    "capped score still outranks a smaller uncapped score, but never reflects the raw 500 commits",
-  );
+  const bySpend = getLeaderboard("all-time", 100, "spend");
+  const byTokens = getLeaderboard("all-time", 100, "tokens");
+  const spendEntry = bySpend.find((entry) => entry.user.id === spendUser.id);
+  const tokenEntry = bySpend.find((entry) => entry.user.id === tokenUser.id);
+  assert.ok(spendEntry && tokenEntry);
+  assert.equal(spendEntry!.spendMicroUsd, 5_000_000);
+  assert.equal(tokenEntry!.tokens, 50_000);
+  assert.ok(spendEntry!.rank < tokenEntry!.rank, "higher estimated spend outranks more tokens");
+  assert.ok(byTokens.find((entry) => entry.user.id === tokenUser.id)!.rank < byTokens.find((entry) => entry.user.id === spendUser.id)!.rank);
 });
 
-test("leaderboard: a repo-verified project scores higher than an identical unverified one", async () => {
-  const verifiedCreatorId = "dev:leaderboard-verified";
-  const verifiedUser = ensureUser({
-    creatorId: verifiedCreatorId,
-    name: "Leaderboard Verified",
-    email: "verified@buildstory.local",
+test("leaderboard: 7d window excludes older sessions", async () => {
+  const creatorId = "dev:leaderboard-window";
+  const user = ensureUser({
+    creatorId,
+    name: "Leaderboard Window",
+    email: "window@buildstory.local",
     image: null,
   });
-  const unverifiedCreatorId = "dev:leaderboard-unverified";
-  const unverifiedUser = ensureUser({
-    creatorId: unverifiedCreatorId,
-    name: "Leaderboard Unverified",
-    email: "unverified@buildstory.local",
-    image: null,
-  });
+  await publishSnapshotForUser(creatorId, withUsage({
+    commits: 3,
+    tokens: 9_000,
+    costMicroUsd: 3_000_000,
+    startedAt: "2020-01-01T12:00:00.000Z",
+    fingerprint: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  }));
 
-  const verifiedReportId = await publishSnapshotForUser(verifiedCreatorId, 5);
-  await publishSnapshotForUser(unverifiedCreatorId, 5);
-
-  const verifiedReport = await getReport(verifiedCreatorId, verifiedReportId);
-  markProjectRepoVerified(verifiedCreatorId, verifiedReport.projectId);
-
-  const entries = getLeaderboard("all-time", 100);
-  const verifiedEntry = entries.find((entry) => entry.user.id === verifiedUser.id);
-  const unverifiedEntry = entries.find((entry) => entry.user.id === unverifiedUser.id);
-  assert.ok(verifiedEntry, "verified builder should appear on the leaderboard");
-  assert.ok(unverifiedEntry, "unverified builder should appear on the leaderboard");
-
-  assert.equal(unverifiedEntry!.score, 5);
-  assert.equal(verifiedEntry!.score, Math.round(5 * VERIFIED_REPO_SCORE_MULTIPLIER));
-  assert.ok(verifiedEntry!.score > unverifiedEntry!.score, "verification measurably outranks an identical unverified project");
+  const allTime = getLeaderboard("all-time", 100, "spend").find((entry) => entry.user.id === user.id);
+  const week = getLeaderboard("7d", 100, "spend").find((entry) => entry.user.id === user.id);
+  assert.ok(allTime);
+  assert.equal(allTime!.tokens, 9_000);
+  assert.equal(week?.tokens ?? 0, 0);
 });
 
-test("leaderboard: counts every published chapter while scoring each project once", async () => {
+test("leaderboard: counts every published chapter while folding each project once", async () => {
   const creatorId = "dev:leaderboard-chapters";
   const user = ensureUser({
     creatorId,
@@ -119,13 +136,26 @@ test("leaderboard: counts every published chapter while scoring each project onc
     image: null,
   });
 
-  await publishSnapshotForUser(creatorId, 5);
-  await publishSnapshotForUser(creatorId, 8);
+  await publishSnapshotForUser(creatorId, withUsage({
+    commits: 5,
+    tokens: 1_400,
+    costMicroUsd: 1_000_000,
+    startedAt: "2026-08-03T11:30:00.000Z",
+    fingerprint: "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  }));
+  await publishSnapshotForUser(creatorId, withUsage({
+    commits: 8,
+    tokens: 1_400,
+    costMicroUsd: 1_000_000,
+    startedAt: "2026-08-03T11:30:00.000Z",
+    fingerprint: "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  }));
 
-  const entry = getLeaderboard("all-time", 100).find((candidate) => candidate.user.id === user.id);
-  assert.ok(entry, "builder with published chapters should appear on the leaderboard");
+  const entry = getLeaderboard("all-time", 100, "spend").find((candidate) => candidate.user.id === user.id);
+  assert.ok(entry);
   assert.equal(entry!.storyCount, 2);
-  assert.equal(entry!.score, 8);
+  assert.equal(entry!.tokens, 1_400);
+  assert.equal(entry!.commitCount, 8);
 });
 
 test("leaderboard: a published story in draft_changes remains counted", async () => {
@@ -137,11 +167,17 @@ test("leaderboard: a published story in draft_changes remains counted", async ()
     image: null,
   });
 
-  const reportId = await publishSnapshotForUser(creatorId, 5);
+  const reportId = await publishSnapshotForUser(creatorId, withUsage({
+    commits: 5,
+    tokens: 700,
+    costMicroUsd: 500_000,
+    startedAt: "2026-08-12T12:00:00.000Z",
+    fingerprint: "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+  }));
   updateReport(creatorId, reportId, { editorial: { tagline: "Edited but still public" } });
 
-  const entry = getLeaderboard("all-time", 100).find((candidate) => candidate.user.id === user.id);
-  assert.ok(entry, "a story with saved public edits should remain on the leaderboard");
+  const entry = getLeaderboard("all-time", 100, "spend").find((candidate) => candidate.user.id === user.id);
+  assert.ok(entry);
   assert.equal(entry!.storyCount, 1);
 });
 
@@ -156,11 +192,36 @@ test("leaderboard: unpublished reports never contribute", async () => {
   const created = await createUploadSession(draftCreatorId, "Unpublished project", "http://localhost/");
   const { sessionId, userCode } = created.deviceAuthorization;
   const claim = await claimUploadSession(sessionId, userCode);
-  const snapshot = withCommitCount(999);
+  const snapshot = withUsage({
+    commits: 999,
+    tokens: 99_000,
+    costMicroUsd: 9_000_000,
+    startedAt: "2026-08-12T12:00:00.000Z",
+    fingerprint: "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+  });
   const raw = JSON.stringify(snapshot);
   await acceptSnapshot(sessionId, claim.uploadGrant.bearerToken, await sha256Digest(raw), snapshot);
-  // Deliberately never published.
 
-  const entries = getLeaderboard("all-time", 200);
+  const entries = getLeaderboard("all-time", 200, "spend");
   assert.equal(entries.some((entry) => entry.user.id === draftUser.id), false);
+});
+
+test("leaderboard: unpublish removes the contribution", async () => {
+  const creatorId = "dev:leaderboard-unpublish";
+  const user = ensureUser({
+    creatorId,
+    name: "Leaderboard Unpublish",
+    email: "unpublish@buildstory.local",
+    image: null,
+  });
+  const reportId = await publishSnapshotForUser(creatorId, withUsage({
+    commits: 4,
+    tokens: 2_000,
+    costMicroUsd: 750_000,
+    startedAt: "2026-08-12T12:00:00.000Z",
+    fingerprint: "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+  }));
+  assert.ok(getLeaderboard("all-time", 100, "spend").some((entry) => entry.user.id === user.id));
+  unpublishReport(creatorId, reportId);
+  assert.equal(getLeaderboard("all-time", 100, "spend").some((entry) => entry.user.id === user.id), false);
 });

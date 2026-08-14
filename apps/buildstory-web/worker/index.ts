@@ -2,7 +2,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { getD1 } from "../db";
-import { recomputeLeaderboard } from "../lib/leaderboard/d1-store";
+import { recomputeAllLeaderboards } from "../lib/leaderboard/d1-store";
 import { processNarrativeQueueJob } from "../lib/ingestion/d1-store";
 import type { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from "cloudflare:workers";
 
@@ -212,7 +212,7 @@ const worker = {
   async scheduled(event: ScheduledEvent, _env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
       const db = await getD1();
-      if (event.cron === "0 * * * *") await recomputeLeaderboard("all-time");
+      if (event.cron === "0 * * * *") await recomputeAllLeaderboards();
       await db.batch([
         db.prepare("DELETE FROM buildstory_rate_limits WHERE window_start < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')"),
         db.prepare("UPDATE buildstory_report_jobs SET status = 'pending', lease_until = NULL WHERE status = 'processing' AND lease_until < strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"),
