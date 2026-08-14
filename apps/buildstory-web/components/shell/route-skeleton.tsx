@@ -11,7 +11,7 @@ export function RouteSkeleton({ variant = "generic", label = "Loading" }: { vari
     <section className={`route-skeleton route-skeleton--${variant}`} aria-busy="true" aria-label={label}>
       <ReceiptLoader label={label} />
       <div className="route-skeleton__canvas" aria-hidden="true">
-        {variant === "explore" ? <><i className="route-skeleton__toolbar" /><div className="route-skeleton__explore"><Blocks count={7} className="route-skeleton__rail" /><Blocks count={4} className="route-skeleton__story-list" /></div></> : null}
+        {variant === "explore" ? <><Blocks count={3} className="route-skeleton__heading" /><i className="route-skeleton__toolbar" /><div className="route-skeleton__explore"><Blocks count={7} className="route-skeleton__rail" /><Blocks count={4} className="route-skeleton__story-grid" /></div></> : null}
         {variant === "profile" ? <><div className="route-skeleton__profile"><i /><Blocks count={4} /></div><Blocks count={3} className="route-skeleton__story-list" /></> : null}
         {variant === "story" ? <><div className="route-skeleton__hero"><Blocks count={5} /><i /></div><Blocks count={5} className="route-skeleton__metrics" /><Blocks count={3} className="route-skeleton__story-body" /></> : null}
         {variant === "studio" ? <><Blocks count={3} className="route-skeleton__heading" /><Blocks count={3} className="route-skeleton__dashboard" /></> : null}

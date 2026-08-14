@@ -38,18 +38,18 @@ export default async function ExplorePage() {
   const [{ stories, nextCursor, unavailable, resultCount, facets }, highlights] = await Promise.all([loadStories(), loadHighlights()]);
   return (
     <section className="explore-page section-wrap">
-        <header className="explore-heading">
-          <div>
-            <span className="section-index">( EXPLORE / {String(stories.length).padStart(2, "0")} STORIES )</span>
-            <h1>What are people<br />actually building?</h1>
-          </div>
-          <p>
-            Finished products, earnest experiments, and work in progress — with
-            enough process left in to learn from.
-          </p>
-        </header>
-        <ProPicksRail highlights={highlights} />
-        <ExploreFeed projects={stories} initialCursor={nextCursor} resultCount={resultCount} initialFacets={facets} unavailable={unavailable} />
+      <header className="explore-heading">
+        <div>
+          <span className="section-index">( EXPLORE )</span>
+          <h1>What people are actually building.</h1>
+        </div>
+        <p>
+          Public process receipts — finished products, earnest experiments, and work in progress,
+          with enough of the trail left in to learn from.
+        </p>
+      </header>
+      <ProPicksRail highlights={highlights} />
+      <ExploreFeed projects={stories} initialCursor={nextCursor} resultCount={resultCount} initialFacets={facets} unavailable={unavailable} />
     </section>
   );
 }
