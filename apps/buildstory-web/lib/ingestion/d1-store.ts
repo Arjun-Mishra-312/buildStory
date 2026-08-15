@@ -16,9 +16,12 @@ import type {
   ActiveHighlight,
   BillingProfile,
   BillingUpdate,
+  CliPairingPreview,
   DeviceAuthorization,
   FeatureBudgetName,
   GeneratedReport,
+  LocalConnectResponse,
+  LocalPairStartResponse,
   LocalReportSummary,
   NarrativeRecord,
   NarrativeStatus,
@@ -1874,6 +1877,169 @@ export async function claimUploadSession(
         }
       : {}),
   };
+}
+
+const PAIRING_TTL_MS = 10 * 60_000;
+const PAIRING_POLL_INTERVAL_SECONDS = 2;
+
+type PairingRow = {
+  id: string;
+  user_code: string;
+  user_code_hash: string;
+  project_label: string;
+  narrative_mode: string;
+  created_at: string;
+  expires_at: string;
+  approved_at: string | null;
+  consumed_at: string | null;
+  grant_json: string | null;
+};
+
+function pairingStatus(row: PairingRow): CliPairingPreview["status"] {
+  if (Date.parse(row.expires_at) <= Date.now()) return "expired";
+  if (row.consumed_at) return "consumed";
+  if (row.approved_at) return "approved";
+  return "pending";
+}
+
+function pairingPreview(row: PairingRow): CliPairingPreview {
+  const mode = row.narrative_mode === "byok" || row.narrative_mode === "off" ? row.narrative_mode : "local";
+  return {
+    userCode: row.user_code,
+    projectLabel: row.project_label,
+    narrativeMode: mode,
+    expiresAt: row.expires_at,
+    status: pairingStatus(row),
+  };
+}
+
+async function pairingById(id: string): Promise<PairingRow | null> {
+  return (await database())
+    .prepare(
+      "SELECT id, user_code, user_code_hash, project_label, narrative_mode, created_at, expires_at, approved_at, consumed_at, grant_json FROM buildstory_cli_pairings WHERE id = ?",
+    )
+    .bind(id)
+    .first<PairingRow>();
+}
+
+async function pairingByCodeHash(codeHash: string): Promise<PairingRow | null> {
+  return (await database())
+    .prepare(
+      "SELECT id, user_code, user_code_hash, project_label, narrative_mode, created_at, expires_at, approved_at, consumed_at, grant_json FROM buildstory_cli_pairings WHERE user_code_hash = ?",
+    )
+    .bind(codeHash)
+    .first<PairingRow>();
+}
+
+export async function startCliPairing(
+  projectLabel: string,
+  narrativeMode: "local" | "byok" | "off",
+  apiBaseUrl: string,
+): Promise<LocalPairStartResponse> {
+  const createdAt = new Date();
+  const createdAtIso = createdAt.toISOString();
+  const expiresAtIso = new Date(createdAt.getTime() + PAIRING_TTL_MS).toISOString();
+  const id = makeId("pair");
+  const userCode = makeDeviceCode();
+  const label = projectLabel.trim().slice(0, 120) || "Local generate";
+  await (await database())
+    .prepare(
+      `INSERT INTO buildstory_cli_pairings (
+        id, user_code, user_code_hash, project_label, narrative_mode, created_at, expires_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(id, userCode, await hashToken(userCode), label, narrativeMode, createdAtIso, expiresAtIso, createdAtIso)
+    .run();
+  const normalizedApiBaseUrl = `${apiBaseUrl.replace(/\/$/, "")}/`;
+  return {
+    protocolVersion: "1.0",
+    pairingId: id,
+    userCode,
+    verificationUrl: `${normalizedApiBaseUrl}studio/cli-pair?code=${encodeURIComponent(userCode)}`,
+    expiresAt: expiresAtIso,
+    intervalSeconds: PAIRING_POLL_INTERVAL_SECONDS,
+  };
+}
+
+export async function getCliPairingPreview(userCode: string): Promise<CliPairingPreview> {
+  const row = await pairingByCodeHash(await hashToken(userCode.trim().toUpperCase()));
+  if (!row) throw new D1IngestionError("not_found", "This pairing code was not found or has expired.", 404);
+  return pairingPreview(row);
+}
+
+export async function approveCliPairing(
+  creatorId: string,
+  ownerUserId: string,
+  userCode: string,
+  apiBaseUrl: string,
+): Promise<CliPairingPreview> {
+  const row = await pairingByCodeHash(await hashToken(userCode.trim().toUpperCase()));
+  if (!row) throw new D1IngestionError("not_found", "This pairing code was not found or has expired.", 404);
+  if (pairingStatus(row) === "expired") {
+    throw new D1IngestionError("pair_expired", "This pairing code expired before it was approved.", 410);
+  }
+  if (row.approved_at) {
+    throw new D1IngestionError("pair_already_approved", "This pairing was already approved. Return to the CLI.", 409);
+  }
+  const created = await createUploadSession(creatorId, row.project_label, apiBaseUrl, ownerUserId, null, pairingPreview(row).narrativeMode);
+  const claim = await claimUploadSession(
+    created.deviceAuthorization.sessionId,
+    created.deviceAuthorization.userCode,
+    [pairingPreview(row).narrativeMode],
+  );
+  const grant: LocalConnectResponse = {
+    protocolVersion: "1.0",
+    status: "connected",
+    uploadSessionId: created.deviceAuthorization.sessionId,
+    connectionId: claim.connectionId,
+    uploadGrant: claim.uploadGrant,
+    ...(claim.narrative ? { narrative: claim.narrative } : {}),
+  };
+  const approvedAt = new Date().toISOString();
+  const result = await (await database())
+    .prepare(
+      `UPDATE buildstory_cli_pairings
+       SET approved_at = ?, grant_json = ?, updated_at = ?
+       WHERE id = ? AND approved_at IS NULL AND expires_at > ?`,
+    )
+    .bind(approvedAt, JSON.stringify(grant), approvedAt, row.id, approvedAt)
+    .run();
+  if (changes(result) !== 1) {
+    throw new D1IngestionError("pair_already_approved", "This pairing was already approved. Return to the CLI.", 409);
+  }
+  return {
+    userCode: row.user_code,
+    projectLabel: row.project_label,
+    narrativeMode: pairingPreview(row).narrativeMode,
+    expiresAt: row.expires_at,
+    status: "approved",
+  };
+}
+
+export async function pollCliPairing(pairingId: string): Promise<{ pending: true } | LocalConnectResponse> {
+  const row = await pairingById(pairingId);
+  if (!row || pairingStatus(row) === "expired") {
+    throw new D1IngestionError("pair_expired", "This pairing expired or was not found.", 410);
+  }
+  if (row.consumed_at) {
+    throw new D1IngestionError("pair_expired", "This pairing grant was already issued.", 410);
+  }
+  if (!row.approved_at || !row.grant_json) {
+    return { pending: true };
+  }
+  const consumedAt = new Date().toISOString();
+  const result = await (await database())
+    .prepare(
+      `UPDATE buildstory_cli_pairings
+       SET consumed_at = ?, grant_json = NULL, updated_at = ?
+       WHERE id = ? AND consumed_at IS NULL AND grant_json IS NOT NULL`,
+    )
+    .bind(consumedAt, consumedAt, pairingId)
+    .run();
+  if (changes(result) !== 1) {
+    throw new D1IngestionError("pair_expired", "This pairing grant was already issued.", 410);
+  }
+  return JSON.parse(row.grant_json) as LocalConnectResponse;
 }
 
 export async function acceptSnapshot(

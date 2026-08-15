@@ -1190,13 +1190,13 @@ export function ProjectWorkbench({
                 {publicHero.productLine ? <p className="build-story__product">{publicHero.productLine}</p> : null}
                 {publicHero.scaleLine ? <p className="build-story__scale">{publicHero.scaleLine}</p> : null}
                 {publicHero.storyHook ? <p className="build-story__hook">{publicHero.storyHook}</p> : null}
-                <div className="build-story__author">
+                <Link className="build-story__author" href={`/u/${owner.handle}`} aria-label={`View ${owner.name}'s profile`}>
                   <span className="avatar avatar--large">{initialsFrom(owner.name)}</span>
                   <span>
                     <strong>{owner.name}</strong>
                     <small>@{owner.handle} · {owner.role}</small>
                   </span>
-                </div>
+                </Link>
                 {storySeals.length ? <StorySeals awards={storySeals} /> : null}
                 <div className="build-story__hero-actions" aria-label="Project links">
                   {displayArtifactLinks.projectUrl ? <a className="button button--primary" href={displayArtifactLinks.projectUrl} target="_blank" rel="noopener noreferrer nofollow">View live demo <span aria-hidden="true">↗</span></a> : null}
@@ -1237,7 +1237,7 @@ export function ProjectWorkbench({
               </div>
             </header>
 
-            {displayStory.signals.length ? <WowFactPosters signals={displayStory.signals} limit={2} saveBasePath={publicRecapSaveBase} className="section-wrap" /> : null}
+            {displayStory.signals.length ? <WowFactPosters signals={displayStory.signals} limit={2} className="section-wrap" /> : null}
 
             {publicBrief ? <BuildBrief brief={publicBrief} /> : null}
 

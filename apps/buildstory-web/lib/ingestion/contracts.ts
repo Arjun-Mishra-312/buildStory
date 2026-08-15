@@ -390,6 +390,23 @@ export type LocalConnectResponse = {
   narrative?: { mode: NarrativeMode; provider: NarrativeProvider | null; model: string | null; analysisTier: AnalysisTier };
 };
 
+export type LocalPairStartResponse = {
+  protocolVersion: "1.0";
+  pairingId: string;
+  userCode: string;
+  verificationUrl: string;
+  expiresAt: string;
+  intervalSeconds: number;
+};
+
+export type CliPairingPreview = {
+  userCode: string;
+  projectLabel: string;
+  narrativeMode: "local" | "byok" | "off";
+  expiresAt: string;
+  status: "pending" | "approved" | "consumed" | "expired";
+};
+
 export type LocalSnapshotAcceptedResponse = {
   protocolVersion: "1.0";
   status: "accepted";

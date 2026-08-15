@@ -380,3 +380,154 @@ test("local scanner lifecycle enforces owner, digest, size, and one-use grant bo
   assert.doesNotMatch(publishedJson, /Codex session with 3 user turns/);
   assert.doesNotMatch(publishedJson, /dev:mina-park|google:[a-z0-9_-]+/i);
 });
+
+function pairStartBody() {
+  return {
+    protocolVersion: "1.0",
+    client: { command: "buildstory", version: "1.3.0" },
+    projectLabel: "Pairing test",
+    narrativeMode: "local",
+  };
+}
+
+test("CLI pairing start is rate-limited and poll does not leak a grant before approve", async () => {
+  const previousBypass = process.env.BUILDSTORY_DEV_AUTH_BYPASS;
+  process.env.BUILDSTORY_DEV_AUTH_BYPASS = "true";
+  const { POST: startPair } = await import("../app/api/v1/cli/pair/start/route");
+  const { POST: pollPair } = await import("../app/api/v1/cli/pair/poll/route");
+  const { POST: approvePair } = await import("../app/api/creator/cli-pair/approve/route");
+
+  const start = await startPair(
+    new Request("http://localhost/api/v1/cli/pair/start", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-buildstory-client-version": "1.3.0" },
+      body: JSON.stringify(pairStartBody()),
+    }),
+  );
+  assert.equal(start.status, 200);
+  const started = (await start.json()) as {
+    pairingId: string;
+    userCode: string;
+    verificationUrl: string;
+    intervalSeconds: number;
+  };
+  assert.deepEqual(Object.keys(started).sort(), [
+    "expiresAt",
+    "intervalSeconds",
+    "pairingId",
+    "protocolVersion",
+    "userCode",
+    "verificationUrl",
+  ]);
+  assert.match(started.verificationUrl, /\/studio\/cli-pair\?code=/);
+  assert.doesNotMatch(started.verificationUrl, /Bearer|bsu_/i);
+
+  const pending = await pollPair(
+    new Request("http://localhost/api/v1/cli/pair/poll", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ protocolVersion: "1.0", pairingId: started.pairingId }),
+    }),
+  );
+  assert.equal(pending.status, 202);
+
+  process.env.BUILDSTORY_DEV_AUTH_BYPASS = "false";
+  const unauthenticated = await approvePair(
+    new Request("http://localhost/api/creator/cli-pair/approve", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost" },
+      body: JSON.stringify({ userCode: started.userCode }),
+    }),
+  );
+  assert.equal(unauthenticated.status, 401);
+
+  process.env.BUILDSTORY_DEV_AUTH_BYPASS = "true";
+  const approved = await approvePair(
+    new Request("http://localhost/api/creator/cli-pair/approve", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost" },
+      body: JSON.stringify({ userCode: started.userCode }),
+    }),
+  );
+  assert.equal(approved.status, 200, JSON.stringify(await approved.clone().json().catch(() => null)));
+
+  const granted = await pollPair(
+    new Request("http://localhost/api/v1/cli/pair/poll", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ protocolVersion: "1.0", pairingId: started.pairingId }),
+    }),
+  );
+  assert.equal(granted.status, 200);
+  const grantJson = (await granted.json()) as {
+    status: string;
+    uploadSessionId: string;
+    uploadGrant: { bearerToken: string; snapshotEndpoint: string };
+  };
+  assert.equal(grantJson.status, "connected");
+  assert.ok(grantJson.uploadGrant.bearerToken.length >= 16);
+
+  const reused = await pollPair(
+    new Request("http://localhost/api/v1/cli/pair/poll", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ protocolVersion: "1.0", pairingId: started.pairingId }),
+    }),
+  );
+  assert.equal(reused.status, 410);
+
+  const snapshotRaw = JSON.stringify({
+    ...structuredClone(scannerFixture),
+    generatedNarrative: {
+      version: "1.0.0",
+      generatedAt: "2026-08-03T12:00:00.000Z",
+      mode: "local",
+      provider: "ollama",
+      model: "gemma4:12b",
+      sections: {
+        headline: "Local first",
+        narrative: "The report prose was generated before upload.",
+        turningPoint: "The model stayed on the builder's machine.",
+        learnings: ["Keep private excerpts local."],
+        decisionPatterns: ["Review before shipping."],
+        standoutTraits: ["Protects the boundary."],
+        growthEdge: "Validate the weak product-instinct proxy with more evidence.",
+      },
+      fallbacksUsed: [],
+    },
+  });
+  const accepted = await uploadSnapshot(
+    new Request(`http://localhost${grantJson.uploadGrant.snapshotEndpoint}`, {
+      method: "PUT",
+      headers: {
+        authorization: `Bearer ${grantJson.uploadGrant.bearerToken}`,
+        "content-type": "application/json",
+        "x-buildstory-schema-version": PROJECT_SNAPSHOT_SCHEMA_VERSION,
+        "x-buildstory-snapshot-digest": await sha256Digest(snapshotRaw),
+      },
+      body: snapshotRaw,
+    }),
+    routeContext("sessionId", grantJson.uploadSessionId),
+  );
+  assert.equal(accepted.status, 202, JSON.stringify(await accepted.clone().json().catch(() => null)));
+
+  const limitedStatuses: number[] = [];
+  for (let index = 0; index < 31; index += 1) {
+    const response = await startPair(
+      new Request("http://localhost/api/v1/cli/pair/start", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "cf-connecting-ip": "203.0.113.50",
+        },
+        body: JSON.stringify(pairStartBody()),
+      }),
+    );
+    limitedStatuses.push(response.status);
+    await response.body?.cancel().catch(() => undefined);
+  }
+  assert.equal(limitedStatuses[30], 429);
+
+  if (previousBypass === undefined) delete process.env.BUILDSTORY_DEV_AUTH_BYPASS;
+  else process.env.BUILDSTORY_DEV_AUTH_BYPASS = previousBypass;
+});

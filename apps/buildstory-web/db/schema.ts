@@ -207,6 +207,27 @@ export const uploadSessions = sqliteTable(
   ],
 );
 
+export const cliPairings = sqliteTable(
+  "buildstory_cli_pairings",
+  {
+    id: text("id").primaryKey(),
+    userCode: text("user_code").notNull(),
+    userCodeHash: text("user_code_hash").notNull(),
+    projectLabel: text("project_label").notNull(),
+    narrativeMode: text("narrative_mode").notNull(),
+    createdAt: text("created_at").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    approvedAt: text("approved_at"),
+    consumedAt: text("consumed_at"),
+    grantJson: text("grant_json"),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_buildstory_cli_pairings_user_code_hash").on(table.userCodeHash),
+    index("idx_buildstory_cli_pairings_expires").on(table.expiresAt),
+  ],
+);
+
 export const reports = sqliteTable(
   "buildstory_reports",
   {

@@ -22,14 +22,10 @@ export function BuildFactsRecap({
             data-family={signal.family}
             key={signal.id}
           >
-            <header>
-              <span>{String(index + 1).padStart(2, "0")}</span>
-              <small>{signal.family.replaceAll("-", " ")}</small>
-            </header>
+            <span className="build-facts-recap__index">{String(index + 1).padStart(2, "0")}</span>
             <h3>{signal.headline}</h3>
             {finding?.title && finding.title !== signal.headline ? <strong>{finding.title}</strong> : null}
             <p>{finding?.summary ?? signal.detail}</p>
-            <footer>Straight from the build</footer>
           </article>
         );
       })}

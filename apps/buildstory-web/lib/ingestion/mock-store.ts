@@ -24,9 +24,12 @@ import type {
   ActiveHighlight,
   BillingProfile,
   BillingUpdate,
+  CliPairingPreview,
   DeviceAuthorization,
   FeatureBudgetName,
   GeneratedReport,
+  LocalConnectResponse,
+  LocalPairStartResponse,
   LocalReportSummary,
   NarrativeRecord,
   NarrativeStatus,
@@ -143,6 +146,19 @@ type StoredHighlight = {
   expiresAt: string;
 };
 
+type StoredPairing = {
+  id: string;
+  userCode: string;
+  userCodeHash: string;
+  projectLabel: string;
+  narrativeMode: "local" | "byok" | "off";
+  createdAt: string;
+  expiresAt: string;
+  approvedAt: string | null;
+  consumedAt: string | null;
+  grant: LocalConnectResponse | null;
+};
+
 type MockStore = {
   sessions: Map<string, StoredUploadSession>;
   reports: Map<string, GeneratedReport>;
@@ -158,6 +174,7 @@ type MockStore = {
   /** Keyed by `${userId}:${periodKey}:${feature}`. */
   featureBudgets: Map<string, number>;
   reportHighlights: Map<string, StoredHighlight>;
+  pairings: Map<string, StoredPairing>;
 };
 
 type StoreGlobal = typeof globalThis & {
@@ -493,6 +510,7 @@ function createSeedStore(): MockStore {
     guidance: new Map(),
     featureBudgets: new Map(),
     reportHighlights: new Map(),
+    pairings: new Map(),
     identities: new Map([[identityKey("dev", "mina-park"), {
       id: "idn_mina_park_seed",
       userId,
@@ -1403,6 +1421,131 @@ export async function claimUploadSession(
       analysisTier: session.analysisTier,
     } } : {}),
   };
+}
+
+const PAIRING_TTL_MS = 10 * 60_000;
+const PAIRING_POLL_INTERVAL_SECONDS = 2;
+
+function pairingPreviewStatus(pairing: StoredPairing): CliPairingPreview["status"] {
+  if (Date.parse(pairing.expiresAt) <= Date.now()) return "expired";
+  if (pairing.consumedAt) return "consumed";
+  if (pairing.approvedAt) return "approved";
+  return "pending";
+}
+
+export async function startCliPairing(
+  projectLabel: string,
+  narrativeMode: "local" | "byok" | "off",
+  apiBaseUrl: string,
+): Promise<LocalPairStartResponse> {
+  const createdAt = new Date();
+  const id = makeId("pair");
+  const userCode = makeDeviceCode();
+  const pairing: StoredPairing = {
+    id,
+    userCode,
+    userCodeHash: await hashToken(userCode),
+    projectLabel: projectLabel.trim().slice(0, 120) || "Local generate",
+    narrativeMode,
+    createdAt: createdAt.toISOString(),
+    expiresAt: new Date(createdAt.getTime() + PAIRING_TTL_MS).toISOString(),
+    approvedAt: null,
+    consumedAt: null,
+    grant: null,
+  };
+  store.pairings.set(id, pairing);
+  const normalizedApiBaseUrl = `${apiBaseUrl.replace(/\/$/, "")}/`;
+  return {
+    protocolVersion: "1.0",
+    pairingId: id,
+    userCode,
+    verificationUrl: `${normalizedApiBaseUrl}studio/cli-pair?code=${encodeURIComponent(userCode)}`,
+    expiresAt: pairing.expiresAt,
+    intervalSeconds: PAIRING_POLL_INTERVAL_SECONDS,
+  };
+}
+
+export async function getCliPairingPreview(userCode: string): Promise<CliPairingPreview> {
+  const codeHash = await hashToken(userCode.trim().toUpperCase());
+  const pairing = Array.from(store.pairings.values()).find((candidate) => candidate.userCodeHash === codeHash);
+  if (!pairing) {
+    throw new MockIngestionError("not_found", "This pairing code was not found or has expired.", 404);
+  }
+  return {
+    userCode: pairing.userCode,
+    projectLabel: pairing.projectLabel,
+    narrativeMode: pairing.narrativeMode,
+    expiresAt: pairing.expiresAt,
+    status: pairingPreviewStatus(pairing),
+  };
+}
+
+export async function approveCliPairing(
+  creatorId: string,
+  ownerUserId: string,
+  userCode: string,
+  apiBaseUrl: string,
+): Promise<CliPairingPreview> {
+  const codeHash = await hashToken(userCode.trim().toUpperCase());
+  const pairing = Array.from(store.pairings.values()).find((candidate) => candidate.userCodeHash === codeHash);
+  if (!pairing) {
+    throw new MockIngestionError("not_found", "This pairing code was not found or has expired.", 404);
+  }
+  if (pairingPreviewStatus(pairing) === "expired") {
+    throw new MockIngestionError("pair_expired", "This pairing code expired before it was approved.", 410);
+  }
+  if (pairing.approvedAt) {
+    throw new MockIngestionError("pair_already_approved", "This pairing was already approved. Return to the CLI.", 409);
+  }
+  const created = await createUploadSession(
+    creatorId,
+    pairing.projectLabel,
+    apiBaseUrl,
+    ownerUserId,
+    null,
+    pairing.narrativeMode,
+  );
+  const claim = await claimUploadSession(
+    created.deviceAuthorization.sessionId,
+    created.deviceAuthorization.userCode,
+    [pairing.narrativeMode],
+  );
+  pairing.approvedAt = new Date().toISOString();
+  pairing.grant = {
+    protocolVersion: "1.0",
+    status: "connected",
+    uploadSessionId: created.deviceAuthorization.sessionId,
+    connectionId: claim.connectionId,
+    uploadGrant: claim.uploadGrant,
+    ...(claim.narrative ? { narrative: claim.narrative } : {}),
+  };
+  return {
+    userCode: pairing.userCode,
+    projectLabel: pairing.projectLabel,
+    narrativeMode: pairing.narrativeMode,
+    expiresAt: pairing.expiresAt,
+    status: "approved",
+  };
+}
+
+export async function pollCliPairing(pairingId: string): Promise<{ pending: true } | LocalConnectResponse> {
+  const pairing = store.pairings.get(pairingId);
+  if (!pairing || pairingPreviewStatus(pairing) === "expired") {
+    throw new MockIngestionError("pair_expired", "This pairing expired or was not found.", 410);
+  }
+  if (pairingPreviewStatus(pairing) === "expired") {
+    throw new MockIngestionError("pair_expired", "This pairing expired or was not found.", 410);
+  }
+  if (pairing.consumedAt) {
+    throw new MockIngestionError("pair_expired", "This pairing grant was already issued.", 410);
+  }
+  if (!pairing.approvedAt || !pairing.grant) {
+    return { pending: true };
+  }
+  pairing.consumedAt = new Date().toISOString();
+  const grant = pairing.grant;
+  pairing.grant = null;
+  return grant;
 }
 
 export async function acceptSnapshot(

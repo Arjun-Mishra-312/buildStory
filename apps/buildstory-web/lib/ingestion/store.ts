@@ -158,6 +158,31 @@ export async function claimUploadSession(sessionId: string, userCode: string, na
   return (await backend()).claimUploadSession(sessionId, userCode, narrativeModes);
 }
 
+export async function startCliPairing(
+  projectLabel: string,
+  narrativeMode: "local" | "byok" | "off",
+  apiBaseUrl: string,
+) {
+  return (await backend()).startCliPairing(projectLabel, narrativeMode, apiBaseUrl);
+}
+
+export async function getCliPairingPreview(userCode: string) {
+  return (await backend()).getCliPairingPreview(userCode);
+}
+
+export async function approveCliPairing(
+  creatorId: string,
+  ownerUserId: string,
+  userCode: string,
+  apiBaseUrl: string,
+) {
+  return (await backend()).approveCliPairing(creatorId, ownerUserId, userCode, apiBaseUrl);
+}
+
+export async function pollCliPairing(pairingId: string) {
+  return (await backend()).pollCliPairing(pairingId);
+}
+
 export async function acceptSnapshot(
   sessionId: string,
   bearerToken: string,

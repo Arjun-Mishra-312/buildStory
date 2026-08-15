@@ -27,3 +27,6 @@
 client_secret_*.json
 **/client_secret_*.json
 *-service-account*.json
+
+# Local CLI generate output (report.json / report.md / report.html)
+/buildstory/

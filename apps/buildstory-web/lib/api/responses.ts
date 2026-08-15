@@ -45,7 +45,8 @@ export async function requireApiCreator() {
 export function ingestionErrorResponse(error: unknown) {
   if (
     isIngestionError(error) ||
-    error instanceof LocalApiRequestError
+    error instanceof LocalApiRequestError ||
+    error instanceof SocialError
   ) {
     if (error.status >= 500) {
       logOperationalEvent("error", "ingestion.request_failed", {

@@ -129,6 +129,64 @@ export function parseLocalConnectRequest(value: unknown): LocalConnectRequest {
   return value as LocalConnectRequest;
 }
 
+export function parseCliPairStartRequest(value: unknown): {
+  protocolVersion: "1.0";
+  client: { command: "buildstory"; version: string };
+  projectLabel: string;
+  narrativeMode: "local" | "byok" | "off";
+} {
+  const details: string[] = [];
+  if (!isRecord(value)) {
+    throw new LocalApiRequestError("invalid_pair_request", "The pairing request must be a JSON object.", 400);
+  }
+  if (!hasExactKeys(value, ["protocolVersion", "client", "projectLabel", "narrativeMode"])) {
+    details.push("Only protocolVersion, client, projectLabel, and narrativeMode are accepted.");
+  }
+  if (value.protocolVersion !== "1.0") details.push("protocolVersion must be 1.0.");
+  if (!isRecord(value.client)) {
+    details.push("client is required.");
+  } else {
+    if (!hasExactKeys(value.client, ["command", "version"])) details.push("client accepts only command and version.");
+    if (value.client.command !== "buildstory") details.push("client.command must be buildstory.");
+    if (typeof value.client.version !== "string" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(value.client.version)) {
+      details.push("client.version must be a semantic version.");
+    }
+  }
+  if (typeof value.projectLabel !== "string" || value.projectLabel.length < 1 || value.projectLabel.length > 120) {
+    details.push("projectLabel must be 1-120 characters.");
+  }
+  if (value.narrativeMode !== "local" && value.narrativeMode !== "byok" && value.narrativeMode !== "off") {
+    details.push("narrativeMode must be local, byok, or off.");
+  }
+  if (details.length) {
+    throw new LocalApiRequestError("invalid_pair_request", "The pairing request does not match Buildstory protocol 1.0.", 400, details);
+  }
+  return value as {
+    protocolVersion: "1.0";
+    client: { command: "buildstory"; version: string };
+    projectLabel: string;
+    narrativeMode: "local" | "byok" | "off";
+  };
+}
+
+export function parseCliPairPollRequest(value: unknown): { protocolVersion: "1.0"; pairingId: string } {
+  const details: string[] = [];
+  if (!isRecord(value)) {
+    throw new LocalApiRequestError("invalid_pair_request", "The pairing poll must be a JSON object.", 400);
+  }
+  if (!hasExactKeys(value, ["protocolVersion", "pairingId"])) {
+    details.push("Only protocolVersion and pairingId are accepted.");
+  }
+  if (value.protocolVersion !== "1.0") details.push("protocolVersion must be 1.0.");
+  if (typeof value.pairingId !== "string" || !/^pair_[A-Za-z0-9]+$/.test(value.pairingId)) {
+    details.push("pairingId must be copied exactly from the pairing start response.");
+  }
+  if (details.length) {
+    throw new LocalApiRequestError("invalid_pair_request", "The pairing poll does not match Buildstory protocol 1.0.", 400, details);
+  }
+  return value as { protocolVersion: "1.0"; pairingId: string };
+}
+
 export async function sha256Digest(raw: string) {
   const bytes = new TextEncoder().encode(raw);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
