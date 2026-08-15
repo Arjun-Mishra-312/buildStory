@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { computeStreaks, foldChaptersToDailyRows, periodStartDay, usageWindowRelation } from "../lib/usage/fold";
+import { computeStreaks, foldChaptersToDailyRows, foldUnionToDailyRows, hourlyFromSessions, periodStartDay, unionUnpublishedOntoPublished, usageWindowRelation } from "../lib/usage/fold";
 
 function scannerChapter(args: {
   chapterIndex: number;
@@ -142,4 +142,40 @@ test("periodStartDay: 7d includes today and six prior UTC days", () => {
 test("computeStreaks: current streak requires activity today or yesterday", () => {
   assert.deepEqual(computeStreaks(["2026-08-10", "2026-08-11", "2026-08-12"], "2026-08-13"), { current: 3, longest: 3 });
   assert.deepEqual(computeStreaks(["2026-08-01", "2026-08-02", "2026-08-10"], "2026-08-13"), { current: 0, longest: 2 });
+});
+
+test("unpublished cumulative rescan cannot drop published sessions on the private fold", () => {
+  const published = [
+    scannerChapter({
+      chapterIndex: 1,
+      start: "2026-01-01T00:00:00.000Z",
+      end: "2026-02-01T00:00:00.000Z",
+      sessions: [
+        { sessionRef: "ses_a", startedAt: "2026-01-02T15:00:00.000Z", totalTokens: 100 },
+        { sessionRef: "ses_b", startedAt: "2026-01-03T15:00:00.000Z", totalTokens: 80 },
+      ],
+      models: [{ name: "alpha", totalTokens: 180, costMicroUsd: 1_800_000 }],
+    }),
+  ];
+  const unpublished = [
+    scannerChapter({
+      chapterIndex: 2,
+      start: "2026-01-01T00:00:00.000Z",
+      end: "2026-03-01T00:00:00.000Z",
+      sessions: [
+        { sessionRef: "ses_a", startedAt: "2026-01-02T15:00:00.000Z", totalTokens: 40 },
+        { sessionRef: "ses_c", startedAt: "2026-02-10T22:00:00.000Z", totalTokens: 20 },
+      ],
+      models: [{ name: "alpha", totalTokens: 60, costMicroUsd: 600_000 }],
+    }),
+  ];
+  const replaced = foldChaptersToDailyRows([...published, ...unpublished]);
+  const unioned = foldUnionToDailyRows(published, unpublished);
+  const replacedSessions = replaced.filter((row) => row.modelKey === "__activity").reduce((sum, row) => sum + row.sessionCount, 0);
+  const unionedSessions = unioned.filter((row) => row.modelKey === "__activity").reduce((sum, row) => sum + row.sessionCount, 0);
+  assert.equal(replacedSessions, 2);
+  assert.equal(unionedSessions, 3);
+  const hours = hourlyFromSessions(unionUnpublishedOntoPublished(published, unpublished));
+  assert.equal(hours[15]?.sessions, 2);
+  assert.equal(hours[22]?.sessions, 1);
 });

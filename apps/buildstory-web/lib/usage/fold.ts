@@ -96,6 +96,53 @@ export function foldChaptersToDailyRows(chapters: UsageChapterInput[]): UsageDai
   return bucketDaily(foldAttributedSessions(chapters));
 }
 
+export type UsageHourBucket = {
+  hour: number;
+  sessions: number;
+  spendMicroUsd: number;
+};
+
+/**
+ * Private profile usage must be a superset of the published fold. An unpublished
+ * re-scan often shares the same window start, which the cumulative rule would
+ * treat as a replacement — wiping published sessions and making private < public.
+ * Keep published session refs, then add unpublished refs that are not already present.
+ */
+export function unionUnpublishedOntoPublished(
+  publishedChapters: UsageChapterInput[],
+  unpublishedChapters: UsageChapterInput[],
+): AttributedSession[] {
+  const published = foldAttributedSessions(publishedChapters);
+  const unpublished = foldAttributedSessions(unpublishedChapters);
+  const merged = new Map(published.map((session) => [session.sessionRef, session]));
+  for (const session of unpublished) {
+    if (!merged.has(session.sessionRef)) merged.set(session.sessionRef, session);
+  }
+  return Array.from(merged.values());
+}
+
+export function foldUnionToDailyRows(
+  publishedChapters: UsageChapterInput[],
+  unpublishedChapters: UsageChapterInput[],
+): UsageDailyRow[] {
+  return bucketDaily(unionUnpublishedOntoPublished(publishedChapters, unpublishedChapters));
+}
+
+export function hourlyFromSessions(sessions: AttributedSession[]): UsageHourBucket[] {
+  const hours = Array.from({ length: 24 }, (_, hour) => ({ hour, sessions: 0, spendMicroUsd: 0 }));
+  for (const session of sessions) {
+    const parsed = Date.parse(session.startedAt);
+    if (!Number.isFinite(parsed)) continue;
+    const hour = new Date(parsed).getUTCHours();
+    const bucket = hours[hour]!;
+    bucket.sessions += 1;
+    for (const allocation of session.allocations) {
+      bucket.spendMicroUsd += Math.max(0, allocation.costMicroUsd ?? 0);
+    }
+  }
+  return hours;
+}
+
 export function foldChaptersToFeatSessions(chapters: UsageChapterInput[]): FeatSession[] {
   return foldAttributedSessions(chapters).map((session) => ({
     sessionRef: session.sessionRef,

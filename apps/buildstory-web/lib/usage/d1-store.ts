@@ -1,7 +1,15 @@
 import { getD1 } from "@/db";
 import { EMPTY_PROFILE_USAGE, aggregateProfileUsage } from "./aggregate";
 import type { ProfileUsage } from "./contracts";
-import { USAGE_ACTIVITY_MODEL, foldChaptersToDailyRows, type UsageChapterInput, type UsageDailyRow } from "./fold";
+import {
+  USAGE_ACTIVITY_MODEL,
+  foldChaptersToDailyRows,
+  foldUnionToDailyRows,
+  hourlyFromSessions,
+  unionUnpublishedOntoPublished,
+  type UsageChapterInput,
+  type UsageDailyRow,
+} from "./fold";
 
 const BATCH = 40;
 
@@ -14,6 +22,7 @@ type ChapterRow = {
   source_snapshot_json: string;
   snapshot_json: string;
   owner_user_id: string;
+  publication_status?: string;
 };
 
 function parseSnapshot(json: string): unknown {
@@ -142,7 +151,8 @@ export async function getPrivateProfileUsage(userId: string): Promise<ProfileUsa
   const [rows, rankRow] = await Promise.all([
     db
       .prepare(
-        `SELECT r.chapter_index, r.source_snapshot_json, r.snapshot_json, p.owner_user_id, p.id AS project_id
+        `SELECT r.chapter_index, r.source_snapshot_json, r.snapshot_json, r.publication_status,
+                p.owner_user_id, p.id AS project_id
          FROM buildstory_reports r
          JOIN buildstory_projects p ON p.id = r.project_id
          WHERE p.owner_user_id = ? AND r.status = 'ready'
@@ -157,20 +167,25 @@ export async function getPrivateProfileUsage(userId: string): Promise<ProfileUsa
       .bind(userId)
       .first<{ rank_spend: number }>(),
   ]);
-  const byProject = new Map<string, ChapterRow[]>();
+  const byProject = new Map<string, { published: ChapterRow[]; unpublished: ChapterRow[] }>();
   for (const row of rows.results) {
-    const list = byProject.get(row.project_id) ?? [];
-    list.push(row);
-    byProject.set(row.project_id, list);
+    const bucket = byProject.get(row.project_id) ?? { published: [], unpublished: [] };
+    const live = row.publication_status === "published" || row.publication_status === "draft_changes";
+    if (live) bucket.published.push(row);
+    else bucket.unpublished.push(row);
+    byProject.set(row.project_id, bucket);
   }
   const daily: UsageDailyRow[] = [];
+  const hourSessions = [];
   for (const projectRows of byProject.values()) {
-    const parsed = chaptersFromRows(projectRows);
-    if (parsed) daily.push(...foldChaptersToDailyRows(parsed.chapters));
+    const published = chaptersFromRows(projectRows.published)?.chapters ?? [];
+    const unpublished = chaptersFromRows(projectRows.unpublished)?.chapters ?? [];
+    daily.push(...foldUnionToDailyRows(published, unpublished));
+    hourSessions.push(...unionUnpublishedOntoPublished(published, unpublished));
   }
   const rank = rankRow?.rank_spend ?? null;
   if (daily.length === 0) return { ...EMPTY_PROFILE_USAGE, rank };
-  return aggregateProfileUsage(daily, rank);
+  return { ...aggregateProfileUsage(daily, rank), hours: hourlyFromSessions(hourSessions) };
 }
 
 export { USAGE_ACTIVITY_MODEL };

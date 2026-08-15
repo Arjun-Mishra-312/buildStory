@@ -81,8 +81,8 @@ export function niceAxisMax(value: number): number {
   return step * magnitude;
 }
 
-export function axisTicks(max: number, count = 5): number[] {
-  const top = niceAxisMax(max);
+export function axisTicks(value: number, count = 5): number[] {
+  const top = niceAxisMax(value);
   return Array.from({ length: count }, (_, index) => (top * index) / (count - 1));
 }
 
@@ -208,6 +208,32 @@ export function rankedSpendModels(days: ProfileUsageDay[], limit = 10): MonthlyS
     }
   }
   return Array.from(totals.values()).sort((left, right) => right.spendMicroUsd - left.spendMicroUsd).slice(0, limit);
+}
+
+export type HourSpendBar = {
+  hour: number;
+  label: string;
+  spendMicroUsd: number;
+  sessions: number;
+  value: number;
+  peak: boolean;
+};
+
+export function buildHourBars(
+  hours: Array<{ hour: number; sessions: number; spendMicroUsd: number }>,
+  metric: "spend" | "sessions" = "spend",
+): HourSpendBar[] {
+  const values = hours.map((bucket) => (metric === "spend" ? bucket.spendMicroUsd : bucket.sessions));
+  const peakValue = Math.max(0, ...values);
+  const peakIndex = values.findIndex((value) => value === peakValue);
+  return hours.map((bucket, index) => ({
+    hour: bucket.hour,
+    label: String(bucket.hour).padStart(2, "0"),
+    spendMicroUsd: bucket.spendMicroUsd,
+    sessions: bucket.sessions,
+    value: values[index] ?? 0,
+    peak: peakValue > 0 && index === peakIndex,
+  }));
 }
 
 export function weekdayMetric(usage: ProfileUsage): "spend" | "sessions" {

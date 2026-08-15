@@ -7,9 +7,9 @@ import { formatUsageCount, formatUsageSpend, formatUsageTokens } from "@/lib/usa
 import {
   axisTicks,
   buildActivityHeatmap,
+  buildHourBars,
   buildMonthlySpend,
   buildWeekdayBars,
-  niceAxisMax,
   rankedSpendModels,
   usageModelColor,
   weekdayMetric,
@@ -56,21 +56,32 @@ function Heatmap({ usage, today }: { usage: ProfileUsage; today: string }) {
   );
 }
 
-function WeekdayChart({ usage }: { usage: ProfileUsage }) {
+function MostActiveChart({ usage }: { usage: ProfileUsage }) {
   const metric = weekdayMetric(usage);
-  const bars = useMemo(() => buildWeekdayBars(usage.days, metric), [usage.days, metric]);
-  const max = niceAxisMax(Math.max(0, ...bars.map((bar) => bar.value)));
-  const ticks = axisTicks(max);
+  const hourly = Boolean(usage.hours?.some((bucket) => bucket.sessions > 0 || bucket.spendMicroUsd > 0));
+  const bars = useMemo(() => {
+    if (hourly && usage.hours) {
+      return buildHourBars(usage.hours, metric).map((bar) => ({ ...bar, key: `${bar.label}:00` }));
+    }
+    return buildWeekdayBars(usage.days, metric);
+  }, [hourly, metric, usage.days, usage.hours]);
+  const rawMax = Math.max(0, ...bars.map((bar) => bar.value));
+  const ticks = axisTicks(rawMax);
+  const top = ticks[ticks.length - 1] ?? 1;
   const format = metric === "spend" ? formatUsageSpend : formatUsageCount;
   const peak = bars.find((bar) => bar.peak);
   return (
     <figure className="profile-usage-chart">
       <figcaption>Most active time</figcaption>
-      {max <= 0 || !peak ? (
-        <p className="profile-usage-chart__empty">No weekday pattern in this view yet.</p>
+      {rawMax <= 0 || !peak ? (
+        <p className="profile-usage-chart__empty">No activity pattern in this view yet.</p>
       ) : (
         <>
-          <div className="profile-bar-chart" role="img" aria-label={`Most active weekday is ${peak.key}`}>
+          <div
+            className={`profile-bar-chart${hourly ? " profile-bar-chart--hours" : ""}`}
+            role="img"
+            aria-label={`Most active ${hourly ? "hour" : "weekday"} is ${peak.key}`}
+          >
             <div className="profile-bar-chart__axis" aria-hidden="true">
               {ticks.slice().reverse().map((tick) => (
                 <span key={tick}>{format(tick)}</span>
@@ -82,19 +93,21 @@ function WeekdayChart({ usage }: { usage: ProfileUsage }) {
               </div>
               <div className="profile-bar-chart__cols">
                 {bars.map((bar, index) => (
-                  <div key={`${bar.key}-${index}`} className="profile-bar-chart__col" title={`${bar.key} · ${format(bar.value)}`}>
-                    <span
-                      className={bar.peak ? "is-peak" : undefined}
-                      style={{ height: `${Math.max(bar.value > 0 ? 4 : 0, (bar.value / max) * 100)}%` }}
-                    />
-                    <small>{bar.label}</small>
+                  <div key={`${bar.key}-${index}`} className="profile-bar-chart__col" title={`${hourly ? `${bar.label}:00 UTC` : bar.key} · ${format(bar.value)}`}>
+                    <div className="profile-bar-chart__value">
+                      <span
+                        className={bar.peak ? "is-peak" : undefined}
+                        style={{ height: `${Math.max(bar.value > 0 ? 4 : 0, (bar.value / top) * 100)}%` }}
+                      />
+                    </div>
+                    {hourly ? (index % 6 === 0 ? <small>{bar.label}</small> : <small aria-hidden="true">&nbsp;</small>) : <small>{bar.label}</small>}
                   </div>
                 ))}
               </div>
             </div>
           </div>
           <p className="profile-usage-chart__hint">
-            Peak {peak.key}
+            Peak {hourly ? `${peak.label}:00 UTC` : peak.key}
             {metric === "spend" ? ` · ${formatUsageSpend(peak.spendMicroUsd)}` : ` · ${formatUsageCount(peak.sessions)} sessions`}
           </p>
         </>
@@ -107,8 +120,8 @@ function MonthlySpendChart({ usage, today }: { usage: ProfileUsage; today: strin
   const months = useMemo(() => buildMonthlySpend(usage.days, today), [usage.days, today]);
   const ranked = useMemo(() => rankedSpendModels(usage.days), [usage.days]);
   const colorByKey = useMemo(() => new Map(ranked.map((model, index) => [model.key, usageModelColor(index)])), [ranked]);
-  const max = niceAxisMax(Math.max(0, ...months.map((month) => month.totalMicroUsd)));
-  const ticks = axisTicks(max);
+  const ticks = axisTicks(Math.max(0, ...months.map((month) => month.totalMicroUsd)));
+  const top = ticks[ticks.length - 1] ?? 1;
   if (usage.spendMicroUsd == null) {
     return (
       <figure className="profile-usage-chart">
@@ -120,7 +133,7 @@ function MonthlySpendChart({ usage, today }: { usage: ProfileUsage; today: strin
   return (
     <figure className="profile-usage-chart">
       <figcaption>Monthly spend</figcaption>
-      {max <= 0 ? (
+      {top <= 0 ? (
         <p className="profile-usage-chart__empty">No priced spend in this view yet.</p>
       ) : (
         <>
@@ -137,17 +150,19 @@ function MonthlySpendChart({ usage, today }: { usage: ProfileUsage; today: strin
               <div className="profile-bar-chart__cols">
                 {months.map((month) => (
                   <div key={month.month} className="profile-bar-chart__col" title={`${month.label} · ${formatUsageSpend(month.totalMicroUsd)}`}>
-                    {month.totalMicroUsd > 0 ? <em>{formatUsageSpend(month.totalMicroUsd)}</em> : null}
-                    <div className="profile-bar-chart__stack" style={{ height: `${(month.totalMicroUsd / max) * 100}%` }}>
-                      {month.segments.map((segment) => (
-                        <span
-                          key={segment.key}
-                          style={{
-                            flexGrow: segment.spendMicroUsd,
-                            background: colorByKey.get(segment.key) ?? "var(--line)",
-                          }}
-                        />
-                      ))}
+                    <div className="profile-bar-chart__value">
+                      {month.totalMicroUsd > 0 ? <em>{formatUsageSpend(month.totalMicroUsd)}</em> : null}
+                      <div className="profile-bar-chart__stack" style={{ height: `${(month.totalMicroUsd / top) * 100}%` }}>
+                        {month.segments.map((segment) => (
+                          <span
+                            key={segment.key}
+                            style={{
+                              flexGrow: segment.spendMicroUsd,
+                              background: colorByKey.get(segment.key) ?? "var(--line)",
+                            }}
+                          />
+                        ))}
+                      </div>
                     </div>
                     <small>{month.label}</small>
                   </div>
@@ -221,11 +236,11 @@ export function ProfileUsageSection({
       </div>
       <p className="profile-usage__note">
         {isOwner && view === "private"
-          ? "Private view includes unpublished ready scans. Visitors only see the public view, which is limited to published stories."
-          : "Estimated API-equivalent totals from published scans. Cursor sessions can add active days without spend or tokens."}
+          ? "Private adds unpublished ready scans on top of published history — it cannot drop published sessions. Most active time uses session start hour (UTC), which the public daily rollup does not store."
+          : "Estimated API-equivalent totals from published scans. Most active time is by weekday; session hours stay on the private view."}
       </p>
       {isOwner && view === "public" && privateDiffers ? (
-        <p className="profile-usage__note">This is the public cut. Switch to private to include unpublished scans.</p>
+        <p className="profile-usage__note">This is the public cut visitors see. Switch to private for unpublished scans and hourly activity.</p>
       ) : null}
       {!hasActivity ? (
         <p className="profile-stories__empty">{view === "private" ? "No ready scan usage yet." : "No published scan usage yet."}</p>
@@ -249,7 +264,7 @@ export function ProfileUsageSection({
           ) : null}
           <Heatmap usage={usage} today={today} />
           <div className="profile-usage__charts">
-            <WeekdayChart usage={usage} />
+            <MostActiveChart usage={usage} />
             <MonthlySpendChart usage={usage} today={today} />
           </div>
         </>

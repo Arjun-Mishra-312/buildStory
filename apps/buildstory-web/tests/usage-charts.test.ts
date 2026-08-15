@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { aggregateProfileUsage } from "../lib/usage/aggregate";
 import {
+  axisTicks,
   buildActivityHeatmap,
   buildMonthlySpend,
   buildWeekdayBars,
@@ -75,4 +76,10 @@ test("weekday metric falls back to sessions when spend is unpublished", () => {
     days: [],
   }), "sessions");
   assert.equal(niceAxisMax(800), 1000);
+});
+
+test("axis ticks use one nice scale so bar height matches the peak label", () => {
+  const ticks = axisTicks(774_000_000);
+  assert.equal(ticks[ticks.length - 1], 1_000_000_000);
+  assert.equal(ticks[0], 0);
 });

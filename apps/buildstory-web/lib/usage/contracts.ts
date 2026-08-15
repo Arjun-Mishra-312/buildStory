@@ -11,6 +11,12 @@ export type ProfileUsageDay = {
   models: ProfileUsageDayModel[];
 };
 
+export type ProfileUsageHour = {
+  hour: number;
+  sessions: number;
+  spendMicroUsd: number;
+};
+
 export type ProfileUsage = {
   spendMicroUsd: number | null;
   tokens: number;
@@ -23,4 +29,6 @@ export type ProfileUsage = {
   topSpendModel: { key: string; label: string } | null;
   rank: number | null;
   days: ProfileUsageDay[];
+  /** Session-start hours (UTC). Present on the owner private view only. */
+  hours?: ProfileUsageHour[];
 };

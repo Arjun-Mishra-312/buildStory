@@ -1,7 +1,7 @@
-import { listPublishedUsageProjects, listReadyUsageProjects } from "@/lib/ingestion/mock-store";
+import { listOwnerUsageChapterSets, listPublishedUsageProjects } from "@/lib/ingestion/mock-store";
 import { getProfile } from "@/lib/social/mock-store";
 import { EMPTY_PROFILE_USAGE, aggregateProfileUsage } from "@/lib/usage/aggregate";
-import { foldChaptersToDailyRows, periodStartDay, type UsageDailyRow } from "@/lib/usage/fold";
+import { foldChaptersToDailyRows, foldUnionToDailyRows, hourlyFromSessions, unionUnpublishedOntoPublished, periodStartDay, type UsageDailyRow } from "@/lib/usage/fold";
 import {
   DEFAULT_LEADERBOARD_METRIC,
   type LeaderboardEntry,
@@ -118,5 +118,14 @@ export function getProfileUsage(userId: string) {
 }
 
 export function getPrivateProfileUsage(userId: string) {
-  return usageFromProjects(userId, listReadyUsageProjects());
+  const rows: UsageDailyRow[] = [];
+  const hourSessions = [];
+  const allTimeRank = getLeaderboard("all-time", 200, "spend").find((entry) => entry.user.id === userId)?.rank ?? null;
+  for (const project of listOwnerUsageChapterSets()) {
+    if (project.ownerUserId !== userId) continue;
+    rows.push(...foldUnionToDailyRows(project.published, project.unpublished));
+    hourSessions.push(...unionUnpublishedOntoPublished(project.published, project.unpublished));
+  }
+  if (rows.length === 0) return { ...EMPTY_PROFILE_USAGE, rank: allTimeRank };
+  return { ...aggregateProfileUsage(rows, allTimeRank), hours: hourlyFromSessions(hourSessions) };
 }

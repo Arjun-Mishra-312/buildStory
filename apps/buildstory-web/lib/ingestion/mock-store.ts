@@ -2781,9 +2781,36 @@ export function listPublishedUsageProjects() {
   return listUsageProjects("published");
 }
 
-/** Ready chapters including unpublished scans — owner-only private profile usage. */
-export function listReadyUsageProjects() {
-  return listUsageProjects("ready");
+/** Ready chapters split so private usage can union unpublished onto published. */
+export function listOwnerUsageChapterSets(): Array<{
+  ownerUserId: string;
+  projectId: string;
+  published: Array<{ chapterIndex: number; snapshot: unknown }>;
+  unpublished: Array<{ chapterIndex: number; snapshot: unknown }>;
+}> {
+  const byProject = new Map<string, { published: Array<{ chapterIndex: number; snapshot: unknown }>; unpublished: Array<{ chapterIndex: number; snapshot: unknown }> }>();
+  for (const report of store.reports.values()) {
+    if (report.status !== "ready") continue;
+    const live = report.publication.status === "published" || report.publication.status === "draft_changes";
+    const bucket = byProject.get(report.projectId) ?? { published: [], unpublished: [] };
+    const target = live ? bucket.published : bucket.unpublished;
+    target.push({
+      chapterIndex: report.publication.chapterIndex ?? target.length + 1,
+      snapshot: report.sourceSnapshot ?? report.snapshot,
+    });
+    byProject.set(report.projectId, bucket);
+  }
+  return Array.from(store.projects.values())
+    .filter((project) => byProject.has(project.id))
+    .map((project) => {
+      const bucket = byProject.get(project.id)!;
+      return {
+        ownerUserId: project.ownerUserId,
+        projectId: project.id,
+        published: bucket.published.sort((left, right) => left.chapterIndex - right.chapterIndex),
+        unpublished: bucket.unpublished.sort((left, right) => left.chapterIndex - right.chapterIndex),
+      };
+    });
 }
 
 /** Account export/deletion needs: everything owned by this user, keyed by the store's real user id rather than the creatorId ("google:<sub>") string used elsewhere. */

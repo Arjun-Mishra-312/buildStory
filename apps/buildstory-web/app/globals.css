@@ -1166,6 +1166,14 @@ img.avatar {
   min-height: 220px;
 }
 
+.profile-bar-chart--hours .profile-bar-chart__cols {
+  gap: 2px;
+}
+
+.profile-bar-chart--hours .profile-bar-chart__value > span {
+  width: 70%;
+}
+
 .profile-bar-chart__axis {
   display: flex;
   flex-direction: column;
@@ -1182,7 +1190,7 @@ img.avatar {
 
 .profile-bar-chart__rules {
   position: absolute;
-  inset: 0 0 22px;
+  inset: 0 0 28px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -1201,7 +1209,6 @@ img.avatar {
   align-items: stretch;
   gap: 8px;
   height: 100%;
-  padding-bottom: 22px;
 }
 
 .profile-bar-chart__col {
@@ -1209,35 +1216,41 @@ img.avatar {
   flex: 1 1 0;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
   min-width: 0;
   height: 100%;
 }
 
-.profile-bar-chart__col > span {
+.profile-bar-chart__value {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  width: 100%;
+  min-height: 0;
+  gap: 8px;
+}
+
+.profile-bar-chart__value > span {
   width: 56%;
   min-height: 0;
   border-radius: var(--radius-xs) var(--radius-xs) 0 0;
   background: color-mix(in srgb, var(--cobalt) 42%, var(--ink));
 }
 
-.profile-bar-chart__col > span.is-peak {
+.profile-bar-chart__value > span.is-peak {
   background: var(--cobalt);
 }
 
 .profile-bar-chart__col small {
-  position: absolute;
-  bottom: 0;
-  color: var(--muted);
+  flex: none;
+  margin-top: 8px;
+  color: var(--ink);
   font: var(--text-2xs) var(--font-code);
-}
-
-.profile-bar-chart__col {
-  position: relative;
+  letter-spacing: 0.04em;
 }
 
 .profile-bar-chart__col em {
-  margin-bottom: 6px;
   color: var(--ink);
   font: 12px/1 var(--font-editorial);
   font-style: normal;
