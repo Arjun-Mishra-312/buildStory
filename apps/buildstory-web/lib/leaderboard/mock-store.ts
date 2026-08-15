@@ -1,4 +1,4 @@
-import { listPublishedUsageProjects } from "@/lib/ingestion/mock-store";
+import { listPublishedUsageProjects, listReadyUsageProjects } from "@/lib/ingestion/mock-store";
 import { getProfile } from "@/lib/social/mock-store";
 import { EMPTY_PROFILE_USAGE, aggregateProfileUsage } from "@/lib/usage/aggregate";
 import { foldChaptersToDailyRows, periodStartDay, type UsageDailyRow } from "@/lib/usage/fold";
@@ -99,13 +99,24 @@ export function getLeaderboard(
   return entries;
 }
 
-export function getProfileUsage(userId: string) {
+function usageFromProjects(
+  userId: string,
+  projects: ReturnType<typeof listPublishedUsageProjects>,
+) {
   const rows: UsageDailyRow[] = [];
   const allTimeRank = getLeaderboard("all-time", 200, "spend").find((entry) => entry.user.id === userId)?.rank ?? null;
-  for (const project of listPublishedUsageProjects()) {
+  for (const project of projects) {
     if (project.ownerUserId !== userId) continue;
     rows.push(...foldChaptersToDailyRows(project.chapters));
   }
   if (rows.length === 0) return { ...EMPTY_PROFILE_USAGE, rank: allTimeRank };
   return aggregateProfileUsage(rows, allTimeRank);
+}
+
+export function getProfileUsage(userId: string) {
+  return usageFromProjects(userId, listPublishedUsageProjects());
+}
+
+export function getPrivateProfileUsage(userId: string) {
+  return usageFromProjects(userId, listReadyUsageProjects());
 }

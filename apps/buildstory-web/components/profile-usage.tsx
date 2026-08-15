@@ -1,114 +1,234 @@
+"use client";
+
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { ProfileUsage } from "@/lib/usage/contracts";
 import { formatUsageCount, formatUsageSpend, formatUsageTokens } from "@/lib/usage/format";
+import {
+  axisTicks,
+  buildActivityHeatmap,
+  buildMonthlySpend,
+  buildWeekdayBars,
+  niceAxisMax,
+  rankedSpendModels,
+  usageModelColor,
+  weekdayMetric,
+} from "@/lib/usage/charts";
+import { utcDay } from "@/lib/usage/fold";
 
-const SEGMENT_COLORS = ["#2447d8", "#f36f56", "#2f7250", "#d59a3e", "#3d4a9c", "#dce3ff", "#387a56", "#b37825"];
-
-function modelColor(index: number) {
-  return SEGMENT_COLORS[index % SEGMENT_COLORS.length]!;
+function Heatmap({ usage, today }: { usage: ProfileUsage; today: string }) {
+  const heatmap = useMemo(() => buildActivityHeatmap(usage.days, today), [usage.days, today]);
+  return (
+    <figure className="profile-usage-chart profile-usage-chart--heatmap">
+      <figcaption>Activity heatmap</figcaption>
+      {usage.activeDays === 0 ? (
+        <p className="profile-usage-chart__empty">No scanned activity in this view yet.</p>
+      ) : (
+        <div className="profile-heatmap" role="img" aria-label="Activity by day over the last year">
+          <ol className="profile-heatmap__months" style={{ gridTemplateColumns: `repeat(${heatmap.weeks}, minmax(0, 1fr))` }}>
+            {heatmap.months.map((month) => (
+              <li key={`${month.label}-${month.weekIndex}`} style={{ gridColumn: month.weekIndex + 1 }}>{month.label}</li>
+            ))}
+          </ol>
+          <div className="profile-heatmap__body">
+            <ul className="profile-heatmap__dow" aria-hidden="true">
+              <li>Mon</li>
+              <li>Wed</li>
+              <li>Fri</li>
+            </ul>
+            <div className="profile-heatmap__grid" style={{ gridTemplateColumns: `repeat(${heatmap.weeks}, minmax(0, 1fr))` }}>
+              {heatmap.cells.map((cell, index) => (
+                cell ? (
+                  <span
+                    key={cell.day}
+                    className={`profile-heatmap__cell profile-heatmap__cell--${cell.level}`}
+                    title={`${cell.day} · ${cell.sessions} session${cell.sessions === 1 ? "" : "s"}${cell.spendMicroUsd > 0 ? ` · ${formatUsageSpend(cell.spendMicroUsd)}` : ""}`}
+                  />
+                ) : (
+                  <span key={`pad-${index}`} className="profile-heatmap__cell profile-heatmap__cell--pad" />
+                )
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </figure>
+  );
 }
 
-function fillDays(days: ProfileUsage["days"]) {
-  if (days.length === 0) return [];
-  const byDay = new Map(days.map((day) => [day.day, day]));
-  const start = Date.parse(`${days[0]!.day}T12:00:00.000Z`);
-  const end = Date.parse(`${days[days.length - 1]!.day}T12:00:00.000Z`);
-  const filled: ProfileUsage["days"] = [];
-  for (let time = start; time <= end; time += 86_400_000) {
-    const key = new Date(time).toISOString().slice(0, 10);
-    filled.push(byDay.get(key) ?? { day: key, models: [] });
-  }
-  return filled;
+function WeekdayChart({ usage }: { usage: ProfileUsage }) {
+  const metric = weekdayMetric(usage);
+  const bars = useMemo(() => buildWeekdayBars(usage.days, metric), [usage.days, metric]);
+  const max = niceAxisMax(Math.max(0, ...bars.map((bar) => bar.value)));
+  const ticks = axisTicks(max);
+  const format = metric === "spend" ? formatUsageSpend : formatUsageCount;
+  const peak = bars.find((bar) => bar.peak);
+  return (
+    <figure className="profile-usage-chart">
+      <figcaption>Most active time</figcaption>
+      {max <= 0 || !peak ? (
+        <p className="profile-usage-chart__empty">No weekday pattern in this view yet.</p>
+      ) : (
+        <>
+          <div className="profile-bar-chart" role="img" aria-label={`Most active weekday is ${peak.key}`}>
+            <div className="profile-bar-chart__axis" aria-hidden="true">
+              {ticks.slice().reverse().map((tick) => (
+                <span key={tick}>{format(tick)}</span>
+              ))}
+            </div>
+            <div className="profile-bar-chart__plot">
+              <div className="profile-bar-chart__rules" aria-hidden="true">
+                {ticks.map((tick) => <i key={tick} />)}
+              </div>
+              <div className="profile-bar-chart__cols">
+                {bars.map((bar, index) => (
+                  <div key={`${bar.key}-${index}`} className="profile-bar-chart__col" title={`${bar.key} · ${format(bar.value)}`}>
+                    <span
+                      className={bar.peak ? "is-peak" : undefined}
+                      style={{ height: `${Math.max(bar.value > 0 ? 4 : 0, (bar.value / max) * 100)}%` }}
+                    />
+                    <small>{bar.label}</small>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <p className="profile-usage-chart__hint">
+            Peak {peak.key}
+            {metric === "spend" ? ` · ${formatUsageSpend(peak.spendMicroUsd)}` : ` · ${formatUsageCount(peak.sessions)} sessions`}
+          </p>
+        </>
+      )}
+    </figure>
+  );
 }
 
-function StackedChart({
-  title,
-  days,
-  valueOf,
-  formatValue,
-  unit,
-}: {
-  title: string;
-  days: ProfileUsage["days"];
-  valueOf: (spend: number | null, tokens: number) => number;
-  formatValue: (value: number) => string;
-  unit: string;
-}) {
-  const series = fillDays(days);
-  const totals = new Map<string, { label: string; value: number }>();
-  let max = 0;
-  for (const day of series) {
-    let dayTotal = 0;
-    for (const model of day.models) {
-      const value = valueOf(model.spendMicroUsd, model.tokens);
-      if (value <= 0) continue;
-      dayTotal += value;
-      const existing = totals.get(model.key) ?? { label: model.label, value: 0 };
-      existing.value += value;
-      totals.set(model.key, existing);
-    }
-    max = Math.max(max, dayTotal);
-  }
-  const ranked = Array.from(totals.entries())
-    .sort((left, right) => right[1].value - left[1].value)
-    .slice(0, 10);
-  const colorByKey = new Map(ranked.map(([key], index) => [key, modelColor(index)]));
-  const grand = ranked.reduce((sum, [, item]) => sum + item.value, 0);
-  if (series.length === 0 || max <= 0) {
+function MonthlySpendChart({ usage, today }: { usage: ProfileUsage; today: string }) {
+  const months = useMemo(() => buildMonthlySpend(usage.days, today), [usage.days, today]);
+  const ranked = useMemo(() => rankedSpendModels(usage.days), [usage.days]);
+  const colorByKey = useMemo(() => new Map(ranked.map((model, index) => [model.key, usageModelColor(index)])), [ranked]);
+  const max = niceAxisMax(Math.max(0, ...months.map((month) => month.totalMicroUsd)));
+  const ticks = axisTicks(max);
+  if (usage.spendMicroUsd == null) {
     return (
       <figure className="profile-usage-chart">
-        <figcaption>{title}</figcaption>
-        <p className="profile-usage-chart__empty">No priced {unit} in published scans yet.</p>
+        <figcaption>Monthly spend</figcaption>
+        <p className="profile-usage-chart__empty">No priced spend in this view yet.</p>
       </figure>
     );
   }
   return (
     <figure className="profile-usage-chart">
-      <figcaption>{title}</figcaption>
-      <div className="profile-usage-chart__plot" role="img" aria-label={`${title} by model`}>
-        {series.map((day) => {
-          const dayTotal = day.models.reduce((sum, model) => sum + Math.max(0, valueOf(model.spendMicroUsd, model.tokens)), 0);
-          return (
-            <div key={day.day} className="profile-usage-chart__col" title={`${day.day} · ${formatValue(dayTotal)}`}>
-              {day.models
-                .filter((model) => valueOf(model.spendMicroUsd, model.tokens) > 0)
-                .map((model) => (
-                  <span
-                    key={model.key}
-                    style={{
-                      flexGrow: valueOf(model.spendMicroUsd, model.tokens),
-                      background: colorByKey.get(model.key) ?? "var(--line)",
-                    }}
-                  />
-                ))}
-              <i style={{ flexGrow: Math.max(0, max - dayTotal) }} />
+      <figcaption>Monthly spend</figcaption>
+      {max <= 0 ? (
+        <p className="profile-usage-chart__empty">No priced spend in this view yet.</p>
+      ) : (
+        <>
+          <div className="profile-bar-chart profile-bar-chart--stack" role="img" aria-label="Monthly estimated spend by model">
+            <div className="profile-bar-chart__axis" aria-hidden="true">
+              {ticks.slice().reverse().map((tick) => (
+                <span key={tick}>{formatUsageSpend(tick)}</span>
+              ))}
             </div>
-          );
-        })}
-      </div>
-      <ol className="profile-usage-chart__legend">
-        {ranked.map(([key, item], index) => (
-          <li key={key}>
-            <i style={{ background: modelColor(index) }} />
-            <span>{index + 1}. {item.label}</span>
-            <strong>{grand > 0 ? `${Math.round((item.value * 1000) / grand) / 10}%` : "0%"}</strong>
-          </li>
-        ))}
-      </ol>
+            <div className="profile-bar-chart__plot">
+              <div className="profile-bar-chart__rules" aria-hidden="true">
+                {ticks.map((tick) => <i key={tick} />)}
+              </div>
+              <div className="profile-bar-chart__cols">
+                {months.map((month) => (
+                  <div key={month.month} className="profile-bar-chart__col" title={`${month.label} · ${formatUsageSpend(month.totalMicroUsd)}`}>
+                    {month.totalMicroUsd > 0 ? <em>{formatUsageSpend(month.totalMicroUsd)}</em> : null}
+                    <div className="profile-bar-chart__stack" style={{ height: `${(month.totalMicroUsd / max) * 100}%` }}>
+                      {month.segments.map((segment) => (
+                        <span
+                          key={segment.key}
+                          style={{
+                            flexGrow: segment.spendMicroUsd,
+                            background: colorByKey.get(segment.key) ?? "var(--line)",
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <small>{month.label}</small>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          {ranked.length > 0 ? (
+            <ol className="profile-usage-chart__legend">
+              {ranked.map((model, index) => (
+                <li key={model.key}>
+                  <i style={{ background: usageModelColor(index) }} />
+                  <span>{model.label}</span>
+                  <strong>{formatUsageSpend(model.spendMicroUsd)}</strong>
+                </li>
+              ))}
+            </ol>
+          ) : null}
+        </>
+      )}
     </figure>
   );
 }
 
-export function ProfileUsageSection({ usage }: { usage: ProfileUsage }) {
+export function ProfileUsageSection({
+  publicUsage,
+  privateUsage,
+  isOwner,
+}: {
+  publicUsage: ProfileUsage;
+  privateUsage: ProfileUsage | null;
+  isOwner: boolean;
+}) {
+  const [view, setView] = useState<"public" | "private">(isOwner ? "private" : "public");
+  const usage = isOwner && view === "private" && privateUsage ? privateUsage : publicUsage;
+  const today = utcDay(new Date().toISOString());
   const hasActivity = usage.sessionCount > 0 || usage.tokens > 0 || usage.activeDays > 0;
+  const privateDiffers = Boolean(
+    isOwner
+    && privateUsage
+    && (privateUsage.activeDays !== publicUsage.activeDays
+      || privateUsage.sessionCount !== publicUsage.sessionCount
+      || privateUsage.spendMicroUsd !== publicUsage.spendMicroUsd),
+  );
   return (
     <section className="profile-usage" aria-label="Estimated usage">
-      <span className="section-index">( ESTIMATED USAGE )</span>
+      <div className="profile-usage__header">
+        <span className="section-index">( ESTIMATED USAGE )</span>
+        {isOwner ? (
+          <div className="view-switcher" role="tablist" aria-label="Usage views">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "public"}
+              className={view === "public" ? "is-active" : undefined}
+              onClick={() => setView("public")}
+            >
+              <span className="view-status view-status--public" /> Public
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "private"}
+              className={view === "private" ? "is-active" : undefined}
+              onClick={() => setView("private")}
+            >
+              <span className="view-status view-status--private" /> Private
+            </button>
+          </div>
+        ) : null}
+      </div>
       <p className="profile-usage__note">
-        Estimated API-equivalent totals from published scans. Cursor sessions can add active days without spend or tokens.
+        {isOwner && view === "private"
+          ? "Private view includes unpublished ready scans. Visitors only see the public view, which is limited to published stories."
+          : "Estimated API-equivalent totals from published scans. Cursor sessions can add active days without spend or tokens."}
       </p>
+      {isOwner && view === "public" && privateDiffers ? (
+        <p className="profile-usage__note">This is the public cut. Switch to private to include unpublished scans.</p>
+      ) : null}
       {!hasActivity ? (
-        <p className="profile-stories__empty">No published scan usage yet.</p>
+        <p className="profile-stories__empty">{view === "private" ? "No ready scan usage yet." : "No published scan usage yet."}</p>
       ) : (
         <>
           <dl className="profile-usage__kpis">
@@ -127,21 +247,10 @@ export function ProfileUsageSection({ usage }: { usage: ProfileUsage }) {
           {usage.unpricedTokens > 0 ? (
             <p className="profile-usage__note">{formatUsageTokens(usage.unpricedTokens)} tokens could not be priced from the current rate card.</p>
           ) : null}
+          <Heatmap usage={usage} today={today} />
           <div className="profile-usage__charts">
-            <StackedChart
-              title="Daily spend"
-              days={usage.days}
-              valueOf={(spend) => spend ?? 0}
-              formatValue={(value) => formatUsageSpend(value)}
-              unit="spend"
-            />
-            <StackedChart
-              title="Daily tokens"
-              days={usage.days}
-              valueOf={(_spend, tokens) => tokens}
-              formatValue={formatUsageTokens}
-              unit="tokens"
-            />
+            <WeekdayChart usage={usage} />
+            <MonthlySpendChart usage={usage} today={today} />
           </div>
         </>
       )}

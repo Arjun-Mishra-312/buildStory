@@ -127,6 +127,7 @@ test("evaluate: streak, craft, and league thresholds including just-below negati
         days: [
           {
             day: "2026-08-01",
+            sessionCount: 1,
             models: [
               { key: "a", label: "A", tokens: 1, spendMicroUsd: null },
               { key: "b", label: "B", tokens: 1, spendMicroUsd: null },
@@ -136,6 +137,7 @@ test("evaluate: streak, craft, and league thresholds including just-below negati
           },
           {
             day: "2026-08-02",
+            sessionCount: 1,
             models: [{ key: "d", label: "D", tokens: 1, spendMicroUsd: null }],
           },
         ],
@@ -152,6 +154,7 @@ test("evaluate: streak, craft, and league thresholds including just-below negati
         days: [
           {
             day: "2026-08-01",
+            sessionCount: 1,
             models: [
               { key: "a", label: "A", tokens: 1, spendMicroUsd: null },
               { key: "b", label: "B", tokens: 1, spendMicroUsd: null },

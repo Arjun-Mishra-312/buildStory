@@ -7,6 +7,7 @@ export type ProfileUsageDayModel = {
 
 export type ProfileUsageDay = {
   day: string;
+  sessionCount: number;
   models: ProfileUsageDayModel[];
 };
 

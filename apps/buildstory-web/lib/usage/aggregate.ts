@@ -13,8 +13,11 @@ export function aggregateProfileUsage(rows: UsageDailyRow[], rank: number | null
 
   for (const row of rows) {
     active.add(row.day);
+    const day = dayMap.get(row.day) ?? { day: row.day, sessionCount: 0, models: [] };
     if (row.modelKey === USAGE_ACTIVITY_MODEL) {
       sessionCount += row.sessionCount;
+      day.sessionCount += row.sessionCount;
+      dayMap.set(row.day, day);
       continue;
     }
     tokens += row.tokens;
@@ -31,7 +34,6 @@ export function aggregateProfileUsage(rows: UsageDailyRow[], rank: number | null
     if (row.modelLabel) existingModel.label = row.modelLabel;
     modelSpend.set(row.modelKey, existingModel);
 
-    const day = dayMap.get(row.day) ?? { day: row.day, models: [] };
     const model = day.models.find((item) => item.key === row.modelKey);
     if (model) {
       model.tokens += row.tokens;

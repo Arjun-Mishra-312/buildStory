@@ -10,7 +10,8 @@ import { ProfileBadgesSection } from "@/components/profile-badges";
 import { getCreatorSession } from "@/lib/auth/runtime";
 import { ensureUser, listStoriesByOwner } from "@/lib/ingestion/store";
 import { getFollowState, getProfileByHandle, listFollowers, listFollowing } from "@/lib/social/store";
-import { getProfileUsage } from "@/lib/usage/store";
+import { getProfileUsage, getPrivateProfileUsage } from "@/lib/usage/store";
+import { EMPTY_PROFILE_USAGE } from "@/lib/usage/aggregate";
 import { getProfileBadges } from "@/lib/badges/store";
 import { builderRoleLabel } from "@/lib/identity/builder-roles";
 
@@ -50,8 +51,10 @@ export default async function ProfilePage({ params }: PageProps) {
   const stories = await listStoriesByOwner(profile.id, 30).catch(() => []);
   const followers = await listFollowers(profile.id, 20).catch(() => []);
   const following = await listFollowing(profile.id, 20).catch(() => []);
+  const isOwner = viewer?.id === profile.id;
   const usage = await getProfileUsage(profile.id).catch(() => null);
-  const badges = await getProfileBadges(profile.id, viewer?.id === profile.id).catch(() => null);
+  const privateUsage = isOwner ? await getPrivateProfileUsage(profile.id).catch(() => null) : null;
+  const badges = await getProfileBadges(profile.id, isOwner).catch(() => null);
   return (
     <section className="profile-page section-wrap">
       <div className="profile-card profile-card--balanced">
@@ -66,11 +69,11 @@ export default async function ProfilePage({ params }: PageProps) {
           <span><strong>{follow.followerCount}</strong> followers</span>
           <span><strong>{follow.followingCount ?? profile.followingCount}</strong> following</span>
         </div>
-        <ProfileFollowButton handle={profile.handle} initialFollowed={follow.isFollowedByViewer} isSelf={viewer?.id === profile.id} />
-        {viewer && viewer.id !== profile.id ? (
+        <ProfileFollowButton handle={profile.handle} initialFollowed={follow.isFollowedByViewer} isSelf={isOwner} />
+        {viewer && !isOwner ? (
           <ReportDialog targetType="user" targetId={profile.id} label="Report this profile" />
         ) : null}
-        {viewer?.id === profile.id ? (
+        {isOwner ? (
           <div className="profile-card__owner-actions" aria-label="Profile owner actions">
             <Link className="button button--secondary button--small" href="/studio/settings">Edit profile</Link>
             <Link className="button button--secondary button--small" href="/studio/projects">Manage projects</Link>
@@ -79,8 +82,14 @@ export default async function ProfilePage({ params }: PageProps) {
         ) : null}
       </div>
       <div className="profile-main">
-      {badges ? <ProfileBadgesSection view={badges} isOwner={viewer?.id === profile.id} /> : null}
-      {usage ? <ProfileUsageSection usage={usage} /> : null}
+      {badges ? <ProfileBadgesSection view={badges} isOwner={isOwner} /> : null}
+      {usage || privateUsage ? (
+        <ProfileUsageSection
+          publicUsage={usage ?? EMPTY_PROFILE_USAGE}
+          privateUsage={privateUsage}
+          isOwner={isOwner}
+        />
+      ) : null}
       <div className="profile-stories">
         <span className="section-index">( PUBLISHED STORIES )</span>
         {stories.length === 0 ? (

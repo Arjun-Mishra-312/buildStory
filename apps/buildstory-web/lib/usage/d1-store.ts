@@ -137,4 +137,40 @@ export async function getProfileUsage(userId: string): Promise<ProfileUsage> {
   return aggregateProfileUsage(daily, rankRow?.rank_spend ?? null);
 }
 
+export async function getPrivateProfileUsage(userId: string): Promise<ProfileUsage> {
+  const db = await database();
+  const [rows, rankRow] = await Promise.all([
+    db
+      .prepare(
+        `SELECT r.chapter_index, r.source_snapshot_json, r.snapshot_json, p.owner_user_id, p.id AS project_id
+         FROM buildstory_reports r
+         JOIN buildstory_projects p ON p.id = r.project_id
+         WHERE p.owner_user_id = ? AND r.status = 'ready'
+         ORDER BY p.id ASC, COALESCE(r.chapter_index, 0) ASC, r.created_at ASC`,
+      )
+      .bind(userId)
+      .all<ChapterRow & { project_id: string }>(),
+    db
+      .prepare(
+        `SELECT rank_spend FROM buildstory_leaderboard_entries WHERE period = 'all-time' AND user_id = ?`,
+      )
+      .bind(userId)
+      .first<{ rank_spend: number }>(),
+  ]);
+  const byProject = new Map<string, ChapterRow[]>();
+  for (const row of rows.results) {
+    const list = byProject.get(row.project_id) ?? [];
+    list.push(row);
+    byProject.set(row.project_id, list);
+  }
+  const daily: UsageDailyRow[] = [];
+  for (const projectRows of byProject.values()) {
+    const parsed = chaptersFromRows(projectRows);
+    if (parsed) daily.push(...foldChaptersToDailyRows(parsed.chapters));
+  }
+  const rank = rankRow?.rank_spend ?? null;
+  if (daily.length === 0) return { ...EMPTY_PROFILE_USAGE, rank };
+  return aggregateProfileUsage(daily, rank);
+}
+
 export { USAGE_ACTIVITY_MODEL };

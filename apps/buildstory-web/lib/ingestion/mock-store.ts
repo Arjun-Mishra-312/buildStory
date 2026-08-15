@@ -2735,8 +2735,7 @@ export function searchPublishedStories(query: string, limit = 20, cursor?: strin
     });
 }
 
-/** Published (or draft_changes) chapters plus project totals - the usage leaderboard's raw input. */
-export function listPublishedUsageProjects(): Array<{
+type UsageProjectList = Array<{
   ownerUserId: string;
   projectId: string;
   slug: string;
@@ -2745,10 +2744,14 @@ export function listPublishedUsageProjects(): Array<{
   verifiedRepoAt: string | null;
   maxChapterIndex: number;
   chapters: Array<{ chapterIndex: number; snapshot: unknown }>;
-}> {
+}>;
+
+function listUsageProjects(include: "published" | "ready"): UsageProjectList {
   const byProject = new Map<string, Array<{ chapterIndex: number; snapshot: unknown }>>();
   for (const report of store.reports.values()) {
-    if (report.publication.status !== "published" && report.publication.status !== "draft_changes") continue;
+    const published = report.publication.status === "published" || report.publication.status === "draft_changes";
+    if (include === "published" && !published) continue;
+    if (include === "ready" && report.status !== "ready") continue;
     const chapters = byProject.get(report.projectId) ?? [];
     chapters.push({
       chapterIndex: report.publication.chapterIndex ?? chapters.length + 1,
@@ -2759,7 +2762,7 @@ export function listPublishedUsageProjects(): Array<{
   return Array.from(store.projects.values())
     .filter((project) => byProject.has(project.id))
     .map((project) => {
-      const chapters = byProject.get(project.id) ?? [];
+      const chapters = (byProject.get(project.id) ?? []).sort((left, right) => left.chapterIndex - right.chapterIndex);
       return {
         ownerUserId: project.ownerUserId,
         projectId: project.id,
@@ -2771,6 +2774,16 @@ export function listPublishedUsageProjects(): Array<{
         chapters,
       };
     });
+}
+
+/** Published (or draft_changes) chapters plus project totals - the usage leaderboard's raw input. */
+export function listPublishedUsageProjects() {
+  return listUsageProjects("published");
+}
+
+/** Ready chapters including unpublished scans — owner-only private profile usage. */
+export function listReadyUsageProjects() {
+  return listUsageProjects("ready");
 }
 
 /** Account export/deletion needs: everything owned by this user, keyed by the store's real user id rather than the creatorId ("google:<sub>") string used elsewhere. */
