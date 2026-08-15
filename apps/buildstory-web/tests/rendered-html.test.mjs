@@ -38,7 +38,7 @@ test("server-renders public routes through the shared shell", async () => {
   const routes = [
     ["/", /Every build has/],
     ["/about", /Every build has/],
-    ["/explore", /What are people/],
+    ["/explore", /What people are actually building/],
     ["/leaderboard", /Ranked on estimated/],
     ["/terms", /Build badges/],
     ["/signin", /AUTHENTICATION DISABLED/],
