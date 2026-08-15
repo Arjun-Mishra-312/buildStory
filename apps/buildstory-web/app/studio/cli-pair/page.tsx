@@ -17,27 +17,9 @@ export default async function CliPairPage({ searchParams }: PageProps) {
     );
   }
 
+  let pairing;
   try {
-    const pairing = await getCliPairingPreview(code);
-    const expired = pairing.status === "expired";
-    const waitingOnCli = pairing.status === "approved" || pairing.status === "consumed";
-    return (
-      <main className="creator-page">
-        <header className="creator-page__heading creator-page__heading--compact">
-          <div>
-            <span className="section-index">( CLI PAIR )</span>
-            <h1>Upload a local report</h1>
-            <p>
-              {pairing.projectLabel} · {pairing.narrativeMode} narrative. Source files and diffs stay on the
-              builder&apos;s machine.
-            </p>
-          </div>
-        </header>
-        {expired ? <p>This pairing expired. Press o in the CLI to start again.</p> : null}
-        {waitingOnCli ? <p>Already approved. Return to the CLI to finish the upload.</p> : null}
-        {!expired && !waitingOnCli ? <CliPairApproveForm userCode={pairing.userCode} /> : null}
-      </main>
-    );
+    pairing = await getCliPairingPreview(code);
   } catch {
     return (
       <main className="creator-page">
@@ -46,4 +28,24 @@ export default async function CliPairPage({ searchParams }: PageProps) {
       </main>
     );
   }
+
+  const expired = pairing.status === "expired";
+  const waitingOnCli = pairing.status === "approved" || pairing.status === "consumed";
+  return (
+    <main className="creator-page">
+      <header className="creator-page__heading creator-page__heading--compact">
+        <div>
+          <span className="section-index">( CLI PAIR )</span>
+          <h1>Upload a local report</h1>
+          <p>
+            {pairing.projectLabel} · {pairing.narrativeMode} narrative. Source files and diffs stay on the
+            builder&apos;s machine.
+          </p>
+        </div>
+      </header>
+      {expired ? <p>This pairing expired. Press o in the CLI to start again.</p> : null}
+      {waitingOnCli ? <p>Already approved. Return to the CLI to finish the upload.</p> : null}
+      {!expired && !waitingOnCli ? <CliPairApproveForm userCode={pairing.userCode} /> : null}
+    </main>
+  );
 }
