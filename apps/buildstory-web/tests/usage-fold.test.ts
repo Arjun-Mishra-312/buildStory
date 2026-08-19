@@ -132,6 +132,43 @@ test("usage fold: report-shaped snapshots distribute model totals across session
   assert.equal(spend, 2_000_000);
 });
 
+test("usage fold: a session touching multiple models splits tokens by each model's chapter-wide share, not evenly", () => {
+  // Opus is 10x pricier per token than sonnet and is referenced in nine
+  // mixed sessions, but only makes up 200/2000 = 10% of the chapter's real
+  // token volume. An even per-model split would hand it 50% of each mixed
+  // session's tokens, inflating its cost past sonnet's despite sonnet doing
+  // the bulk of the real work (an extra 1000-token solo session).
+  const mixedSessions = Array.from({ length: 9 }, (_, index) => ({
+    sessionRef: `ses_mixed_${index}`,
+    startedAt: `2026-01-0${(index % 9) + 1}T12:00:00.000Z`,
+    modelRefs: ["opus", "sonnet"],
+    totalTokens: 100,
+  }));
+  const rows = foldChaptersToDailyRows([
+    scannerChapter({
+      chapterIndex: 1,
+      start: "2026-01-01T00:00:00.000Z",
+      end: "2026-01-10T00:00:00.000Z",
+      sessions: [
+        ...mixedSessions,
+        { sessionRef: "ses_solo", startedAt: "2026-01-09T12:00:00.000Z", modelRefs: ["sonnet"], totalTokens: 1000 },
+      ],
+      models: [
+        { name: "opus", totalTokens: 200, costMicroUsd: 2_000_000 },
+        { name: "sonnet", totalTokens: 1800, costMicroUsd: 1_800_000 },
+      ],
+    }),
+  ]);
+  const spendByModel = new Map<string, number>();
+  for (const row of rows) {
+    if (row.modelKey === "__activity") continue;
+    spendByModel.set(row.modelKey, (spendByModel.get(row.modelKey) ?? 0) + (row.costMicroUsd ?? 0));
+  }
+  assert.equal(spendByModel.get("openai:opus"), 900_000);
+  assert.equal(spendByModel.get("openai:sonnet"), 1_810_000);
+  assert.equal(spendByModel.get("openai:sonnet")! > spendByModel.get("openai:opus")!, true);
+});
+
 test("periodStartDay: 7d includes today and six prior UTC days", () => {
   const now = Date.parse("2026-08-13T19:00:00.000Z");
   assert.equal(periodStartDay("7d", now), "2026-08-07");

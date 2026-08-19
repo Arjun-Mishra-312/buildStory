@@ -298,8 +298,18 @@ function matchModels(modelRefs: string[], models: ModelRate[]): ModelRate[] {
   return matched;
 }
 
+/**
+ * Splits a multi-model session's tokens by each model's share of the chapter's
+ * total token usage, not evenly per model. An even split overweights any model
+ * that merely appears in a session (e.g. a brief Opus consult inside an
+ * otherwise Sonnet-dominated session gets 50% of that session's tokens),
+ * which then compounds through Opus's higher per-token price into an
+ * inflated top-spend-model result.
+ */
 function splitTokens(tokens: number, models: ModelRate[]): AttributedSession["allocations"] {
-  const parts = splitInteger(tokens, models.length);
+  const weights = models.map((model) => Math.max(0, model.totalTokens));
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  const parts = totalWeight > 0 ? splitByWeight(tokens, weights, totalWeight) : splitInteger(tokens, models.length);
   return models.map((model, index) => {
     const share = parts[index] ?? 0;
     const costMicroUsd =
@@ -308,6 +318,22 @@ function splitTokens(tokens: number, models: ModelRate[]): AttributedSession["al
         : Math.round((share * model.costMicroUsd) / model.totalTokens);
     return { modelKey: model.key, modelLabel: model.label, tokens: share, costMicroUsd };
   });
+}
+
+function splitByWeight(total: number, weights: number[], totalWeight: number): number[] {
+  const raw = weights.map((weight) => (total * weight) / totalWeight);
+  const floors = raw.map((value) => Math.floor(value));
+  let remainder = total - floors.reduce((sum, value) => sum + value, 0);
+  const order = raw
+    .map((value, index) => ({ index, frac: value - Math.floor(value) }))
+    .sort((left, right) => right.frac - left.frac);
+  const result = [...floors];
+  for (const { index } of order) {
+    if (remainder <= 0) break;
+    result[index] += 1;
+    remainder -= 1;
+  }
+  return result;
 }
 
 function splitInteger(total: number, count: number): number[] {

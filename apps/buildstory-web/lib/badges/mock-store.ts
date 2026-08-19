@@ -1,7 +1,7 @@
 import { listPublishedUsageProjects } from "@/lib/ingestion/mock-store";
 import { getProfile } from "@/lib/social/mock-store";
 import { foldChaptersToFeatSessions } from "@/lib/usage/fold";
-import { getLeaderboard, getProfileUsage } from "@/lib/leaderboard/mock-store";
+import { getLeaderboard, getPublishedProfileUsage } from "@/lib/leaderboard/mock-store";
 import { LEADERBOARD_PERIODS } from "@/lib/leaderboard/contracts";
 import { assembleProfileBadges, pickShowcase, storySeals, toPublicAward } from "./assemble";
 import {
@@ -81,7 +81,7 @@ export function pinBadges(userId: string, badgeIds: BadgeId[]): ProfileBadgeView
 
 export function refreshUserBadges(userId: string): PublicBadgeAward[] {
   const projects = listPublishedUsageProjects().filter((project) => project.ownerUserId === userId);
-  const usage = getProfileUsage(userId);
+  const usage = getPublishedProfileUsage(userId);
   const candidates = evaluateBadges({
     projects: projects.map((project) => ({
       projectId: project.projectId,

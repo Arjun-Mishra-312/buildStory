@@ -10,8 +10,7 @@ import { ProfileBadgesSection } from "@/components/profile-badges";
 import { getCreatorSession } from "@/lib/auth/runtime";
 import { ensureUser, listStoriesByOwner } from "@/lib/ingestion/store";
 import { getFollowState, getProfileByHandle, listFollowers, listFollowing } from "@/lib/social/store";
-import { getProfileUsage, getPrivateProfileUsage } from "@/lib/usage/store";
-import { EMPTY_PROFILE_USAGE } from "@/lib/usage/aggregate";
+import { getProfileUsage } from "@/lib/usage/store";
 import { getProfileBadges } from "@/lib/badges/store";
 import { builderRoleLabel } from "@/lib/identity/builder-roles";
 
@@ -53,7 +52,6 @@ export default async function ProfilePage({ params }: PageProps) {
   const following = await listFollowing(profile.id, 20).catch(() => []);
   const isOwner = viewer?.id === profile.id;
   const usage = await getProfileUsage(profile.id).catch(() => null);
-  const privateUsage = isOwner ? await getPrivateProfileUsage(profile.id).catch(() => null) : null;
   const badges = await getProfileBadges(profile.id, isOwner).catch(() => null);
   return (
     <section className="profile-page section-wrap">
@@ -83,13 +81,7 @@ export default async function ProfilePage({ params }: PageProps) {
       </div>
       <div className="profile-main">
       {badges ? <ProfileBadgesSection view={badges} isOwner={isOwner} /> : null}
-      {usage || privateUsage ? (
-        <ProfileUsageSection
-          publicUsage={usage ?? EMPTY_PROFILE_USAGE}
-          privateUsage={privateUsage}
-          isOwner={isOwner}
-        />
-      ) : null}
+      {usage ? <ProfileUsageSection usage={usage} /> : null}
       <div className="profile-stories">
         <span className="section-index">( PUBLISHED STORIES )</span>
         {stories.length === 0 ? (

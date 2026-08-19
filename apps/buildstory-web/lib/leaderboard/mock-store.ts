@@ -113,11 +113,13 @@ function usageFromProjects(
   return aggregateProfileUsage(rows, allTimeRank);
 }
 
-export function getProfileUsage(userId: string) {
+/** Published-only usage, for badges/leaderboard — not shown on the profile page. */
+export function getPublishedProfileUsage(userId: string) {
   return usageFromProjects(userId, listPublishedUsageProjects());
 }
 
-export function getPrivateProfileUsage(userId: string) {
+/** Superset usage (published + not-yet-published ready scans) shown to every profile viewer. */
+export function getProfileUsage(userId: string) {
   const rows: UsageDailyRow[] = [];
   const hourSessions = [];
   const allTimeRank = getLeaderboard("all-time", 200, "spend").find((entry) => entry.user.id === userId)?.rank ?? null;

@@ -110,7 +110,14 @@ export async function refreshAllUsageRollups(): Promise<void> {
   for (const row of projects.results) await refreshProjectUsageRollup(row.id);
 }
 
-export async function getProfileUsage(userId: string): Promise<ProfileUsage> {
+/**
+ * Published-only usage, backed by the buildstory_usage_daily rollup. This stays
+ * published-only deliberately: it feeds badges (first-earn-wins on published
+ * scans) and the spend leaderboard, both of which must be based on
+ * publicly-verifiable activity, not unpublished scans nobody else can see.
+ * The profile page itself uses getProfileUsage below, not this.
+ */
+export async function getPublishedProfileUsage(userId: string): Promise<ProfileUsage> {
   const db = await database();
   const [rows, rankRow] = await Promise.all([
     db
@@ -146,7 +153,15 @@ export async function getProfileUsage(userId: string): Promise<ProfileUsage> {
   return aggregateProfileUsage(daily, rankRow?.rank_spend ?? null);
 }
 
-export async function getPrivateProfileUsage(userId: string): Promise<ProfileUsage> {
+/**
+ * The profile usage shown to every viewer, owner or not: published scans plus
+ * any not-yet-published 'ready' scans. This is a superset of getPublishedProfileUsage
+ * — it never drops published sessions, only adds unpublished ones on top — so
+ * showing it to visitors reveals aggregate activity stats (spend/tokens/model
+ * mix/timing) for scans the owner hasn't published a story for yet, but never
+ * the story content itself (that stays gated by publication_status elsewhere).
+ */
+export async function getProfileUsage(userId: string): Promise<ProfileUsage> {
   const db = await database();
   const [rows, rankRow] = await Promise.all([
     db

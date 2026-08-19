@@ -1,6 +1,6 @@
 import { getD1 } from "@/db";
 import { foldChaptersToFeatSessions, type UsageChapterInput } from "@/lib/usage/fold";
-import { getProfileUsage } from "@/lib/usage/d1-store";
+import { getPublishedProfileUsage } from "@/lib/usage/d1-store";
 import { assembleProfileBadges, pickShowcase, storySeals, toPublicAward } from "./assemble";
 import { isBadgeId, parseBadgeEvidence, type BadgeCandidate, type BadgeId, type LeaderboardRankSnapshot, type ProfileBadgeView, type PublicBadgeAward } from "./contracts";
 import { evaluateBadges, evaluateLeague } from "./evaluate";
@@ -177,7 +177,7 @@ export async function refreshUserBadges(userId: string): Promise<PublicBadgeAwar
     chapterId: value.chapterId,
     sessions: foldChaptersToFeatSessions(value.chapters),
   }));
-  const usage = await getProfileUsage(userId);
+  const usage = await getPublishedProfileUsage(userId);
   const ranks: LeaderboardRankSnapshot[] = rankRows.results.flatMap((row) => {
     if (row.period !== "7d" && row.period !== "30d" && row.period !== "all-time") return [];
     return [{ period: row.period, rankSpend: row.rank_spend, rankTokens: row.rank_tokens }];

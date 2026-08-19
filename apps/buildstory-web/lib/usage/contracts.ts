@@ -29,6 +29,6 @@ export type ProfileUsage = {
   topSpendModel: { key: string; label: string } | null;
   rank: number | null;
   days: ProfileUsageDay[];
-  /** Session-start hours (UTC). Present on the owner private view only. */
+  /** Session-start hours (UTC). Absent from the published-only rollup used by badges/leaderboard. */
   hours?: ProfileUsageHour[];
 };

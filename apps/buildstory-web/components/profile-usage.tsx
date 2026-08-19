@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import type { ProfileUsage } from "@/lib/usage/contracts";
 import { formatUsageCount, formatUsageSpend, formatUsageTokens } from "@/lib/usage/format";
@@ -187,63 +187,19 @@ function MonthlySpendChart({ usage, today }: { usage: ProfileUsage; today: strin
   );
 }
 
-export function ProfileUsageSection({
-  publicUsage,
-  privateUsage,
-  isOwner,
-}: {
-  publicUsage: ProfileUsage;
-  privateUsage: ProfileUsage | null;
-  isOwner: boolean;
-}) {
-  const [view, setView] = useState<"public" | "private">(isOwner ? "private" : "public");
-  const usage = isOwner && view === "private" && privateUsage ? privateUsage : publicUsage;
+export function ProfileUsageSection({ usage }: { usage: ProfileUsage }) {
   const today = utcDay(new Date().toISOString());
   const hasActivity = usage.sessionCount > 0 || usage.tokens > 0 || usage.activeDays > 0;
-  const privateDiffers = Boolean(
-    isOwner
-    && privateUsage
-    && (privateUsage.activeDays !== publicUsage.activeDays
-      || privateUsage.sessionCount !== publicUsage.sessionCount
-      || privateUsage.spendMicroUsd !== publicUsage.spendMicroUsd),
-  );
   return (
     <section className="profile-usage" aria-label="Estimated usage">
       <div className="profile-usage__header">
         <span className="section-index">( ESTIMATED USAGE )</span>
-        {isOwner ? (
-          <div className="view-switcher" role="tablist" aria-label="Usage views">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={view === "public"}
-              className={view === "public" ? "is-active" : undefined}
-              onClick={() => setView("public")}
-            >
-              <span className="view-status view-status--public" /> Public
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={view === "private"}
-              className={view === "private" ? "is-active" : undefined}
-              onClick={() => setView("private")}
-            >
-              <span className="view-status view-status--private" /> Private
-            </button>
-          </div>
-        ) : null}
       </div>
       <p className="profile-usage__note">
-        {isOwner && view === "private"
-          ? "Private adds unpublished ready scans on top of published history — it cannot drop published sessions. Most active time uses session start hour (UTC), which the public daily rollup does not store."
-          : "Estimated API-equivalent totals from published scans. Most active time is by weekday; session hours stay on the private view."}
+        Estimated API-equivalent totals from published stories plus any scans still awaiting publish.
       </p>
-      {isOwner && view === "public" && privateDiffers ? (
-        <p className="profile-usage__note">This is the public cut visitors see. Switch to private for unpublished scans and hourly activity.</p>
-      ) : null}
       {!hasActivity ? (
-        <p className="profile-stories__empty">{view === "private" ? "No ready scan usage yet." : "No published scan usage yet."}</p>
+        <p className="profile-stories__empty">No scan usage yet.</p>
       ) : (
         <>
           <dl className="profile-usage__kpis">
